@@ -39,24 +39,36 @@ ACTIVE_CONTAINERS_JQL = (
 MOCK_DIR = TASK_DIR / "mock_data"
 
 
-def fetch_containers_with_comments(jira: JiraClient, jql: str) -> list[dict]:
+def fetch_containers_with_comments(jira: JiraClient, jql: str, logger) -> list[dict]:
     """
     Search active containers, then fetch each one with its comments.
 
     The search is lightweight (key only); the per-issue GET pulls the
     comment field. This matches the JIRA REST pattern documented in
     WORKLOG.md.
+
+    In mock mode the search result typically lists far more containers
+    than capture.py has snapshotted (capture saves ~10 sample issue files
+    out of ~200 hits), so we skip any key that has no matching
+    issue_<KEY>.json on disk.
     """
     search_result = jira.search(jql, fields=["summary", "status"], max_results=200)
     issues = search_result.get("issues", []) or []
 
     enriched: list[dict] = []
+    skipped = 0
     for issue in issues:
         key = issue.get("key")
         if not key:
             continue
+        if jira.config.is_mock and not (MOCK_DIR / f"issue_{key}.json").exists():
+            logger.debug("Skipping %s — no mock file", key)
+            skipped += 1
+            continue
         full = jira.get_issue(key, expand="renderedFields")
         enriched.append(full)
+    if skipped:
+        logger.info("Skipped %d container(s) with no mock data", skipped)
     return enriched
 
 
@@ -67,7 +79,7 @@ def run(mode: str) -> int:
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
 
-    issues = fetch_containers_with_comments(jira, ACTIVE_CONTAINERS_JQL)
+    issues = fetch_containers_with_comments(jira, ACTIVE_CONTAINERS_JQL, logger)
     logger.info("Fetched %d active Work Containers", len(issues))
 
     rows = [build_container_row(issue) for issue in issues]
