@@ -35,16 +35,51 @@ goto :usage
 
 :: ----------------------------------------
 :sync
-echo [SYNC] Pulling latest code from Git...
+echo [SYNC] Downloading latest code from GitHub...
 cd /d "%PROJECT_DIR%"
-git pull origin main
+
+:: Backup config.yaml and logs before sync (preserve secrets and history)
+if exist "config\config.yaml" copy /y "config\config.yaml" "config\config.yaml.bak" >nul 2>&1
+if exist "logs" xcopy /e /i /y "logs" "logs_bak" >nul 2>&1
+
+:: Download repo as zip from GitHub using PowerShell (no git needed)
+powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip' -OutFile '%TEMP%\expressops-auto.zip' -UseBasicParsing } catch { Write-Host '[ERROR] Download failed:' $_.Exception.Message; exit 1 }"
 if errorlevel 1 (
-    echo [ERROR] Git pull failed. Check your network connection.
+    echo [ERROR] Failed to download from GitHub. Check your network connection.
     exit /b 1
 )
+
+:: Extract zip (overwrites existing files)
+powershell -Command "try { Expand-Archive -Path '%TEMP%\expressops-auto.zip' -DestinationPath '%TEMP%\expressops-auto-extract' -Force } catch { Write-Host '[ERROR] Extract failed:' $_.Exception.Message; exit 1 }"
+if errorlevel 1 (
+    echo [ERROR] Failed to extract zip.
+    exit /b 1
+)
+
+:: Copy extracted files over current directory (skip config.yaml)
+xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" /exclude:%PROJECT_DIR%sync_exclude.txt >nul 2>&1
+if not exist "%PROJECT_DIR%sync_exclude.txt" (
+    :: If exclude file doesn't exist, just copy everything
+    xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" >nul 2>&1
+)
+
+:: Restore config.yaml and logs
+if exist "config\config.yaml.bak" (
+    copy /y "config\config.yaml.bak" "config\config.yaml" >nul 2>&1
+    del "config\config.yaml.bak" >nul 2>&1
+)
+if exist "logs_bak" (
+    xcopy /e /i /y "logs_bak" "logs" >nul 2>&1
+    rmdir /s /q "logs_bak" >nul 2>&1
+)
+
+:: Clean up temp files
+rmdir /s /q "%TEMP%\expressops-auto-extract" >nul 2>&1
+del "%TEMP%\expressops-auto.zip" >nul 2>&1
+
 echo [SYNC] Installing/updating dependencies...
 "%PYTHON%" -m pip install -r requirements.txt --quiet
-echo [SYNC] Done.
+echo [SYNC] Done. Code updated from GitHub.
 goto :eof
 
 :: ----------------------------------------
