@@ -1,7 +1,7 @@
 # PROJECT STATUS
 
 > Last updated: 2026-04-18
-> Updated by: Planning session (Claude.ai)
+> Updated by: Task 1 Phase A build session
 
 ---
 
@@ -31,7 +31,7 @@ Priority: automate the repetitive checks first, write operations later.
 
 | # | Task Name | Category | Status | Systems | Risk Level |
 |---|-----------|----------|--------|---------|------------|
-| 1 | to_status_check | General | **IN PROGRESS** | JIRA + M3 | Low (read-only) |
+| 1 | to_status_check | General | **Phase A ✓ / Phase B pending** | JIRA + M3 | Low (read-only) |
 | 2 | imr_creation | General | Backlog | M3 (write) + JIRA (write) | HIGH |
 | 3 | bom_new_component_check | General | Backlog | M3 + JIRA | Low (read-only) |
 | 4 | ic_npi_container_check | General | Backlog | JIRA | Low (read-only) |
@@ -55,7 +55,19 @@ Start with read-only checks that exercise core clients, build confidence:
 
 ## Completed Tasks
 
-None yet.
+### Task 1 — to_status_check, Phase A (JIRA extraction) — ✓ 2026-04-18
+- Pulls active Work Containers via
+  `issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed`
+  (multi-project; no `project = EXPRESSOPS` assumption).
+- For each container, fetches the issue with comments and extracts the TO
+  number from the latest `TO: <digits>` comment using `TO:\s*(\d+)`.
+- First live run: **13 of 200 active containers have a TO number** in a
+  comment. The other 187 are correctly categorized as "No TO".
+- Mock mode skips containers whose `issue_<KEY>.json` isn't in `mock_data/`
+  (capture.py snapshots ~10 samples).
+- Deliverables: `tasks/to_status_check/{main.py, logic.py, capture.py}`.
+
+**Phase B (M3 status lookup) is still blocked on discovery** — see below.
 
 ---
 
@@ -71,7 +83,7 @@ Findings from data exploration on company laptop. Append here as things are disc
 | ProductType | customfield_13904 | Yes |
 | RequestType | customfield_13903 | Yes |
 | ParkingLog | customfield_15800 | Yes |
-| TO Number | ? | **NEEDS DISCOVERY** |
+| TO Number | Not a field — stored in container comment body (`TO:\s*(\d+)`; latest comment wins) | Yes (2026-04-18) |
 
 ### M3 Tables (PFODS schema, _AP suffix)
 | Purpose | Table | Key Columns | Confirmed? |
