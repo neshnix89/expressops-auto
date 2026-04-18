@@ -129,7 +129,7 @@ if not exist "%PROJECT_DIR%tasks\%TASK%\main.py" (
     exit /b 1
 )
 echo.
-echo  *** WARNING: LIVE MODE — This will connect to real systems ***
+echo  *** WARNING: LIVE MODE -- This will connect to real systems ***
 echo.
 set /p "CONFIRM=Type YES to confirm: "
 if /i not "%CONFIRM%"=="YES" (
