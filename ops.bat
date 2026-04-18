@@ -42,15 +42,17 @@ cd /d "%PROJECT_DIR%"
 if exist "config\config.yaml" copy /y "config\config.yaml" "config\config.yaml.bak" >nul 2>&1
 if exist "logs" xcopy /e /i /y "logs" "logs_bak" >nul 2>&1
 
-:: Download repo as zip from GitHub using PowerShell (no git needed)
-powershell -Command "try { Invoke-WebRequest -Uri 'https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip' -OutFile '%TEMP%\expressops-auto.zip' -UseBasicParsing } catch { Write-Host '[ERROR] Download failed:' $_.Exception.Message; exit 1 }"
+:: Download repo as zip from GitHub using curl (no git, no PowerShell needed)
+curl.exe -L -o "%TEMP%\expressops-auto.zip" "https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip"
 if errorlevel 1 (
     echo [ERROR] Failed to download from GitHub. Check your network connection.
     exit /b 1
 )
 
-:: Extract zip (overwrites existing files)
-powershell -Command "try { Expand-Archive -Path '%TEMP%\expressops-auto.zip' -DestinationPath '%TEMP%\expressops-auto-extract' -Force } catch { Write-Host '[ERROR] Extract failed:' $_.Exception.Message; exit 1 }"
+:: Extract zip using tar (bundled with Windows 10+ / Server 2022)
+if exist "%TEMP%\expressops-auto-extract" rmdir /s /q "%TEMP%\expressops-auto-extract" >nul 2>&1
+mkdir "%TEMP%\expressops-auto-extract"
+tar -xf "%TEMP%\expressops-auto.zip" -C "%TEMP%\expressops-auto-extract"
 if errorlevel 1 (
     echo [ERROR] Failed to extract zip.
     exit /b 1
