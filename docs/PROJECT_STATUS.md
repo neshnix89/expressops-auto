@@ -76,14 +76,29 @@ Start with read-only checks that exercise core clients, build confidence:
 Findings from data exploration on company laptop. Append here as things are discovered.
 
 ### JIRA Fields
+
+Custom field IDs below were confirmed against the live JIRA field API
+(2026-04-18). Full details are in `CLAUDE.md` and `docs/LEGACY_REFERENCE.md`.
+
 | Field | Custom Field ID | Confirmed? |
 |-------|----------------|------------|
-| OrderType | customfield_13905 | Yes |
-| Location | customfield_13906 | Yes |
-| ProductType | customfield_13904 | Yes |
-| RequestType | customfield_13903 | Yes |
-| ParkingLog | customfield_15800 | Yes |
+| EDM Document Number | customfield_13300 | Yes |
+| M3 Article Number | customfield_13502 | Yes |
+| Project Status | customfield_13700 | Yes |
+| Request Type | customfield_13903 | Yes |
+| Product Type | customfield_13904 | Yes |
+| Order Type | customfield_13905 | Yes |
+| NPI Location | customfield_13906 | Yes |
+| PTxx Document (**not** "Project ID") | customfield_13907 | Yes |
+| Work Container NPI Status Light | customfield_15009 | Yes |
+| NPI WC Status | customfield_15400 | Yes |
+| Issue_parked_log (was mis-labelled "ParkingLog") | customfield_15800 | Yes |
+| Component Part Number | customfield_15805 | Yes |
 | TO Number | Not a field — stored in container comment body (`TO:\s*(\d+)`; latest comment wins) | Yes (2026-04-18) |
+
+**Still unresolved** (seen in legacy `kpi_core` symbols, no IDs yet):
+`Project ID` (legacy `CF_PROJECT_ID` — 13907 turned out to be PTxx Document,
+not this), `Aggregated Progress` (legacy `CF_AGG_PROGRESS`).
 
 ### M3 Tables (PFODS schema, _AP suffix)
 | Purpose | Table | Key Columns | Confirmed? |
