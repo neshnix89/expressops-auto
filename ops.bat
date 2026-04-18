@@ -10,6 +10,8 @@ setlocal enabledelayedexpansion
 ::         ops capture <task>    - Capture mock data from live systems
 ::         ops status            - Show last run status of all tasks
 ::         ops schedule <task>   - Show Task Scheduler command for this task
+::         ops doctor            - Full environment diagnostic -> logs/doctor.log
+::         ops fulltest <task>   - capture + mock + live, all -> logs/<task>_fulltest.log
 :: ============================================================
 
 set "PYTHON=C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
@@ -31,6 +33,8 @@ if "%CMD%"=="run" goto :run
 if "%CMD%"=="capture" goto :capture
 if "%CMD%"=="status" goto :status
 if "%CMD%"=="schedule" goto :schedule
+if "%CMD%"=="doctor" goto :doctor
+if "%CMD%"=="fulltest" goto :fulltest
 goto :usage
 
 :: ----------------------------------------
@@ -175,6 +179,75 @@ echo.
 goto :eof
 
 :: ----------------------------------------
+:doctor
+echo [DOCTOR] Running full environment diagnostic...
+echo [DOCTOR] Full detail will be saved to %LOG_DIR%\doctor.log
+echo.
+cd /d "%PROJECT_DIR%"
+"%PYTHON%" scripts\doctor.py
+set "RC=%errorlevel%"
+echo.
+if "%RC%"=="0" (
+    echo [DOCTOR] All checks passed.
+) else (
+    echo [DOCTOR] One or more checks failed. See %LOG_DIR%\doctor.log
+)
+exit /b %RC%
+
+:: ----------------------------------------
+:fulltest
+if "%TASK%"=="" (
+    echo [ERROR] Specify a task name. Usage: ops fulltest ^<task^>
+    exit /b 1
+)
+if not exist "%PROJECT_DIR%tasks\%TASK%\main.py" (
+    echo [ERROR] Task '%TASK%' not found. Run 'ops list' to see available tasks.
+    exit /b 1
+)
+set "FLOG=%LOG_DIR%\%TASK%_fulltest.log"
+echo [FULLTEST] Running capture + test + run for %TASK%
+echo [FULLTEST] Full output will be saved to %FLOG%
+echo.
+cd /d "%PROJECT_DIR%"
+
+echo === fulltest %TASK% === > "%FLOG%"
+echo Started: %DATE% %TIME% >> "%FLOG%"
+
+echo [FULLTEST 1/3] Capturing mock data from live systems...
+echo. >> "%FLOG%"
+echo === 1/3 capture === >> "%FLOG%"
+"%PYTHON%" scripts\capture_mock_data.py --task %TASK% >> "%FLOG%" 2>&1
+if errorlevel 1 (
+    echo [FULLTEST] Capture failed. See %FLOG%
+    exit /b 1
+)
+
+echo [FULLTEST 2/3] Running %TASK% in MOCK mode...
+echo. >> "%FLOG%"
+echo === 2/3 test mock === >> "%FLOG%"
+"%PYTHON%" -m tasks.%TASK%.main --mock >> "%FLOG%" 2>&1
+if errorlevel 1 (
+    echo [FULLTEST] Mock run failed. See %FLOG%
+    exit /b 1
+)
+
+echo [FULLTEST 3/3] Running %TASK% in LIVE mode (auto-YES, no prompt)...
+echo. >> "%FLOG%"
+echo === 3/3 run live === >> "%FLOG%"
+"%PYTHON%" -m tasks.%TASK%.main --live >> "%FLOG%" 2>&1
+if errorlevel 1 (
+    echo [FULLTEST] Live run failed. See %FLOG%
+    exit /b 1
+)
+
+echo. >> "%FLOG%"
+echo Finished: %DATE% %TIME% >> "%FLOG%"
+
+echo.
+echo [FULLTEST] Done. Full output saved to %FLOG%
+goto :eof
+
+:: ----------------------------------------
 :usage
 echo.
 echo ExpressOPS Automation Runner
@@ -188,5 +261,7 @@ echo   ops run ^<task^>        Run task in LIVE mode (connects to real systems)
 echo   ops capture ^<task^>    Capture mock data from live systems for VPS testing
 echo   ops status            Show last run status of all tasks
 echo   ops schedule ^<task^>   Show Task Scheduler command for a task
+echo   ops doctor            Full environment diagnostic -^> logs\doctor.log
+echo   ops fulltest ^<task^>   capture + mock + live in one go -^> logs\^<task^>_fulltest.log
 echo.
 goto :eof
