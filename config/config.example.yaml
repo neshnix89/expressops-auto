@@ -6,12 +6,12 @@
 mode: mock
 
 # JIRA On-Premises
+# NPI Work Containers span many project keys (USRE, POSX, LCUSAMB, NPIOTHER,
+# SILED2, ...) — queries filter by issue type + Order Type, not by project.
 jira:
   base_url: "https://pfjira.pepperl-fuchs.com"
   pat: "YOUR_JIRA_PAT_HERE"
   verify_ssl: false
-  # Project key for ExpressOPS containers
-  project_key: "EXPRESSOPS"
 
 # Confluence
 confluence:

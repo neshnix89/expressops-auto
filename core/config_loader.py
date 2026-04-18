@@ -45,10 +45,6 @@ class Config:
     def jira_verify_ssl(self) -> bool:
         return self._data["jira"].get("verify_ssl", False)
 
-    @property
-    def jira_project_key(self) -> str:
-        return self._data["jira"].get("project_key", "EXPRESSOPS")
-
     # --- Confluence ---
     @property
     def confluence_base_url(self) -> str:

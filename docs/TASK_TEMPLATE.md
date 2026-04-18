@@ -57,7 +57,7 @@ What needs manual investigation on the company laptop before coding can begin?]
 
 ## Mock Data Needed
 [List the API calls or queries whose responses should be saved for VPS testing]
-- [ ] [e.g., "JIRA search: all Pilot Run containers in EXPRESSOPS project"]
+- [ ] [e.g., "JIRA search: all active Work Containers (issuetype + Order Type filter — containers span many project keys)"]
 - [ ] [e.g., "M3 query: MPDHED_AP for sample TO numbers"]
 
 ## Acceptance Criteria

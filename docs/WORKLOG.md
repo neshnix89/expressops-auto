@@ -11,7 +11,7 @@
 1. Read `tasks/to_status_check/TASK.md` for the full spec.
 2. **Build Phase A — JIRA extraction:**
    - Create `main.py` and `logic.py` in `tasks/to_status_check/`.
-   - Pull active Work Containers from JIRA (project EXPRESSOPS, status != Closed).
+   - Pull active Work Containers from JIRA (scope: `issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed` — containers span many projects, so filter by Order Type, not project key).
    - For each container, fetch its comments via REST API: GET /rest/api/2/issue/{key}?expand=renderedFields&fields=comment
    - Extract TO number from comments using regex: `TO:\s*(\d+)`
    - The TO number is added as a comment by the team, format "TO: 147715" (pure numeric, typically 6 digits).

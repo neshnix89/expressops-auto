@@ -17,9 +17,11 @@ On-demand (manual run). May become daily scheduled once proven reliable.
 - [ ] Confluence — not needed (output to console/log for now)
 
 ## Input
-All active Work Containers in JIRA project EXPRESSOPS.
-JQL: `project = EXPRESSOPS AND issuetype = "Work Container" AND status != Closed`
-(Adjust JQL as needed based on actual issue types and statuses.)
+All active NPI Work Containers in JIRA. Containers span many project keys
+(USRE, POSX, LCUSAMB, NPIOTHER, SILED2, …) so we scope by issue type plus the
+Order Type custom field (`customfield_13905`) rather than by project.
+
+JQL: `issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed`
 
 ## Logic
 1. Fetch all active Work Containers from JIRA.

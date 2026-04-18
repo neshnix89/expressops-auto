@@ -38,10 +38,11 @@ def capture_generic_jira(jira: JiraClient, task_dir: Path, logger):
     mock_dir = task_dir / "mock_data"
     mock_dir.mkdir(parents=True, exist_ok=True)
 
-    # Example: Capture all Work Containers
+    # Example: Capture all Work Containers across projects (scoped by Order Type,
+    # customfield_13905, since NPI containers span many JIRA project keys).
     logger.info("Capturing JIRA Work Containers...")
     try:
-        jql = 'project = EXPRESSOPS AND issuetype = "Work Container" ORDER BY key DESC'
+        jql = 'issuetype = "Work Container" AND "Order Type" is not EMPTY ORDER BY key DESC'
         result = jira.search(jql, max_results=50)
         jira.save_mock(result, "search_work_containers.json", mock_dir)
         logger.info(f"  Saved {len(result.get('issues', []))} containers")
