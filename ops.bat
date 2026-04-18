@@ -65,7 +65,7 @@ if errorlevel 1 (
 :: Copy extracted files over current directory (skip config.yaml)
 xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" /exclude:%PROJECT_DIR%sync_exclude.txt >nul 2>&1
 if not exist "%PROJECT_DIR%sync_exclude.txt" (
-    :: If exclude file doesn't exist, just copy everything
+    REM If exclude file doesn't exist, just copy everything
     xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" >nul 2>&1
 )
 
