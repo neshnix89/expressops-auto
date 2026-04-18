@@ -1,7 +1,7 @@
 # WORKLOG — Current Task
 
 > Task: to_status_check
-> Phase: Discovery + Initial Build
+> Phase: Build Phase A (JIRA side)
 > Location: tasks/to_status_check/
 
 ---
@@ -9,28 +9,37 @@
 ## What To Do
 
 1. Read `tasks/to_status_check/TASK.md` for the full spec.
-2. **Phase A — JIRA side only (build now):**
+2. **Build Phase A — JIRA extraction:**
    - Create `main.py` and `logic.py` in `tasks/to_status_check/`.
-   - Pull active Work Containers from JIRA.
-   - Extract the TO number from each container (field TBD — see Discovery in TASK.md).
-   - Output a table of containers with their TO numbers.
+   - Pull active Work Containers from JIRA (project EXPRESSOPS, status != Closed).
+   - For each container, fetch its comments via REST API: GET /rest/api/2/issue/{key}?expand=renderedFields&fields=comment
+   - Extract TO number from comments using regex: `TO:\s*(\d+)`
+   - The TO number is added as a comment by the team, format "TO: 147715" (pure numeric, typically 6 digits).
+   - If multiple TO comments exist, use the LATEST one.
+   - Output a table of containers with their TO numbers (or "No TO" if none found).
    - Support `--mock` mode reading from `mock_data/`.
-3. **Phase B — M3 side (build after discovery):**
-   - Look up each TO number in M3 to check status.
-   - Flag containers where TO status = 90.
-   - Add `--auto-close` flag for future use (don't implement the close yet).
-4. Create a `capture.py` in the task folder for `ops capture to_status_check`.
+3. **Phase B — M3 lookup: NOT YET. Discovery still needed for which M3 table holds TO status.**
+4. Create a `capture.py` in the task folder for `ops capture to_status_check` that saves:
+   - JIRA search results (all active containers)
+   - JIRA comments for 5-10 sample containers
 5. Commit and push to GitHub when done.
 
 ## What NOT To Do
 
-- Do NOT implement the actual JIRA close/transition. That's a write operation for later.
-- Do NOT guess M3 table or column names. Mark unknowns in TASK.md Discovery section.
-- Do NOT modify any core/ modules unless there's a clear bug.
+- Do NOT build M3 integration yet — table/column mapping is unknown.
+- Do NOT implement JIRA close/transition — that's a future write operation.
+- Do NOT modify core/ modules unless there's a bug.
+- Do NOT guess anything. If uncertain, add to Discovery in TASK.md.
 
-## Notes from Planning
+## Key Discovery (Confirmed)
 
-- The TO number field in JIRA is unknown. It might be in the summary, description, a custom field, or a linked field. Nesh needs to check a sample container manually and report back.
-- The M3 table for TO status is unknown. Nesh will use `M3Client.explore_table()` on the company laptop to investigate.
-- Start with JIRA extraction only. Get that working and producing output. M3 integration comes after discovery.
-- This is the first task in the framework — it should serve as the template for all future tasks.
+- **TO number location:** JIRA comment on the Work Container
+- **TO number format:** `TO: XXXXXX` — pure numeric, typically 6 digits
+- **Extraction regex:** `TO:\s*(\d+)`
+- **Who adds it:** Team member (manual comment)
+
+## Still Unknown
+
+- Which M3 table holds TO/Transfer Order data and status
+- What status 90 means exactly
+- TO number column name in M3
