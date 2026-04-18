@@ -62,12 +62,20 @@ expressops-auto/
 - **Auth:** PAT Bearer token in `Authorization: Bearer <token>` header
 - **SSL:** `verify=False` (self-signed cert)
 - **API:** REST v2 — `/rest/api/2/issue/{key}`, `/rest/api/2/search`
-- **Key custom fields:**
-  - `customfield_13905` = OrderType (e.g., "Pilot Run", "DMR Request")
-  - `customfield_13906` = Location (Singapore / Trutnov)
-  - `customfield_13904` = ProductType
-  - `customfield_13903` = RequestType
-  - `customfield_15800` = ParkingLog (timestamped start/stop entries)
+- **Projects:** Work Containers span multiple JIRA project keys (USRE, POSX, LCUSAMB, NPIOTHER, SILED2, …). There is no single "EXPRESSOPS" project. Filter by issue type + custom field (e.g. Order Type), not by project key.
+- **Key custom fields** (confirmed against the live JIRA field API):
+  - `customfield_13300` = EDM Document Number
+  - `customfield_13502` = M3 Article Number
+  - `customfield_13700` = Project Status
+  - `customfield_13903` = Request Type
+  - `customfield_13904` = Product Type (e.g. "SMT PCBA")
+  - `customfield_13905` = Order Type (e.g. "Pilot Run", "DMR Request")
+  - `customfield_13906` = NPI Location (e.g. "Singapore", "Trutnov")
+  - `customfield_13907` = PTxx Document — **not** "Project ID"
+  - `customfield_15009` = Work Container NPI Status Light
+  - `customfield_15400` = NPI WC Status
+  - `customfield_15800` = Issue_parked_log (timestamped START/END entries; previously mis-labelled "ParkingLog")
+  - `customfield_15805` = Component Part Number
 - **Parent-child:** Use `relation()` JQL to fetch child Work Packages from Work Containers.
 - **WP name matching:** Always case-insensitive. Inconsistent casing is normal.
 - **Timestamp parsing:** Strip milliseconds and timezone offsets via regex before datetime parsing.

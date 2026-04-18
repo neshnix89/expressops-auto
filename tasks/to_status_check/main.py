@@ -1,8 +1,13 @@
 """
 to_status_check — Phase A: JIRA extraction.
 
-Pulls active Work Containers from JIRA project EXPRESSOPS and extracts the
-Transfer Order (TO) number from the latest "TO: <digits>" comment on each one.
+Pulls active NPI Work Containers from JIRA and extracts the Transfer Order
+(TO) number from the latest "TO: <digits>" comment on each one.
+
+Work Containers span many JIRA project keys (USRE, POSX, LCUSAMB, NPIOTHER,
+SILED2, …) — there is no single project to filter on. We scope by issue type
+plus the Order Type custom field (customfield_13905) to match the NPI
+container population.
 
 Phase B (M3 status lookup) is deferred until discovery confirms the table
 and columns — see TASK.md.
@@ -25,8 +30,11 @@ from core.logger import get_logger
 from tasks.to_status_check.logic import build_container_row, format_table, summarize
 
 TASK_NAME = "to_status_check"
+# Scope by Order Type (customfield_13905) rather than project — containers
+# live across many project keys. "is not EMPTY" matches any container that has
+# been classified with an Order Type, which in practice is every NPI container.
 ACTIVE_CONTAINERS_JQL = (
-    'project = EXPRESSOPS AND issuetype = "Work Container" AND status != Closed'
+    'issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed'
 )
 MOCK_DIR = TASK_DIR / "mock_data"
 

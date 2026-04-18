@@ -48,9 +48,11 @@ Common query params: `jql`, `fields` (comma list), `startAt`, `maxResults`
 - Known in-scope template keys (hardcoded in `jira_npi_standup_daily_with_done`
   and `comment extractor.py`):
   `ITPL-769, ITPL-760, ITPL-756, ITPL-750, ITPL-746, ITPL-742, ITPL-1036, ITPL-1027`
-- `EXPRESSOPS` is the project key the new framework standardizes on (per
-  `CLAUDE.md`); legacy scripts do not filter by project key — they filter by
-  Product Type + NPI Location.
+- **There is no single "EXPRESSOPS" project.** Work Containers live across many
+  project keys — observed so far: `USRE`, `POSX`, `LCUSAMB`, `NPIOTHER`,
+  `SILED2`, and more. Legacy scripts reflect this by filtering on
+  `issuetype = "Work Container"` + Product Type + NPI Location rather than on
+  `project = ...`. New framework code should do the same.
 
 ## JIRA — issue types & statuses seen
 
@@ -64,27 +66,29 @@ observed via the issue changelog (status name transitions), never posted back.
 
 ## JIRA — custom fields
 
-Only one literal custom field ID appears in the dump:
+Confirmed against the live JIRA field API (see also CLAUDE.md):
 
-| ID | Used in | Notes |
-|---|---|---|
-| `customfield_13905` | `Pilot_DMR_Report.py` (as `TAG_FIELD`) | Also documented in CLAUDE.md as **OrderType** (values: "Pilot Run", "DMR Request") — same field, different labels |
+| ID | Name | Legacy display name (if seen) | Notes |
+|---|---|---|---|
+| `customfield_13300` | EDM Document Number | — | Not referenced in the dump |
+| `customfield_13502` | M3 Article Number | — | Not referenced in the dump |
+| `customfield_13700` | Project Status | `"Project Status"` | Imported in live_kpi as `CF_PROJECT_STATUS` |
+| `customfield_13903` | Request Type | `"Request Type"` | `CF_REQUEST_TYPE` in live_kpi |
+| `customfield_13904` | Product Type | `"Product Type"` | SMT PCBA filter; `CF_PRODUCT_TYPE` |
+| `customfield_13905` | Order Type | `"Order Type"` / `TAG_FIELD` | Values include "Pilot Run", "DMR Request"; `CF_ORDER_TYPE` |
+| `customfield_13906` | NPI Location | `"NPI Location"` | Singapore / Trutnov; `CF_NPI_LOCATION` |
+| `customfield_13907` | PTxx Document | — | **Not** "Project ID" as earlier guessed |
+| `customfield_15009` | Work Container NPI Status Light | — | Possible match for legacy `"NPI Work Container Status"` — ambiguous, see below |
+| `customfield_15400` | NPI WC Status | `"NPI Work Container Status"` | Likely `CF_NPI_WC_STATUS`; ambiguity with 15009 |
+| `customfield_15800` | Issue_parked_log | `"Issue_parked_log"` | Multiline START/END log; `CF_PARKED_LOG`. Previously mis-labelled "ParkingLog" in CLAUDE.md |
+| `customfield_15805` | Component Part Number | — | Not referenced in the dump |
 
-Every other custom field is referenced by **JQL display name** (which JIRA
-resolves via the field name) or imported from `kpi_core.py` (not in the dump)
-under symbolic names. The display names seen:
-
-- `"Product Type"` — used as SMT PCBA filter
-- `"NPI Location"` — used as Singapore filter
-- `"Order Type"`
-- `"Request Type"`
-- `"Issue_parked_log"` — multiline START/END log, parking/pause periods
-- `"Project ID"`, `"Project Status"`, `"NPI Work Container Status"`, `"Aggregated Progress"`
-
-**Action item for the new framework:** resolve these display names to their
-`customfield_XXXXX` IDs on the company laptop (one GET against `/rest/api/2/field`
-will do it) and record them in this file. `CLAUDE.md` already has guesses for
-`13903`–`13906` and `15800` but they are not confirmed against the legacy code.
+**Unresolved display names from the dump:**
+- `"Project ID"` (imported as `CF_PROJECT_ID` in live_kpi) — the `13907` ID
+  returned by the live field API is actually "PTxx Document", so `CF_PROJECT_ID`
+  points at a different field that has not yet been identified.
+- `"Aggregated Progress"` (imported as `CF_AGG_PROGRESS`) — not in the
+  confirmed list, ID unknown.
 
 ## JIRA — JQL queries (literal)
 
