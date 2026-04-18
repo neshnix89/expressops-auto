@@ -1,0 +1,50 @@
+# ExpressOPS Automation Configuration
+# Copy this to config.yaml and fill in your actual values.
+# config.yaml is gitignored — NEVER commit it.
+
+# Default run mode: mock (safe) or live
+mode: mock
+
+# JIRA On-Premises
+jira:
+  base_url: "https://pfjira.pepperl-fuchs.com"
+  pat: "YOUR_JIRA_PAT_HERE"
+  verify_ssl: false
+  # Project key for ExpressOPS containers
+  project_key: "EXPRESSOPS"
+
+# Confluence
+confluence:
+  base_url: "https://pfteamspace.pepperl-fuchs.com"
+  pat: "YOUR_CONFLUENCE_PAT_HERE"
+  space_key: "EUDEMHTM0021"
+
+# M3 ERP (ODBC)
+m3:
+  dsn: "ODSSG"
+  schema: "PFODS"
+  # Note: No timeout parameter supported for this DSN
+
+# EDM Oracle
+edm:
+  # EDM requires running Python via EDMAdmin.exe
+  # Set this to the path of your renamed python.exe
+  python_exe: "C:\\Users\\tmoghanan\\EDMAdmin.exe"
+  schema: "ADMEDP"
+  # Connection string used by cx_Oracle / oracledb
+  connection_string: "YOUR_EDM_CONNECTION_STRING"
+
+# Anthropic API (for AI-powered analysis)
+anthropic:
+  api_key: "YOUR_ANTHROPIC_API_KEY"
+  model: "claude-sonnet-4-20250514"
+
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "logs"
+
+# Existing Confluence page IDs (reference)
+pages:
+  mr_status_report: 560866215
+  kpi_dashboard: 560871424

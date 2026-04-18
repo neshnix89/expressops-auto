@@ -1,0 +1,25 @@
+# Secrets - NEVER commit
+config/config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Logs
+logs/
+
+# IDE
+.vscode/
+.idea/
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temp
+*.tmp
+*.bak
