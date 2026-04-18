@@ -5,7 +5,7 @@
 :: After this, use "ops sync" to update.
 :: ============================================
 
-set "INSTALL_DIR=C:\Users\tmoghanan\Documents\expressops-auto"
+set "INSTALL_DIR=C:\Users\tmoghanan\Documents\AI\expressops-auto"
 
 echo.
 echo ExpressOPS Automation - First Time Setup

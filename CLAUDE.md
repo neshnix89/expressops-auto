@@ -8,7 +8,7 @@ Each task is a standalone Python module that queries enterprise systems (JIRA, M
 
 ### Environment Split
 - **VPS (development):** Claude Code writes and tests code here using `--mock` mode with saved sample data.
-- **Company laptop (execution):** Has live access to JIRA, M3 (ODBC), EDM (Oracle), Confluence. Pulls code via Git, runs with `--live` mode.
+- **Company laptop (execution):** Has live access to JIRA, M3 (ODBC), EDM (Oracle), Confluence. Pulls code via Git, runs with `--live` mode. Project lives at `C:\Users\tmoghanan\Documents\AI\expressops-auto`.
 - **GitHub private repo:** Bridge between VPS and company laptop.
 
 ### Key Principle
