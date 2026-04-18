@@ -11,6 +11,7 @@ import requests
 import urllib3
 
 from core.config_loader import Config
+from core.errors import FriendlyError, missing_mock_data, requests_error
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -35,15 +36,22 @@ class ConfluenceClient:
             self._session.verify = False
         return self._session
 
+    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        """Run a request and translate transport / HTTP errors into FriendlyError."""
+        try:
+            resp = self.session.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as exc:
+            raise requests_error(exc, "Confluence", self.base_url) from exc
+
     def get_page(self, page_id: int | str, expand: str = "body.storage,version") -> dict[str, Any]:
         """Fetch a Confluence page by ID."""
         if self.config.is_mock:
             return self._load_mock(f"page_{page_id}.json")
 
         url = f"{self.base_url}/rest/api/content/{page_id}"
-        resp = self.session.get(url, params={"expand": expand})
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("GET", url, params={"expand": expand}).json()
 
     def get_page_html(self, page_id: int | str) -> str:
         """Get the storage format HTML body of a page."""
@@ -87,19 +95,17 @@ class ConfluenceClient:
         }
 
         url = f"{self.base_url}/rest/api/content/{page_id}"
-        resp = self.session.put(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("PUT", url, json=payload).json()
 
     def _load_mock(self, filename: str) -> dict[str, Any]:
         if self.mock_data_dir is None:
-            raise ValueError("Mock mode requires mock_data_dir to be set.")
+            raise FriendlyError(
+                "mock mode requires mock_data_dir",
+                "pass mock_data_dir=... when constructing ConfluenceClient",
+            )
         filepath = self.mock_data_dir / filename
         if not filepath.exists():
-            raise FileNotFoundError(
-                f"Mock data not found: {filepath}\n"
-                f"Run 'ops capture <task>' on company laptop to generate mock data."
-            )
+            raise missing_mock_data(filepath)
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 

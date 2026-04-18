@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from core.config_loader import Config
+from core.errors import (
+    FriendlyError,
+    edm_exe_missing,
+    missing_dependency,
+    missing_mock_data,
+    oracle_error,
+)
 
 
 class EDMClient:
@@ -45,13 +52,19 @@ class EDMClient:
 
     def _direct_query(self, sql: str, params: dict | None = None) -> list[dict[str, Any]]:
         """Direct Oracle query — only works when running as EDMAdmin.exe."""
-        import oracledb
-        conn = oracledb.connect(self.config.edm_connection_string)
-        cursor = conn.cursor()
-        cursor.execute(sql, params or {})
-        columns = [desc[0] for desc in cursor.description]
-        rows = cursor.fetchall()
-        conn.close()
+        try:
+            import oracledb
+        except ImportError as exc:
+            raise missing_dependency("oracledb") from exc
+        try:
+            conn = oracledb.connect(self.config.edm_connection_string)
+            cursor = conn.cursor()
+            cursor.execute(sql, params or {})
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            conn.close()
+        except oracledb.Error as exc:
+            raise oracle_error(exc) from exc
         return [dict(zip(columns, row)) for row in rows]
 
     def _subprocess_query(self, sql: str, params: dict | None = None) -> list[dict[str, Any]]:
@@ -60,6 +73,11 @@ class EDMClient:
         Creates a temporary script, executes it under the renamed Python, returns results.
         """
         import tempfile
+
+        edm_exe = self.config.edm_python_exe
+        if not Path(edm_exe).exists():
+            raise edm_exe_missing(edm_exe)
+
         query_data = json.dumps({"sql": sql, "params": params or {}, "conn_str": self.config.edm_connection_string})
 
         script = f'''
@@ -85,24 +103,24 @@ except Exception as e:
 
         try:
             result = subprocess.run(
-                [self.config.edm_python_exe, script_path, query_data],
+                [edm_exe, script_path, query_data],
                 capture_output=True, text=True, timeout=60
             )
             if result.returncode != 0:
-                raise RuntimeError(f"EDM query failed: {result.stderr}")
+                raise oracle_error(Exception(result.stderr.strip() or "EDMAdmin subprocess failed"))
             return json.loads(result.stdout)
         finally:
             Path(script_path).unlink(missing_ok=True)
 
     def _load_mock(self, filename: str) -> list[dict[str, Any]]:
         if self.mock_data_dir is None:
-            raise ValueError("Mock mode requires mock_data_dir to be set.")
+            raise FriendlyError(
+                "mock mode requires mock_data_dir",
+                "pass mock_data_dir=... when constructing EDMClient",
+            )
         filepath = self.mock_data_dir / filename
         if not filepath.exists():
-            raise FileNotFoundError(
-                f"Mock data not found: {filepath}\n"
-                f"Run 'ops capture <task>' on company laptop to generate mock data."
-            )
+            raise missing_mock_data(filepath)
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 

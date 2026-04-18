@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.config_loader import load_config
+from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.m3 import M3Client
 from core.confluence import ConfluenceClient
@@ -50,7 +51,7 @@ def capture_generic_jira(jira: JiraClient, task_dir: Path, logger):
         logger.error(f"  Failed: {e}")
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Capture mock data from live systems")
     parser.add_argument("--task", required=True, help="Task name (folder name under tasks/)")
     args = parser.parse_args()
@@ -58,10 +59,13 @@ def main():
     task_dir = PROJECT_ROOT / "tasks" / args.task
     if not task_dir.exists():
         print(f"[ERROR] Task directory not found: {task_dir}")
-        sys.exit(1)
+        return 1
 
     logger = get_logger(f"capture_{args.task}")
-    config = load_config(mode_override="live")  # Must be live to capture real data
+    try:
+        config = load_config(mode_override="live")  # Must be live to capture real data
+    except FriendlyError as exc:
+        return handle_friendly(exc)
 
     mock_dir = task_dir / "mock_data"
     mock_dir.mkdir(parents=True, exist_ok=True)
@@ -69,25 +73,29 @@ def main():
     logger.info(f"Capturing mock data for task: {args.task}")
     logger.info(f"Output directory: {mock_dir}")
 
-    # Check if the task has a custom capture module
-    capture_module_path = task_dir / "capture.py"
-    if capture_module_path.exists():
-        logger.info("Found task-specific capture.py — running custom capture...")
-        spec = importlib.util.spec_from_file_location(f"tasks.{args.task}.capture", capture_module_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        if hasattr(mod, "capture"):
-            mod.capture(config, mock_dir, logger)
+    try:
+        # Check if the task has a custom capture module
+        capture_module_path = task_dir / "capture.py"
+        if capture_module_path.exists():
+            logger.info("Found task-specific capture.py — running custom capture...")
+            spec = importlib.util.spec_from_file_location(f"tasks.{args.task}.capture", capture_module_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if hasattr(mod, "capture"):
+                mod.capture(config, mock_dir, logger)
+            else:
+                logger.warning("capture.py exists but has no capture() function. Running generic capture.")
+                _run_generic(config, task_dir, logger)
         else:
-            logger.warning("capture.py exists but has no capture() function. Running generic capture.")
+            logger.info("No custom capture.py — running generic JIRA capture...")
             _run_generic(config, task_dir, logger)
-    else:
-        logger.info("No custom capture.py — running generic JIRA capture...")
-        _run_generic(config, task_dir, logger)
+    except FriendlyError as exc:
+        return handle_friendly(exc)
 
     logger.info("Mock data capture complete.")
     logger.info(f"Files saved to: {mock_dir}")
     logger.info("Commit these files to git so VPS can use them for testing.")
+    return 0
 
 
 def _run_generic(config, task_dir, logger):
@@ -96,4 +104,4 @@ def _run_generic(config, task_dir, logger):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

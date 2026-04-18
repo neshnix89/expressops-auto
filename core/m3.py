@@ -3,12 +3,17 @@ M3 ERP client via ODBC (DSN: ODSSG, Schema: PFODS).
 Tables use _AP suffix. No REST API available — ODBC is the path.
 """
 
-import csv
 import json
 from pathlib import Path
 from typing import Any
 
 from core.config_loader import Config
+from core.errors import (
+    FriendlyError,
+    missing_dependency,
+    missing_mock_data,
+    odbc_error,
+)
 
 
 class M3Client:
@@ -23,8 +28,14 @@ class M3Client:
     def connection(self):
         """Lazy ODBC connection — only created when first needed."""
         if self._conn is None:
-            import pyodbc
-            self._conn = pyodbc.connect(f"DSN={self.config.m3_dsn}")
+            try:
+                import pyodbc
+            except ImportError as exc:
+                raise missing_dependency("pyodbc") from exc
+            try:
+                self._conn = pyodbc.connect(f"DSN={self.config.m3_dsn}")
+            except pyodbc.Error as exc:
+                raise odbc_error(exc, self.config.m3_dsn) from exc
         return self._conn
 
     def query(self, sql: str, params: tuple = (), mock_filename: str = "query_result.json") -> list[dict[str, Any]]:
@@ -90,13 +101,13 @@ class M3Client:
     def _load_mock(self, filename: str) -> list[dict[str, Any]] | list[str]:
         """Load mock data from task's mock_data directory."""
         if self.mock_data_dir is None:
-            raise ValueError("Mock mode requires mock_data_dir to be set.")
+            raise FriendlyError(
+                "mock mode requires mock_data_dir",
+                "pass mock_data_dir=... when constructing M3Client",
+            )
         filepath = self.mock_data_dir / filename
         if not filepath.exists():
-            raise FileNotFoundError(
-                f"Mock data not found: {filepath}\n"
-                f"Run 'ops capture <task>' on company laptop to generate mock data."
-            )
+            raise missing_mock_data(filepath)
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 

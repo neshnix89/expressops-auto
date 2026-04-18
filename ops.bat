@@ -213,28 +213,31 @@ cd /d "%PROJECT_DIR%"
 echo === fulltest %TASK% === > "%FLOG%"
 echo Started: %DATE% %TIME% >> "%FLOG%"
 
+echo.
 echo [FULLTEST 1/3] Capturing mock data from live systems...
 echo. >> "%FLOG%"
 echo === 1/3 capture === >> "%FLOG%"
-"%PYTHON%" scripts\capture_mock_data.py --task %TASK% >> "%FLOG%" 2>&1
+"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" scripts\capture_mock_data.py --task %TASK%
 if errorlevel 1 (
     echo [FULLTEST] Capture failed. See %FLOG%
     exit /b 1
 )
 
+echo.
 echo [FULLTEST 2/3] Running %TASK% in MOCK mode...
 echo. >> "%FLOG%"
 echo === 2/3 test mock === >> "%FLOG%"
-"%PYTHON%" -m tasks.%TASK%.main --mock >> "%FLOG%" 2>&1
+"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" -m tasks.%TASK%.main --mock
 if errorlevel 1 (
     echo [FULLTEST] Mock run failed. See %FLOG%
     exit /b 1
 )
 
+echo.
 echo [FULLTEST 3/3] Running %TASK% in LIVE mode (auto-YES, no prompt)...
 echo. >> "%FLOG%"
 echo === 3/3 run live === >> "%FLOG%"
-"%PYTHON%" -m tasks.%TASK%.main --live >> "%FLOG%" 2>&1
+"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" -m tasks.%TASK%.main --live
 if errorlevel 1 (
     echo [FULLTEST] Live run failed. See %FLOG%
     exit /b 1

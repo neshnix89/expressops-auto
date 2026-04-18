@@ -13,6 +13,7 @@ from typing import Any
 import requests
 
 from core.config_loader import Config
+from core.errors import FriendlyError, missing_mock_data, requests_error
 
 # Suppress SSL warnings for on-prem JIRA with self-signed certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -38,6 +39,15 @@ class JiraClient:
             self._session.verify = self.config.jira_verify_ssl
         return self._session
 
+    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        """Run a request and translate transport / HTTP errors into FriendlyError."""
+        try:
+            resp = self.session.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as exc:
+            raise requests_error(exc, "JIRA", self.base_url) from exc
+
     def get_issue(self, key: str, expand: str = "") -> dict[str, Any]:
         """Fetch a single JIRA issue by key."""
         if self.config.is_mock:
@@ -47,9 +57,7 @@ class JiraClient:
         if expand:
             params["expand"] = expand
         url = f"{self.base_url}/rest/api/2/issue/{key}"
-        resp = self.session.get(url, params=params)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("GET", url, params=params).json()
 
     def search(self, jql: str, fields: list[str] | None = None,
                max_results: int = 200, start_at: int = 0) -> dict[str, Any]:
@@ -64,7 +72,7 @@ class JiraClient:
             safe_name = re.sub(r'[^\w]', '_', jql)[:80]
             return self._load_mock(f"search_{safe_name}.json")
 
-        payload = {
+        payload: dict[str, Any] = {
             "jql": jql,
             "maxResults": max_results,
             "startAt": start_at,
@@ -73,9 +81,7 @@ class JiraClient:
             payload["fields"] = fields
 
         url = f"{self.base_url}/rest/api/2/search"
-        resp = self.session.post(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("POST", url, json=payload).json()
 
     def search_all(self, jql: str, fields: list[str] | None = None,
                    page_size: int = 200) -> list[dict[str, Any]]:
@@ -102,9 +108,7 @@ class JiraClient:
             return {"id": "mock-comment", "body": body}
 
         url = f"{self.base_url}/rest/api/2/issue/{key}/comment"
-        resp = self.session.post(url, json={"body": body})
-        resp.raise_for_status()
-        return resp.json()
+        return self._request("POST", url, json={"body": body}).json()
 
     def update_fields(self, key: str, fields: dict[str, Any]) -> bool:
         """Update fields on a JIRA issue. Live mode only."""
@@ -112,8 +116,7 @@ class JiraClient:
             return True
 
         url = f"{self.base_url}/rest/api/2/issue/{key}"
-        resp = self.session.put(url, json={"fields": fields})
-        resp.raise_for_status()
+        self._request("PUT", url, json={"fields": fields})
         return True
 
     def transition_issue(self, key: str, transition_id: str) -> bool:
@@ -122,8 +125,7 @@ class JiraClient:
             return True
 
         url = f"{self.base_url}/rest/api/2/issue/{key}/transitions"
-        resp = self.session.post(url, json={"transition": {"id": transition_id}})
-        resp.raise_for_status()
+        self._request("POST", url, json={"transition": {"id": transition_id}})
         return True
 
     def get_transitions(self, key: str) -> list[dict[str, Any]]:
@@ -132,9 +134,7 @@ class JiraClient:
             return self._load_mock(f"transitions_{key}.json").get("transitions", [])
 
         url = f"{self.base_url}/rest/api/2/issue/{key}/transitions"
-        resp = self.session.get(url)
-        resp.raise_for_status()
-        return resp.json().get("transitions", [])
+        return self._request("GET", url).json().get("transitions", [])
 
     @staticmethod
     def parse_timestamp(ts: str) -> datetime | None:
@@ -155,13 +155,13 @@ class JiraClient:
     def _load_mock(self, filename: str) -> dict[str, Any]:
         """Load mock data from the task's mock_data directory."""
         if self.mock_data_dir is None:
-            raise ValueError("Mock mode requires mock_data_dir to be set.")
+            raise FriendlyError(
+                "mock mode requires mock_data_dir",
+                "pass mock_data_dir=... when constructing JiraClient",
+            )
         filepath = self.mock_data_dir / filename
         if not filepath.exists():
-            raise FileNotFoundError(
-                f"Mock data not found: {filepath}\n"
-                f"Run 'ops capture <task>' on company laptop to generate mock data."
-            )
+            raise missing_mock_data(filepath)
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 

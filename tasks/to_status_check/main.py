@@ -24,6 +24,7 @@ PROJECT_ROOT = TASK_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.config_loader import load_config
+from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
 
@@ -106,7 +107,10 @@ def main() -> int:
                        help="Hit live JIRA (company laptop only)")
     parser.set_defaults(mode="mock")
     args = parser.parse_args()
-    return run(args.mode)
+    try:
+        return run(args.mode)
+    except FriendlyError as exc:
+        return handle_friendly(exc)
 
 
 if __name__ == "__main__":

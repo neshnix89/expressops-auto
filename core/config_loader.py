@@ -3,12 +3,16 @@ Configuration loader for ExpressOPS automation.
 Reads config.yaml, validates required fields, and provides typed access.
 """
 
-import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from core.errors import (
+    config_invalid,
+    config_missing,
+    yaml_error,
+)
 
 
 # Project root = two levels up from this file (core/config_loader.py)
@@ -131,20 +135,20 @@ def load_config(mode_override: str | None = None) -> Config:
         ValueError: If required fields are missing.
     """
     if not CONFIG_PATH.exists():
-        print(f"[ERROR] Config file not found: {CONFIG_PATH}")
-        print(f"[ERROR] Copy {CONFIG_EXAMPLE_PATH.name} to config.yaml and fill in your values.")
-        sys.exit(1)
+        raise config_missing(CONFIG_PATH)
 
-    with open(CONFIG_PATH, "r") as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(CONFIG_PATH, "r") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as exc:
+        raise yaml_error(exc, CONFIG_PATH) from exc
 
     if not data:
-        raise ValueError("Config file is empty.")
+        raise config_invalid("file is empty")
 
-    # Validate required top-level sections exist
     required_sections = ["jira", "confluence", "m3", "edm"]
     missing = [s for s in required_sections if s not in data]
     if missing:
-        raise ValueError(f"Missing required config sections: {', '.join(missing)}")
+        raise config_invalid(f"missing required sections: {', '.join(missing)}")
 
     return Config(data, mode_override)
