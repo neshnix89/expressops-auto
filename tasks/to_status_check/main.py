@@ -203,7 +203,12 @@ def close_logistics_wps(jira: JiraClient, rows: list[dict], logger) -> dict[str,
     return summary
 
 
-def run(mode: str, jira_only: bool = False, close_ready: bool = False) -> int:
+def run(
+    mode: str,
+    jira_only: bool = False,
+    close_ready: bool = False,
+    publish: bool = False,
+) -> int:
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
     logger.info("Running %s in %s mode", TASK_NAME, config.mode)
@@ -248,6 +253,13 @@ def run(mode: str, jira_only: bool = False, close_ready: bool = False) -> int:
         summary["without_to"],
         summary.get("with_m3_status", 0),
     )
+
+    # ── Publish ──
+    if publish:
+        from tasks.to_status_check.publish import publish_results
+
+        publish_results(config, rows, include_m3=include_m3)
+
     return 0
 
 
@@ -284,10 +296,23 @@ def main() -> int:
             "skipped with a warning in mock mode."
         ),
     )
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help=(
+            "Publish the results table to Confluence. Target page is "
+            "pages.to_status_check in config.yaml. Skipped in mock mode."
+        ),
+    )
     parser.set_defaults(mode="mock")
     args = parser.parse_args()
     try:
-        return run(args.mode, jira_only=args.jira_only, close_ready=args.close_ready)
+        return run(
+            args.mode,
+            jira_only=args.jira_only,
+            close_ready=args.close_ready,
+            publish=args.publish,
+        )
     except FriendlyError as exc:
         return handle_friendly(exc)
 
