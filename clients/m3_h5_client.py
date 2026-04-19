@@ -292,14 +292,12 @@ class M3H5Client:
             cmd.type(char, delay=150)
         page.wait_for_timeout(2_000)
 
-        # Click OK to confirm search
-        ok_btn = page.get_by_text("OK", exact=True).first
-        if ok_btn.is_visible():
-            ok_btn.click()
-            page.wait_for_timeout(3_000)
+        # Submit the search — the M3 portal has no OK button; press Enter on #cmdText
+        cmd.press("Enter")
+        page.wait_for_timeout(5_000)
 
-        # Debug screenshot of post-OK state — helps diagnose off-screen dialogs
-        page.screenshot(path="debug_m3_after_ok.png", full_page=True)
+        # Debug screenshot of search-results state
+        page.screenshot(path="debug_m3_search_results.png", full_page=True)
 
         # Click "Transport Orders" link in results
         transport_link = page.locator("text=Transport Orders").first
