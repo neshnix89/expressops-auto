@@ -182,8 +182,8 @@ class M3H5Client:
                 "Check debug_m3_xdrx800_open.png for the page state."
             )
 
-        # Step 4: Clear the Responsible field so we can search by TO only
-        self._clear_responsible_field()
+        # Step 4: Clear every filter so only the DTHID (TO number) matters
+        self._clear_all_filters()
 
         self._connected = True
         logger.info("M3 H5 Client connected — XDRX800 ready")
@@ -389,16 +389,47 @@ class M3H5Client:
             time.sleep(2)
         return None
 
-    def _clear_responsible_field(self) -> None:
+    def _clear_all_filters(self) -> None:
         """
-        Clear the Responsible (DTHSNAC) field so searches aren't scoped
-        to the logged-in user only.
+        Clear every pre-populated filter on the XDRX800 form so only the
+        DTHID (TO number) we type later drives the result set.
+
+        Each field is wrapped in its own try/except — missing fields are
+        skipped silently. Logs a count of how many were actually cleared.
         """
         frame = self._xdrx_frame
-        snac = frame.locator('input[name="DTHSNAC"]')
-        if snac.is_visible():
-            snac.fill("")
-            logger.debug("Cleared DTHSNAC field")
+        text_fields = [
+            "DTHSNAC",
+            "DTHTRAC",
+            "DTHSTAT1",
+            "DTHSTAT2",
+            "FROMRGDT",
+            "DTHRGDT",
+            "DTHDSC",
+        ]
+
+        cleared = 0
+        for name in text_fields:
+            try:
+                el = frame.locator(f'input[name="{name}"]')
+                if el.is_visible():
+                    el.fill("")
+                    cleared += 1
+                    logger.debug("Cleared %s", name)
+            except Exception as exc:
+                logger.debug("Skipped %s: %s", name, exc)
+
+        # Uncheck "Hide sub TO's" if it's currently checked
+        try:
+            sub = frame.locator('input[name="B_DTHSUB"]')
+            if sub.is_visible() and sub.is_checked():
+                sub.uncheck()
+                cleared += 1
+                logger.debug("Unchecked B_DTHSUB (Hide sub TOs)")
+        except Exception as exc:
+            logger.debug("Skipped B_DTHSUB: %s", exc)
+
+        logger.info("XDRX800 filters cleared: %d field(s)", cleared)
 
     def _live_lookup(self, to_number: str) -> dict[str, Any] | None:
         """
