@@ -269,55 +269,76 @@ class M3H5Client:
         """
         Open XDRX800 via the M3 portal search dialog.
 
-        Uses #cmdText click (NOT Ctrl+R which refreshes the browser).
+        Matches the proven phase_b_pw9.py flow:
+          1. Dispatch Ctrl+R via KeyboardEvent to surface the search box
+          2. Force-show #cmdText if hidden, click + fill empty
+          3. Type 'xdrx800' char-by-char so autocomplete fires
+          4. Wait for dropdown, then click Transport Orders directly
+             (fall back to an OK button if the link isn't visible yet)
         """
         page = self._page
         logger.info("Opening search dialog...")
 
-        # Click the search/command text field directly
+        # Step 1: Dispatch Ctrl+R to open search (Ctrl+R in the portal is
+        # intercepted — we send a synthetic KeyboardEvent so the browser
+        # doesn't actually reload the page).
+        page.evaluate(
+            """
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'r', ctrlKey: true, bubbles: true
+            }));
+            """
+        )
+        page.wait_for_timeout(2_000)
+
+        # Step 2: Ensure #cmdText is visible (force-show via jQuery if not)
         cmd = page.locator("#cmdText")
         if not cmd.is_visible():
-            # Force-show via jQuery (some portal versions hide it)
             page.evaluate(
                 "$('#cmdText').parents().each(function(){$(this).show()});"
                 "$('#cmdText').show().focus()"
             )
             page.wait_for_timeout(1_000)
 
+        # Step 3: Click, clear, and type xdrx800 char-by-char for autocomplete
         cmd.click()
         cmd.fill("")
-
-        # Type slowly to trigger autocomplete
         for char in "xdrx800":
-            cmd.type(char, delay=150)
-        page.wait_for_timeout(2_000)
+            cmd.type(char, delay=200)
 
-        # Submit the search — the M3 portal has no OK button; press Enter on #cmdText
-        cmd.press("Enter")
-        page.wait_for_timeout(5_000)
-
-        # Debug screenshot of search-results state
+        # Step 4: Wait for autocomplete dropdown — do NOT press Enter
+        page.wait_for_timeout(3_000)
         page.screenshot(path="debug_m3_search_results.png", full_page=True)
 
-        # Click "Transport Orders" link in results
+        # Step 5+6: Prefer the Transport Orders entry directly
         transport_link = page.locator("text=Transport Orders").first
         if transport_link.is_visible():
             transport_link.click()
         else:
-            # Not visible — dump visible body text so we can see what's actually there
+            # Step 7: Not visible yet — try an OK button, wait, then look again
+            logger.info("Transport Orders not visible — trying OK fallback")
             try:
                 body_preview = page.inner_text("body")[:1000]
                 logger.warning(
-                    "Transport Orders not visible. Visible body (first 1000 chars):\n%s",
-                    body_preview,
+                    "Visible body (first 1000 chars):\n%s", body_preview
                 )
             except Exception as exc:
                 logger.warning("Could not read page body: %s", exc)
-            # Fallback: look for any link containing "Transport"
-            page.locator("a:has-text('Transport')").first.click()
 
-        # Wait for XDRX800 to load in iframe
-        page.wait_for_timeout(12_000)
+            ok_btn = page.get_by_text("OK", exact=True).first
+            if ok_btn.is_visible():
+                ok_btn.click()
+                page.wait_for_timeout(3_000)
+
+            transport_link = page.locator("text=Transport Orders").first
+            if transport_link.is_visible():
+                transport_link.click()
+            else:
+                # Last-ditch fallback: any link containing "Transport"
+                page.locator("a:has-text('Transport')").first.click()
+
+        # Step 8: Give the iframe time to load
+        page.wait_for_timeout(15_000)
         page.screenshot(path="debug_m3_xdrx800_open.png")
         logger.info("XDRX800 program opened")
 
