@@ -113,7 +113,97 @@ def run_phase_b(config, rows, logger) -> list[dict]:
     return rows
 
 
-def run(mode: str, jira_only: bool = False) -> int:
+LOGISTICS_WP_TRANSITION_ID = "51"  # "Done" transition on Work Packages
+
+
+def close_logistics_wps(jira: JiraClient, rows: list[dict], logger) -> dict[str, int]:
+    """
+    For each container row where ready_to_close is True, find the child
+    Work Package named "Logistics" via relation() JQL and transition it
+    through transition 51 (Done).
+
+    Live mode only — in mock mode we skip with a warning because the
+    close action would either be a no-op (transition) or require mock
+    search fixtures we don't ship.
+    """
+    targets = [r for r in rows if r.get("ready_to_close")]
+    summary = {"candidates": len(targets), "transitioned": 0, "skipped": 0, "errors": 0}
+
+    if not targets:
+        logger.info("Close-ready: no containers are ready_to_close")
+        return summary
+
+    if jira.config.is_mock:
+        logger.warning(
+            "Close-ready: skipping in mock mode (%d candidate(s) would be closed live)",
+            len(targets),
+        )
+        summary["skipped"] = len(targets)
+        return summary
+
+    logger.info("Close-ready: %d container(s) ready for Logistics WP close", len(targets))
+
+    for row in targets:
+        container_key = row["key"]
+        jql = (
+            f'issue in relation("{container_key}") '
+            f'AND issuetype = "Work Package" AND summary ~ "Logistics"'
+        )
+        try:
+            result = jira.search(jql, fields=["summary", "status"], max_results=20)
+            wps = result.get("issues", []) or []
+        except Exception as exc:
+            logger.error("%s: Logistics WP search failed: %s", container_key, exc)
+            summary["errors"] += 1
+            continue
+
+        # summary ~ is approximate — filter to WPs whose name contains 'logistics'
+        logistics_wps = [
+            wp for wp in wps
+            if "logistics" in ((wp.get("fields") or {}).get("summary") or "").lower()
+        ]
+
+        if not logistics_wps:
+            logger.warning("%s: no Logistics Work Package found", container_key)
+            summary["skipped"] += 1
+            continue
+        if len(logistics_wps) > 1:
+            logger.warning(
+                "%s: %d Logistics WPs matched, using first (%s)",
+                container_key,
+                len(logistics_wps),
+                logistics_wps[0].get("key"),
+            )
+
+        wp = logistics_wps[0]
+        wp_key = wp.get("key", "?")
+        wp_summary = (wp.get("fields") or {}).get("summary", "")
+
+        try:
+            jira.transition_issue(wp_key, LOGISTICS_WP_TRANSITION_ID)
+            logger.info(
+                "%s: transitioned %s '%s' to Done (id %s)",
+                container_key, wp_key, wp_summary, LOGISTICS_WP_TRANSITION_ID,
+            )
+            summary["transitioned"] += 1
+        except Exception as exc:
+            logger.error(
+                "%s: failed to transition %s to Done: %s",
+                container_key, wp_key, exc,
+            )
+            summary["errors"] += 1
+
+    logger.info(
+        "Close-ready summary: candidates=%d transitioned=%d skipped=%d errors=%d",
+        summary["candidates"],
+        summary["transitioned"],
+        summary["skipped"],
+        summary["errors"],
+    )
+    return summary
+
+
+def run(mode: str, jira_only: bool = False, close_ready: bool = False) -> int:
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
     logger.info("Running %s in %s mode", TASK_NAME, config.mode)
@@ -132,6 +222,10 @@ def run(mode: str, jira_only: bool = False) -> int:
     if not jira_only:
         rows = run_phase_b(config, rows, logger)
         include_m3 = any(r.get("to_status") for r in rows)
+
+    # ── Phase C (opt-in): close Logistics WPs for ready containers ──
+    if close_ready:
+        close_logistics_wps(jira, rows, logger)
 
     # ── Output ──
     print(format_table(rows, include_m3=include_m3))
@@ -181,10 +275,19 @@ def main() -> int:
         action="store_true",
         help="Phase A only — skip M3 TO status lookup",
     )
+    parser.add_argument(
+        "--close-ready",
+        action="store_true",
+        help=(
+            "After Phase B, transition the Logistics Work Package to Done "
+            "for every container with ready_to_close=True. Live mode only — "
+            "skipped with a warning in mock mode."
+        ),
+    )
     parser.set_defaults(mode="mock")
     args = parser.parse_args()
     try:
-        return run(args.mode, jira_only=args.jira_only)
+        return run(args.mode, jira_only=args.jira_only, close_ready=args.close_ready)
     except FriendlyError as exc:
         return handle_friendly(exc)
 
