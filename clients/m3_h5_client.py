@@ -465,9 +465,12 @@ class M3H5Client:
         Sets the DTHID filter field, presses Enter, waits for XHR,
         parses the response.
         """
-        frame = self._xdrx_frame
+        # The iframe reference goes stale after filter-reset submissions —
+        # re-resolve it each lookup and update the cached handle.
+        frame = self._find_xdrx_frame()
         if not frame:
             raise RuntimeError("XDRX800 iframe lost — cannot query")
+        self._xdrx_frame = frame
 
         # Clear previous captures
         self._captured_responses.clear()
@@ -480,6 +483,9 @@ class M3H5Client:
 
         dthid.fill(to_number)
         dthid.press("Enter")
+
+        # Give the form a moment to submit before we start polling captures
+        self._page.wait_for_timeout(3000)
 
         # Wait for XHR response (up to 10 seconds)
         deadline = time.time() + 10
