@@ -3,6 +3,9 @@ Pure business logic for to_status_check.
 
 No I/O here — functions take plain dicts/lists and return results.
 This keeps the logic unit-testable without JIRA or M3 access.
+
+Phase A: Extract TO numbers from JIRA comments.
+Phase B: Enrich rows with M3 XDRX800 TO status data.
 """
 
 import re
@@ -10,6 +13,8 @@ from datetime import datetime
 from typing import Any
 
 TO_PATTERN = re.compile(r"TO:\s*(\d+)", re.IGNORECASE)
+
+# ── Phase A: JIRA TO extraction ────────────────────────────────────────
 
 
 def extract_to_from_text(text: str) -> str | None:
@@ -75,41 +80,127 @@ def build_container_row(issue: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "to_number": to_number,
         "has_to": to_number is not None,
+        # Phase B fields — populated by enrich_rows_with_to_status()
+        "to_status": None,
+        "to_status_code": None,
+        "to_sending_site": None,
+        "to_receiving_site": None,
+        "to_receiver": None,
+        "to_creation_date": None,
+        "to_arrived_date": None,
     }
 
 
-def format_table(rows: list[dict[str, Any]]) -> str:
-    """Format result rows as a plain-text console table."""
+# ── Phase B: M3 TO status enrichment ──────────────────────────────────
+
+# Status codes from XDRX800. Not exhaustive — derived from observed data.
+# See M3_CONNECTIVITY_REFERENCE.md for column map.
+TO_STATUS_LABELS = {
+    "10": "Created",
+    "20": "TO note printed",
+    "30": "Arrived at logistics",
+    "40": "Released for transport",
+    "44": "Shipped from sending site",
+    "50": "Arrived at forwarding site",
+    "54": "Shipped from forwarding site 1",
+    "60": "Arrived at receiving site",
+    "70": "TO received",
+    "80": "Closed",
+    "89": "Deleted",
+}
+
+
+def enrich_rows_with_to_status(
+    rows: list[dict[str, Any]],
+    to_statuses: dict[str, dict[str, Any] | None],
+) -> list[dict[str, Any]]:
+    """
+    Merge M3 XDRX800 TO status data into container rows.
+
+    Args:
+        rows: Container rows from build_container_row() (Phase A output).
+        to_statuses: {to_number: status_dict_or_None} from M3H5Client.
+
+    Returns:
+        The same rows list, mutated in place with Phase B fields populated.
+    """
+    for row in rows:
+        to_num = row.get("to_number")
+        if not to_num or to_num not in to_statuses:
+            continue
+
+        m3_data = to_statuses[to_num]
+        if not m3_data:
+            continue
+
+        row["to_status"] = m3_data.get("status", "")
+        row["to_status_code"] = m3_data.get("status_code", "")
+        row["to_sending_site"] = m3_data.get("sending_site", "")
+        row["to_receiving_site"] = m3_data.get("receiving_site", "")
+        row["to_receiver"] = m3_data.get("receiver", "")
+        row["to_creation_date"] = m3_data.get("creation_date", "")
+        row["to_arrived_date"] = m3_data.get("arrived_at_logistics", "")
+
+    return rows
+
+
+# ── Output formatting ─────────────────────────────────────────────────
+
+
+def format_table(rows: list[dict[str, Any]], include_m3: bool = False) -> str:
+    """
+    Format result rows as a plain-text console table.
+
+    When include_m3 is True, adds the TO Status column from Phase B.
+    """
     if not rows:
         return "(no containers)"
 
-    header = ("Container", "Status", "TO Number", "Summary")
+    if include_m3:
+        header = ("Container", "Status", "TO Number", "TO Status", "Summary")
+        data_rows = [
+            (
+                r["key"],
+                r["status"],
+                r["to_number"] or "-",
+                r.get("to_status") or "-",
+                (r["summary"] or "")[:50],
+            )
+            for r in rows
+        ]
+    else:
+        header = ("Container", "Status", "TO Number", "Summary")
+        data_rows = [
+            (
+                r["key"],
+                r["status"],
+                r["to_number"] or "-",
+                (r["summary"] or "")[:60],
+            )
+            for r in rows
+        ]
+
     widths = [
-        max(len(header[0]), max((len(r["key"]) for r in rows), default=0)),
-        max(len(header[1]), max((len(r["status"]) for r in rows), default=0)),
-        max(len(header[2]), max((len(r["to_number"] or "-") for r in rows), default=0)),
-        max(len(header[3]), max((len((r["summary"] or "")[:60]) for r in rows), default=0)),
+        max(len(header[i]), max((len(cells[i]) for cells in data_rows), default=0))
+        for i in range(len(header))
     ]
 
     def fmt_row(cells: tuple[str, ...]) -> str:
         return "  ".join(c.ljust(widths[i]) for i, c in enumerate(cells))
 
     lines = [fmt_row(header), fmt_row(tuple("-" * w for w in widths))]
-    for r in rows:
-        lines.append(fmt_row((
-            r["key"],
-            r["status"],
-            r["to_number"] or "-",
-            (r["summary"] or "")[:60],
-        )))
+    for cells in data_rows:
+        lines.append(fmt_row(cells))
     return "\n".join(lines)
 
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, int]:
-    """Return counts of containers with/without TO numbers."""
+    """Return counts of containers with/without TO numbers and M3 status."""
     with_to = sum(1 for r in rows if r["has_to"])
+    with_m3 = sum(1 for r in rows if r.get("to_status"))
     return {
         "total": len(rows),
         "with_to": with_to,
         "without_to": len(rows) - with_to,
+        "with_m3_status": with_m3,
     }

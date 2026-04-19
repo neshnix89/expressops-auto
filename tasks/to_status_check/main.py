@@ -1,16 +1,15 @@
 """
-to_status_check — Phase A: JIRA extraction.
+to_status_check — JIRA + M3 TO Status Check.
 
-Pulls active NPI Work Containers from JIRA and extracts the Transfer Order
-(TO) number from the latest "TO: <digits>" comment on each one.
+Phase A: Pulls active Work Containers from JIRA and extracts the Transfer
+         Order (TO) number from the latest "TO: <digits>" comment.
+Phase B: Looks up each TO number in M3 XDRX800 (via Playwright browser
+         automation) to get the current shipment status.
 
-Work Containers span many JIRA project keys (USRE, POSX, LCUSAMB, NPIOTHER,
-SILED2, …) — there is no single project to filter on. We scope by issue type
-plus the Order Type custom field (customfield_13905) to match the NPI
-container population.
-
-Phase B (M3 status lookup) is deferred until discovery confirms the table
-and columns — see TASK.md.
+Usage:
+    python -m tasks.to_status_check.main --mock       # VPS testing (default)
+    python -m tasks.to_status_check.main --live        # Company laptop
+    python -m tasks.to_status_check.main --live --jira-only   # Phase A only
 """
 
 from __future__ import annotations
@@ -28,7 +27,12 @@ from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
 
-from tasks.to_status_check.logic import build_container_row, format_table, summarize
+from tasks.to_status_check.logic import (
+    build_container_row,
+    enrich_rows_with_to_status,
+    format_table,
+    summarize,
+)
 
 TASK_NAME = "to_status_check"
 # Scope by Order Type (customfield_13905) rather than project — containers
@@ -73,11 +77,46 @@ def fetch_containers_with_comments(jira: JiraClient, jql: str, logger) -> list[d
     return enriched
 
 
-def run(mode: str) -> int:
+def run_phase_b(config, rows, logger) -> list[dict]:
+    """
+    Phase B: Look up TO numbers in M3 XDRX800 via Playwright.
+
+    Only runs for containers that have a TO number from Phase A.
+    Returns the enriched rows (mutated in place).
+    """
+    to_numbers = [r["to_number"] for r in rows if r["has_to"]]
+    if not to_numbers:
+        logger.info("No TO numbers to look up — skipping Phase B")
+        return rows
+
+    logger.info("Phase B: Looking up %d TO(s) in M3 XDRX800...", len(to_numbers))
+
+    from clients.m3_h5_client import M3H5Client
+
+    client = M3H5Client(config, mock_data_dir=MOCK_DIR)
+    try:
+        client.connect()
+        to_statuses = client.get_multiple_to_status(to_numbers)
+        enrich_rows_with_to_status(rows, to_statuses)
+
+        found = sum(1 for v in to_statuses.values() if v is not None)
+        logger.info(
+            "Phase B complete: %d/%d TO(s) found in XDRX800",
+            found,
+            len(to_numbers),
+        )
+    finally:
+        client.close()
+
+    return rows
+
+
+def run(mode: str, jira_only: bool = False) -> int:
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
     logger.info("Running %s in %s mode", TASK_NAME, config.mode)
 
+    # ── Phase A: JIRA extraction ──
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
 
     issues = fetch_containers_with_comments(jira, ACTIVE_CONTAINERS_JQL, logger)
@@ -86,29 +125,64 @@ def run(mode: str) -> int:
     rows = [build_container_row(issue) for issue in issues]
     rows.sort(key=lambda r: r["key"])
 
-    summary = summarize(rows)
-    print(format_table(rows))
+    # ── Phase B: M3 TO status lookup ──
+    include_m3 = False
+    if not jira_only:
+        rows = run_phase_b(config, rows, logger)
+        include_m3 = any(r.get("to_status") for r in rows)
+
+    # ── Output ──
+    print(format_table(rows, include_m3=include_m3))
     print()
-    print(f"Total: {summary['total']}   With TO: {summary['with_to']}   Without TO: {summary['without_to']}")
+
+    summary = summarize(rows)
+    parts = [
+        f"Total: {summary['total']}",
+        f"With TO: {summary['with_to']}",
+        f"Without TO: {summary['without_to']}",
+    ]
+    if include_m3:
+        parts.append(f"With M3 Status: {summary['with_m3_status']}")
+    print("   ".join(parts))
 
     logger.info(
-        "Summary: total=%d with_to=%d without_to=%d",
-        summary["total"], summary["with_to"], summary["without_to"],
+        "Summary: total=%d with_to=%d without_to=%d with_m3=%d",
+        summary["total"],
+        summary["with_to"],
+        summary["without_to"],
+        summary.get("with_m3_status", 0),
     )
     return 0
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check JIRA Work Container TO numbers (Phase A)")
+    parser = argparse.ArgumentParser(
+        description="Check JIRA Work Container TO numbers + M3 status"
+    )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--mock", action="store_const", const="mock", dest="mode",
-                       help="Read from tasks/to_status_check/mock_data/ (default)")
-    group.add_argument("--live", action="store_const", const="live", dest="mode",
-                       help="Hit live JIRA (company laptop only)")
+    group.add_argument(
+        "--mock",
+        action="store_const",
+        const="mock",
+        dest="mode",
+        help="Read from mock_data/ (default)",
+    )
+    group.add_argument(
+        "--live",
+        action="store_const",
+        const="live",
+        dest="mode",
+        help="Hit live JIRA + M3 (company laptop only)",
+    )
+    parser.add_argument(
+        "--jira-only",
+        action="store_true",
+        help="Phase A only — skip M3 TO status lookup",
+    )
     parser.set_defaults(mode="mock")
     args = parser.parse_args()
     try:
-        return run(args.mode)
+        return run(args.mode, jira_only=args.jira_only)
     except FriendlyError as exc:
         return handle_friendly(exc)
 
