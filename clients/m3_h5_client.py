@@ -317,22 +317,30 @@ class M3H5Client:
             page.locator("a:has-text('Transport')").first.click()
 
         # Wait for XDRX800 to load in iframe
-        page.wait_for_timeout(8_000)
+        page.wait_for_timeout(12_000)
         page.screenshot(path="debug_m3_xdrx800_open.png")
         logger.info("XDRX800 program opened")
 
     def _find_xdrx_frame(self):
-        """Find the iframe containing XDRX800 form fields."""
-        for frame in self._page.frames:
-            try:
-                content = frame.content()
-                if "DTHID" in content or "DTHSNAC" in content:
-                    logger.info(
-                        "Found XDRX800 iframe: %s", frame.url[:80]
-                    )
-                    return frame
-            except Exception:
-                continue
+        """
+        Find the iframe containing XDRX800 form fields.
+
+        Polls page.frames every 2s for up to 20s — the iframe can be slow
+        to load after the Transport Orders click.
+        """
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            for frame in self._page.frames:
+                try:
+                    content = frame.content()
+                    if "DTHID" in content or "DTHSNAC" in content:
+                        logger.info(
+                            "Found XDRX800 iframe: %s", frame.url[:80]
+                        )
+                        return frame
+                except Exception:
+                    continue
+            time.sleep(2)
         return None
 
     def _clear_responsible_field(self) -> None:
