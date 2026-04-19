@@ -1,270 +1,40 @@
 @echo off
-setlocal enabledelayedexpansion
+REM ops.bat — ExpressOPS automation CLI
+REM Usage: ops push "commit message"
+REM        ops sync
+REM        ops run <task>
+REM        ops test <task>
 
-:: ============================================================
-:: ExpressOPS Automation Runner
-:: Usage:  ops sync              - Pull latest code from Git
-::         ops list              - List all available tasks
-::         ops test <task>       - Run task in mock mode
-::         ops run <task>        - Run task in LIVE mode
-::         ops capture <task>    - Capture mock data from live systems
-::         ops status            - Show last run status of all tasks
-::         ops schedule <task>   - Show Task Scheduler command for this task
-::         ops doctor            - Full environment diagnostic -> logs/doctor.log
-::         ops fulltest <task>   - capture + mock + live, all -> logs/<task>_fulltest.log
-:: ============================================================
+set PYTHON="C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
+set ROOT=C:\Users\tmoghanan\Documents\AI\expressops-auto
 
-set "PYTHON=C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
-set "PROJECT_DIR=%~dp0"
-set "LOG_DIR=%PROJECT_DIR%logs"
-
-:: Create logs directory if it doesn't exist
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-
-:: Parse command
-set "CMD=%~1"
-set "TASK=%~2"
-
-if "%CMD%"=="" goto :usage
-if "%CMD%"=="sync" goto :sync
-if "%CMD%"=="list" goto :list
-if "%CMD%"=="test" goto :test
-if "%CMD%"=="run" goto :run
-if "%CMD%"=="capture" goto :capture
-if "%CMD%"=="status" goto :status
-if "%CMD%"=="schedule" goto :schedule
-if "%CMD%"=="doctor" goto :doctor
-if "%CMD%"=="fulltest" goto :fulltest
-goto :usage
-
-:: ----------------------------------------
-:sync
-echo [SYNC] Downloading latest code from GitHub...
-cd /d "%PROJECT_DIR%"
-
-:: Backup config.yaml and logs before sync (preserve secrets and history)
-if exist "config\config.yaml" copy /y "config\config.yaml" "config\config.yaml.bak" >nul 2>&1
-if exist "logs" xcopy /e /i /y "logs" "logs_bak" >nul 2>&1
-
-:: Download repo as zip from GitHub using curl (no git, no PowerShell needed)
-curl.exe -L -o "%TEMP%\expressops-auto.zip" "https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip"
-if errorlevel 1 (
-    echo [ERROR] Failed to download from GitHub. Check your network connection.
-    exit /b 1
+if "%1"=="push" (
+    set MSG=%~2
+    if "%MSG%"=="" set MSG=sync from company laptop
+    %PYTHON% "%ROOT%\ops_push.py" %MSG%
+    goto :eof
 )
 
-:: Extract zip using tar (bundled with Windows 10+ / Server 2022)
-if exist "%TEMP%\expressops-auto-extract" rmdir /s /q "%TEMP%\expressops-auto-extract" >nul 2>&1
-mkdir "%TEMP%\expressops-auto-extract"
-tar -xf "%TEMP%\expressops-auto.zip" -C "%TEMP%\expressops-auto-extract"
-if errorlevel 1 (
-    echo [ERROR] Failed to extract zip.
-    exit /b 1
+if "%1"=="sync" (
+    echo Syncing from GitHub...
+    powershell -ExecutionPolicy Bypass -Command ^
+        "Invoke-WebRequest -Uri 'https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip' -OutFile '%TEMP%\expressops.zip'; Expand-Archive -Path '%TEMP%\expressops.zip' -DestinationPath '%TEMP%\expressops' -Force; Copy-Item -Path '%TEMP%\expressops\expressops-auto-main\*' -Destination '%ROOT%' -Recurse -Force"
+    echo Done.
+    goto :eof
 )
 
-:: Copy extracted files over current directory (skip config.yaml)
-xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" /exclude:%PROJECT_DIR%sync_exclude.txt >nul 2>&1
-if not exist "%PROJECT_DIR%sync_exclude.txt" (
-    REM If exclude file doesn't exist, just copy everything
-    xcopy /e /y "%TEMP%\expressops-auto-extract\expressops-auto-main\*" "%PROJECT_DIR%" >nul 2>&1
+if "%1"=="run" (
+    %PYTHON% "%ROOT%\tasks\%2\main.py"
+    goto :eof
 )
 
-:: Restore config.yaml and logs
-if exist "config\config.yaml.bak" (
-    copy /y "config\config.yaml.bak" "config\config.yaml" >nul 2>&1
-    del "config\config.yaml.bak" >nul 2>&1
-)
-if exist "logs_bak" (
-    xcopy /e /i /y "logs_bak" "logs" >nul 2>&1
-    rmdir /s /q "logs_bak" >nul 2>&1
+if "%1"=="test" (
+    %PYTHON% "%ROOT%\tasks\%2\main.py" --mock
+    goto :eof
 )
 
-:: Clean up temp files
-rmdir /s /q "%TEMP%\expressops-auto-extract" >nul 2>&1
-del "%TEMP%\expressops-auto.zip" >nul 2>&1
-
-echo [SYNC] Installing/updating dependencies...
-"%PYTHON%" -m pip install -r requirements.txt --quiet
-echo [SYNC] Done. Code updated from GitHub.
-goto :eof
-
-:: ----------------------------------------
-:list
-echo.
-echo Available Tasks:
-echo ================
-for /d %%D in ("%PROJECT_DIR%tasks\*") do (
-    set "taskname=%%~nxD"
-    if exist "%%D\main.py" (
-        echo   !taskname!
-    )
-)
-echo.
-goto :eof
-
-:: ----------------------------------------
-:test
-if "%TASK%"=="" (
-    echo [ERROR] Specify a task name. Usage: ops test ^<task^>
-    exit /b 1
-)
-if not exist "%PROJECT_DIR%tasks\%TASK%\main.py" (
-    echo [ERROR] Task '%TASK%' not found. Run 'ops list' to see available tasks.
-    exit /b 1
-)
-echo [TEST] Running %TASK% in MOCK mode...
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" -m tasks.%TASK%.main --mock
-echo [TEST] %TASK% completed. Check logs\%TASK%.log for details.
-goto :eof
-
-:: ----------------------------------------
-:run
-if "%TASK%"=="" (
-    echo [ERROR] Specify a task name. Usage: ops run ^<task^>
-    exit /b 1
-)
-if not exist "%PROJECT_DIR%tasks\%TASK%\main.py" (
-    echo [ERROR] Task '%TASK%' not found. Run 'ops list' to see available tasks.
-    exit /b 1
-)
-echo.
-echo  *** WARNING: LIVE MODE -- This will connect to real systems ***
-echo.
-set /p "CONFIRM=Type YES to confirm: "
-if /i not "%CONFIRM%"=="YES" (
-    echo [CANCELLED] Aborted.
-    exit /b 0
-)
-echo [LIVE] Running %TASK% against live systems...
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" -m tasks.%TASK%.main --live
-echo [LIVE] %TASK% completed. Check logs\%TASK%.log for details.
-goto :eof
-
-:: ----------------------------------------
-:capture
-if "%TASK%"=="" (
-    echo [ERROR] Specify a task name. Usage: ops capture ^<task^>
-    exit /b 1
-)
-echo [CAPTURE] Saving mock data for %TASK% from live systems...
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" scripts\capture_mock_data.py --task %TASK%
-echo [CAPTURE] Done. Mock data saved to tasks\%TASK%\mock_data\
-goto :eof
-
-:: ----------------------------------------
-:status
-echo.
-echo Task Status Overview
-echo ====================
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" scripts\show_status.py
-goto :eof
-
-:: ----------------------------------------
-:schedule
-if "%TASK%"=="" (
-    echo [ERROR] Specify a task name. Usage: ops schedule ^<task^>
-    exit /b 1
-)
-echo.
-echo To schedule %TASK% in Windows Task Scheduler, use:
-echo.
-echo   Program: %PYTHON%
-echo   Arguments: -m tasks.%TASK%.main --live
-echo   Start in: %PROJECT_DIR%
-echo.
-goto :eof
-
-:: ----------------------------------------
-:doctor
-echo [DOCTOR] Running full environment diagnostic...
-echo [DOCTOR] Full detail will be saved to %LOG_DIR%\doctor.log
-echo.
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" scripts\doctor.py
-set "RC=%errorlevel%"
-echo.
-if "%RC%"=="0" (
-    echo [DOCTOR] All checks passed.
-) else (
-    echo [DOCTOR] One or more checks failed. See %LOG_DIR%\doctor.log
-)
-exit /b %RC%
-
-:: ----------------------------------------
-:fulltest
-if "%TASK%"=="" (
-    echo [ERROR] Specify a task name. Usage: ops fulltest ^<task^>
-    exit /b 1
-)
-if not exist "%PROJECT_DIR%tasks\%TASK%\main.py" (
-    echo [ERROR] Task '%TASK%' not found. Run 'ops list' to see available tasks.
-    exit /b 1
-)
-set "FLOG=%LOG_DIR%\%TASK%_fulltest.log"
-echo [FULLTEST] Running capture + test + run for %TASK%
-echo [FULLTEST] Full output will be saved to %FLOG%
-echo.
-cd /d "%PROJECT_DIR%"
-
-echo === fulltest %TASK% === > "%FLOG%"
-echo Started: %DATE% %TIME% >> "%FLOG%"
-
-echo.
-echo [FULLTEST 1/3] Capturing mock data from live systems...
-echo. >> "%FLOG%"
-echo === 1/3 capture === >> "%FLOG%"
-"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" scripts\capture_mock_data.py --task %TASK%
-if errorlevel 1 (
-    echo [FULLTEST] Capture failed. See %FLOG%
-    exit /b 1
-)
-
-echo.
-echo [FULLTEST 2/3] Running %TASK% in MOCK mode...
-echo. >> "%FLOG%"
-echo === 2/3 test mock === >> "%FLOG%"
-"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" -m tasks.%TASK%.main --mock
-if errorlevel 1 (
-    echo [FULLTEST] Mock run failed. See %FLOG%
-    exit /b 1
-)
-
-echo.
-echo [FULLTEST 3/3] Running %TASK% in LIVE mode (auto-YES, no prompt)...
-echo. >> "%FLOG%"
-echo === 3/3 run live === >> "%FLOG%"
-"%PYTHON%" scripts\tee_run.py "%FLOG%" "%PYTHON%" -m tasks.%TASK%.main --live
-if errorlevel 1 (
-    echo [FULLTEST] Live run failed. See %FLOG%
-    exit /b 1
-)
-
-echo. >> "%FLOG%"
-echo Finished: %DATE% %TIME% >> "%FLOG%"
-
-echo.
-echo [FULLTEST] Done. Full output saved to %FLOG%
-goto :eof
-
-:: ----------------------------------------
-:usage
-echo.
-echo ExpressOPS Automation Runner
-echo ============================
-echo.
 echo Usage:
-echo   ops sync              Pull latest code + update dependencies
-echo   ops list              List all available tasks
-echo   ops test ^<task^>       Run task in MOCK mode (safe, no live systems)
-echo   ops run ^<task^>        Run task in LIVE mode (connects to real systems)
-echo   ops capture ^<task^>    Capture mock data from live systems for VPS testing
-echo   ops status            Show last run status of all tasks
-echo   ops schedule ^<task^>   Show Task Scheduler command for a task
-echo   ops doctor            Full environment diagnostic -^> logs\doctor.log
-echo   ops fulltest ^<task^>   capture + mock + live in one go -^> logs\^<task^>_fulltest.log
-echo.
-goto :eof
+echo   ops push "commit message"  — Push files to GitHub
+echo   ops sync                   — Pull latest from GitHub
+echo   ops run ^<task^>             — Run a task
+echo   ops test ^<task^>            — Run a task in mock mode

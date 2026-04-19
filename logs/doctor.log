@@ -1,0 +1,38 @@
+ExpressOPS doctor — 2026-04-18T23:10:45.002924
+============================================================
+
+--- Python runtime ---
+sys.version: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+sys.executable: C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe
+RESULT: OK   — Python 3.12.10 OK
+
+--- Config load ---
+CONFIG_PATH: C:\Users\tmoghanan\Documents\AI\expressops-auto\config\config.yaml
+mode: mock
+jira.base_url: https://pfjira.pepperl-fuchs.com
+confluence.base_url: https://pfteamspace.pepperl-fuchs.com
+m3.dsn: ODSSG
+RESULT: OK   — config.yaml OK (mode=mock)
+
+--- JIRA connectivity ---
+JQL: issuetype = "Work Container" ORDER BY key DESC
+total matches: 8567
+sample issue: WILSEN-125 — Phase-in/Phase-Out Overview
+RESULT: OK   — JIRA OK (matches=8567, sample=WILSEN-125)
+
+--- M3 ODBC ---
+DSN: ODSSG
+connection: <pyodbc.Connection object at 0x0000027A219F4510>
+RESULT: OK   — M3 OK (DSN=ODSSG)
+
+--- EDM Oracle ---
+edm.python_exe: C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\EDMAdmin.exe
+RESULT: OK   — EDM preflight OK (EDMAdmin at C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\EDMAdmin.exe)
+
+--- Confluence ---
+probe page: 560866215
+RESULT: OK   — Confluence OK (page 560866215: Express Ops MR Status)
+
+--- Tasks ---
+to_status_check: main.py=yes, last log=2026-04-18 22:20:15
+RESULT: OK   — 1 task(s) discovered

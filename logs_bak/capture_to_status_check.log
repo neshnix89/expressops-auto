@@ -1,0 +1,19 @@
+2026-04-18 22:08:44 [INFO   ] expressops.capture_to_status_check — Capturing mock data for task: to_status_check
+2026-04-18 22:08:44 [INFO   ] expressops.capture_to_status_check — Output directory: C:\Users\tmoghanan\Documents\AI\expressops-auto\tasks\to_status_check\mock_data
+2026-04-18 22:08:44 [INFO   ] expressops.capture_to_status_check — Found task-specific capture.py — running custom capture...
+2026-04-18 22:08:45 [INFO   ] expressops.capture_to_status_check — Capturing active Work Container search: issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed
+2026-04-18 22:08:46 [INFO   ] expressops.capture_to_status_check —   Saved 200 containers -> search_issuetype____Work_Container__AND__Order_Type__is_not_EMPTY_AND_status____Closed.json
+2026-04-18 22:08:46 [INFO   ] expressops.capture_to_status_check — Capturing full issue + comments for 10 sample containers
+2026-04-18 22:08:46 [INFO   ] expressops.capture_to_status_check —   V33G3D-264: 3 comments
+2026-04-18 22:08:48 [INFO   ] expressops.capture_to_status_check —   V33G3D-259: 4 comments
+2026-04-18 22:08:49 [INFO   ] expressops.capture_to_status_check —   V33G3D-33: 4 comments
+2026-04-18 22:08:49 [INFO   ] expressops.capture_to_status_check —   USRE-1363: 7 comments
+2026-04-18 22:08:50 [INFO   ] expressops.capture_to_status_check —   USRE-1359: 4 comments
+2026-04-18 22:08:50 [INFO   ] expressops.capture_to_status_check —   USRE-1199: 0 comments
+2026-04-18 22:08:50 [INFO   ] expressops.capture_to_status_check —   USRE-1179: 0 comments
+2026-04-18 22:08:51 [INFO   ] expressops.capture_to_status_check —   USRE-1177: 0 comments
+2026-04-18 22:08:51 [INFO   ] expressops.capture_to_status_check —   USRE-1039: 26 comments
+2026-04-18 22:08:52 [INFO   ] expressops.capture_to_status_check —   USRE-1027: 34 comments
+2026-04-18 22:08:52 [INFO   ] expressops.capture_to_status_check — Mock data capture complete.
+2026-04-18 22:08:52 [INFO   ] expressops.capture_to_status_check — Files saved to: C:\Users\tmoghanan\Documents\AI\expressops-auto\tasks\to_status_check\mock_data
+2026-04-18 22:08:52 [INFO   ] expressops.capture_to_status_check — Commit these files to git so VPS can use them for testing.
