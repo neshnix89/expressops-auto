@@ -74,6 +74,15 @@ def build_container_row(issue: dict[str, Any]) -> dict[str, Any]:
     comments = ((fields.get("comment") or {}).get("comments")) or []
 
     to_number = latest_to_from_comments(comments)
+
+    to_status_code: str | None = None
+    ready_to_close = False
+    if to_status_code is not None:
+        try:
+            ready_to_close = int(to_status_code) >= 90
+        except (TypeError, ValueError):
+            ready_to_close = False
+
     return {
         "key": key,
         "summary": summary,
@@ -82,12 +91,13 @@ def build_container_row(issue: dict[str, Any]) -> dict[str, Any]:
         "has_to": to_number is not None,
         # Phase B fields — populated by enrich_rows_with_to_status()
         "to_status": None,
-        "to_status_code": None,
+        "to_status_code": to_status_code,
         "to_sending_site": None,
         "to_receiving_site": None,
         "to_receiver": None,
         "to_creation_date": None,
         "to_arrived_date": None,
+        "ready_to_close": ready_to_close,
     }
 
 
