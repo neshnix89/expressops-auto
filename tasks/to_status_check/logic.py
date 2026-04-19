@@ -75,14 +75,6 @@ def build_container_row(issue: dict[str, Any]) -> dict[str, Any]:
 
     to_number = latest_to_from_comments(comments)
 
-    to_status_code: str | None = None
-    ready_to_close = False
-    if to_status_code is not None:
-        try:
-            ready_to_close = int(to_status_code) >= 90
-        except (TypeError, ValueError):
-            ready_to_close = False
-
     return {
         "key": key,
         "summary": summary,
@@ -91,14 +83,24 @@ def build_container_row(issue: dict[str, Any]) -> dict[str, Any]:
         "has_to": to_number is not None,
         # Phase B fields — populated by enrich_rows_with_to_status()
         "to_status": None,
-        "to_status_code": to_status_code,
+        "to_status_code": None,
         "to_sending_site": None,
         "to_receiving_site": None,
         "to_receiver": None,
         "to_creation_date": None,
         "to_arrived_date": None,
-        "ready_to_close": ready_to_close,
+        "ready_to_close": _compute_ready_to_close(None),
     }
+
+
+def _compute_ready_to_close(to_status_code: Any) -> bool:
+    """True when the M3 TO status code is >= 90 (terminal states)."""
+    if to_status_code is None:
+        return False
+    try:
+        return int(to_status_code) >= 90
+    except (TypeError, ValueError):
+        return False
 
 
 # ── Phase B: M3 TO status enrichment ──────────────────────────────────
@@ -150,6 +152,7 @@ def enrich_rows_with_to_status(
         row["to_receiver"] = m3_data.get("receiver", "")
         row["to_creation_date"] = m3_data.get("creation_date", "")
         row["to_arrived_date"] = m3_data.get("arrived_at_logistics", "")
+        row["ready_to_close"] = _compute_ready_to_close(row["to_status_code"])
 
     return rows
 
