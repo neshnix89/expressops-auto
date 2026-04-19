@@ -35,12 +35,14 @@ from tasks.to_status_check.logic import (
 )
 
 TASK_NAME = "to_status_check"
-# Scope by Order Type (customfield_13905) rather than project — containers
-# live across many project keys. "is not EMPTY" matches any container that has
-# been classified with an Order Type, which in practice is every NPI container.
-ACTIVE_CONTAINERS_JQL = (
-    'issuetype = "Work Container" AND "Order Type" is not EMPTY AND status != Closed'
-)
+# Scope to SMT PCBA Singapore containers via three-level ITPL template relations:
+# each listed ITPL-xxx key is a template issue whose Project Children (at level4)
+# are Tasks/Deviations; those get walked up a "Clone from Template" link and then
+# a "Project Parent" link to land on the live Work Containers. Final filters pin
+# Product Type to SMT PCBA and NPI Location to Singapore. The JQL uses three
+# layers of nested quoting (double → escaped-double → single), so this lives in
+# a raw triple-quoted string to avoid Python mangling the backslashes.
+ACTIVE_CONTAINERS_JQL = r"""issue in relation("issue in relation(\"issue in relation('key in (ITPL-769, ITPL-760, ITPL-756, ITPL-750, ITPL-746, ITPL-742, ITPL-1036, ITPL-1027)', 'Project Children', Tasks, Deviations, level4)\", \"Project Children\", 'Clone from Template', level4) and project != 'Issue Template' and status in (Waiting, \"In Progress\", Backlog)", "Project Parent", Tasks, Deviations, level1) AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore" ORDER BY created ASC"""
 MOCK_DIR = TASK_DIR / "mock_data"
 
 
