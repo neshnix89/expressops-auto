@@ -233,9 +233,14 @@ class M3H5Client:
         """
         Look up multiple TOs. Returns {to_number: result_dict_or_None}.
 
-        Reuses the same browser session for all lookups.
+        Reuses the same browser session for all lookups. Any TO that comes
+        back None on the first pass is retried once — the form is reliably
+        stable after the first successful lookup, so transient misses
+        (slow XHR, dropdown timing) usually resolve on a second attempt.
         """
         results: dict[str, dict[str, Any] | None] = {}
+
+        # First pass
         for i, to_num in enumerate(to_numbers):
             logger.info(
                 "Looking up TO %s (%d/%d)...", to_num, i + 1, len(to_numbers)
@@ -245,6 +250,17 @@ class M3H5Client:
             except Exception as exc:
                 logger.error("Failed to look up TO %s: %s", to_num, exc)
                 results[to_num] = None
+
+        # Retry failures once
+        failed = [t for t, v in results.items() if v is None]
+        if failed:
+            logger.info("Retrying %d failed TO(s)...", len(failed))
+            for to_num in failed:
+                try:
+                    results[to_num] = self.get_to_status(to_num)
+                except Exception as exc:
+                    logger.error("Retry failed for TO %s: %s", to_num, exc)
+
         return results
 
     # ── Browser automation internals ────────────────────────────────────
