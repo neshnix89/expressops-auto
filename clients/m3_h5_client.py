@@ -431,6 +431,17 @@ class M3H5Client:
 
         logger.info("XDRX800 filters cleared: %d field(s)", cleared)
 
+        # Flush the cleared form: press Enter on DTHID so the server state
+        # matches "no filters" before the first real TO lookup. Drop the
+        # resulting XHR so it doesn't collide with the next query.
+        try:
+            frame.locator('input[name="DTHID"]').press("Enter")
+            self._page.wait_for_timeout(5000)
+            self._captured_responses.clear()
+            logger.debug("Flushed XDRX800 form with empty filters")
+        except Exception as exc:
+            logger.warning("Could not flush XDRX800 form: %s", exc)
+
     def _live_lookup(self, to_number: str) -> dict[str, Any] | None:
         """
         Look up a TO by number in the live XDRX800 interface.
