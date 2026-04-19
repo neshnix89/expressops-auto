@@ -156,7 +156,10 @@ class M3H5Client:
         self._browser = self._playwright.chromium.launch(
             channel="msedge", headless=False
         )
-        context = self._browser.new_context(ignore_https_errors=True)
+        context = self._browser.new_context(
+            ignore_https_errors=True,
+            viewport={"width": 1920, "height": 1080},
+        )
         self._page = context.new_page()
 
         # XHR capture — safe handler that skips redirect responses
@@ -295,11 +298,23 @@ class M3H5Client:
             ok_btn.click()
             page.wait_for_timeout(3_000)
 
+        # Debug screenshot of post-OK state — helps diagnose off-screen dialogs
+        page.screenshot(path="debug_m3_after_ok.png", full_page=True)
+
         # Click "Transport Orders" link in results
         transport_link = page.locator("text=Transport Orders").first
         if transport_link.is_visible():
             transport_link.click()
         else:
+            # Not visible — dump visible body text so we can see what's actually there
+            try:
+                body_preview = page.inner_text("body")[:1000]
+                logger.warning(
+                    "Transport Orders not visible. Visible body (first 1000 chars):\n%s",
+                    body_preview,
+                )
+            except Exception as exc:
+                logger.warning("Could not read page body: %s", exc)
             # Fallback: look for any link containing "Transport"
             page.locator("a:has-text('Transport')").first.click()
 
