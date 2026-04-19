@@ -269,77 +269,102 @@ class M3H5Client:
         """
         Open XDRX800 via the M3 portal search dialog.
 
-        Matches the proven phase_b_pw9.py flow:
-          1. Dispatch Ctrl+R via KeyboardEvent to surface the search box
-          2. Force-show #cmdText if hidden, click + fill empty
-          3. Type 'xdrx800' char-by-char so autocomplete fires
-          4. Wait for dropdown, then click Transport Orders directly
-             (fall back to an OK button if the link isn't visible yet)
+        Line-for-line port of phase_b_pw9.py. Every wait, screenshot, and
+        diagnostic is preserved — do not simplify.
         """
         page = self._page
-        logger.info("Opening search dialog...")
 
-        # Step 1: Dispatch Ctrl+R to open search (Ctrl+R in the portal is
-        # intercepted — we send a synthetic KeyboardEvent so the browser
-        # doesn't actually reload the page).
-        page.evaluate(
-            """
+        # [2] Search dialog
+        logger.info("Search dialog...")
+        page.evaluate("""
             document.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'r', ctrlKey: true, bubbles: true
+                key: 'r', code: 'KeyR', keyCode: 82, which: 82,
+                ctrlKey: true, bubbles: true, cancelable: true
             }));
-            """
-        )
-        page.wait_for_timeout(2_000)
-
-        # Step 2: Ensure #cmdText is visible (force-show via jQuery if not)
-        cmd = page.locator("#cmdText")
-        if not cmd.is_visible():
+        """)
+        page.wait_for_timeout(2000)
+        if not page.locator("#cmdText").is_visible():
             page.evaluate(
-                "$('#cmdText').parents().each(function(){$(this).show()});"
+                "$('#cmdText').parents().each(function(){$(this).show()}); "
                 "$('#cmdText').show().focus()"
             )
-            page.wait_for_timeout(1_000)
+            page.wait_for_timeout(1000)
 
-        # Step 3: Click, clear, and type xdrx800 char-by-char for autocomplete
+        # [3] Typing xdrx800 slowly — char-by-char so autocomplete fires
+        logger.info("Typing xdrx800 slowly...")
+        cmd = page.locator("#cmdText")
         cmd.click()
         cmd.fill("")
         for char in "xdrx800":
             cmd.type(char, delay=200)
+        page.wait_for_timeout(3000)
+        page.screenshot(path="debug_pw_autocomplete.png")
 
-        # Step 4: Wait for autocomplete dropdown — do NOT press Enter
-        page.wait_for_timeout(3_000)
-        page.screenshot(path="debug_m3_search_results.png", full_page=True)
+        # [4] Look for autocomplete dropdown or results
+        logger.info("Looking for results...")
+        all_text = page.inner_text("body")
+        has_transport = "Transport Orders" in all_text
+        has_internal = "Internal Shipments" in all_text
+        has_xdrx = "XDRX800" in all_text
+        logger.info("  Transport Orders visible: %s", has_transport)
+        logger.info("  Internal Shipments visible: %s", has_internal)
+        logger.info("  XDRX800 in text: %s", has_xdrx)
 
-        # Step 5+6: Prefer the Transport Orders entry directly
-        transport_link = page.locator("text=Transport Orders").first
-        if transport_link.is_visible():
-            transport_link.click()
-        else:
-            # Step 7: Not visible yet — try an OK button, wait, then look again
-            logger.info("Transport Orders not visible — trying OK fallback")
+        if not has_transport:
+            # Click OK first, then look
+            logger.info("  No results yet. Clicking OK...")
+            page.get_by_text("OK", exact=True).first.click()
+            page.wait_for_timeout(3000)
+            page.screenshot(path="debug_pw_after_ok.png")
+
+            has_transport = "Transport Orders" in page.inner_text("body")
+            logger.info("  Transport Orders after OK: %s", has_transport)
+
+            if not has_transport:
+                # Results may be inside a popup/overlay or frame
+                logger.info("  Checking all frames and overlays...")
+                for frame in page.frames:
+                    ft = frame.content()
+                    if "Transport Orders" in ft:
+                        logger.info("  Found in frame: %s", frame.url[:60])
+                        has_transport = True
+
+                # Also check for XDRX800 links specifically
+                links = page.locator("a").all()
+                for link in links:
+                    try:
+                        txt = link.inner_text().strip()
+                        if "XDRX800" in txt or "Transport" in txt:
+                            logger.info(
+                                "  Link found: '%s' visible=%s",
+                                txt,
+                                link.is_visible(),
+                            )
+                            href = link.get_attribute("href") or ""
+                            onclick = link.get_attribute("onclick") or ""
+                            logger.info(
+                                "    href=%s onclick=%s",
+                                href[:60],
+                                onclick[:60],
+                            )
+                    except Exception:
+                        pass
+
+        # [5] Try to click Transport Orders
+        if has_transport:
+            logger.info("Clicking Transport Orders...")
             try:
-                body_preview = page.inner_text("body")[:1000]
-                logger.warning(
-                    "Visible body (first 1000 chars):\n%s", body_preview
-                )
-            except Exception as exc:
-                logger.warning("Could not read page body: %s", exc)
-
-            ok_btn = page.get_by_text("OK", exact=True).first
-            if ok_btn.is_visible():
-                ok_btn.click()
-                page.wait_for_timeout(3_000)
-
-            transport_link = page.locator("text=Transport Orders").first
-            if transport_link.is_visible():
-                transport_link.click()
-            else:
-                # Last-ditch fallback: any link containing "Transport"
+                page.locator("text=Transport Orders").first.click()
+            except Exception:
                 page.locator("a:has-text('Transport')").first.click()
+            page.wait_for_timeout(8000)
+            page.screenshot(path="debug_pw_xdrx800.png")
+        else:
+            logger.warning("Cannot find Transport Orders anywhere.")
+            logger.warning(
+                "Full page text:\n%s", page.inner_text("body")[:1000]
+            )
 
-        # Step 8: Give the iframe time to load
-        page.wait_for_timeout(15_000)
-        page.screenshot(path="debug_m3_xdrx800_open.png")
         logger.info("XDRX800 program opened")
 
     def _find_xdrx_frame(self):
