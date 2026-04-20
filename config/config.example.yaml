@@ -50,6 +50,9 @@ pages:
   kpi_dashboard: 560871424
   to_status_check: 572178513
   bom_scanner: 572180443
+  # Create a Confluence page for the MO-trigger staging table and put its
+  # ID here so `--publish` knows where to write.
+  mo_trigger_comment: 0
 
 # MO-trigger comment assembler (tasks/mo_trigger_comment)
 mo_trigger_comment:

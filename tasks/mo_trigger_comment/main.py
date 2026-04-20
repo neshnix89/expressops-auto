@@ -203,26 +203,33 @@ def process_container(
     key = issue.get("key", "?")
     fields = issue.get("fields") or {}
     comments = ((fields.get("comment") or {}).get("comments")) or []
+    summary = (fields.get("summary") or "").strip()
+    order_type_raw = extract_order_type(issue)
+
+    base_record: dict[str, Any] = {
+        "key": key,
+        "summary": summary,
+        "order_type": order_type_raw,
+    }
 
     ready, reasons = check_readiness(wps)
     if not ready:
         logger.info("%s: not ready \u2014 %s", key, "; ".join(reasons))
-        return {"key": key, "ready": False, "skip_reason": "; ".join(reasons)}
+        return {**base_record, "ready": False, "skip_reason": "; ".join(reasons)}
 
     marker = str(mo_task_config.get("duplicate_marker") or "").strip()
     if marker and has_duplicate_marker(comments, marker):
         logger.info("%s: duplicate marker %s present \u2014 skipping", key, marker)
-        return {"key": key, "ready": True, "skip_reason": "duplicate marker"}
+        return {**base_record, "ready": True, "skip_reason": "duplicate marker"}
 
     description_html = _rendered_description(issue)
     items = parse_item_table(description_html)
     if not items:
         logger.warning("%s: no NPI Built Type table parsed \u2014 skipping", key)
-        return {"key": key, "ready": True, "skip_reason": "no item table"}
+        return {**base_record, "ready": True, "skip_reason": "no item table"}
 
     delivery_info = parse_delivery_info(description_html) or "(not specified)"
 
-    order_type_raw = extract_order_type(issue)
     is_pilot, pilot_warnings = detect_pilot_run(issue, wps)
     for w in pilot_warnings:
         logger.warning("%s: %s", key, w)
@@ -308,7 +315,7 @@ def process_container(
         key, is_pilot, is_programme_ic, len(articles),
     )
     return {
-        "key": key,
+        **base_record,
         "ready": True,
         "body": body,
         "articles": articles,
@@ -319,19 +326,29 @@ def process_container(
     }
 
 
-# ── Run orchestration ────────────────────────────────────────────────
+# ── run subcommand ───────────────────────────────────────────────────
 
 
-def run(mode: str, dry_run: bool) -> int:
+def run_assemble(mode: str, dry_run: bool, publish: bool) -> int:
+    """
+    Gather + assemble MO-trigger comments. Prints each comment to the
+    console, saves it to ``outputs/mo_trigger_{KEY}.txt``, and (when
+    ``--publish`` is set and we're not in dry-run) refreshes the
+    Confluence staging page.
+    """
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
-    logger.info("Running %s in %s mode (dry_run=%s)", TASK_NAME, config.mode, dry_run)
+    logger.info(
+        "run: %s mode (dry_run=%s, publish=%s)",
+        config.mode, dry_run, publish,
+    )
 
     mo_task_config = (config.get(TASK_NAME) or {})
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
 
+    results: list[dict[str, Any]] = []
     try:
         keys = fetch_container_keys(jira, logger)
         if not keys:
@@ -356,9 +373,8 @@ def run(mode: str, dry_run: bool) -> int:
                 mo_task_config=mo_task_config,
                 logger=logger,
             )
+            results.append(result)
 
-            if not result.get("ready"):
-                continue
             body = result.get("body")
             if not body:
                 continue
@@ -389,37 +405,214 @@ def run(mode: str, dry_run: bool) -> int:
     finally:
         m3.close()
 
+    if publish:
+        if dry_run:
+            logger.info("Dry-run: skipping Confluence publish")
+        else:
+            from tasks.mo_trigger_comment.publish import publish_results
+
+            publish_results(config, results)
+
     return 0
 
 
-def main() -> int:
+# ── comment subcommand ───────────────────────────────────────────────
+
+
+def _read_staged_body(key: str, logger) -> str | None:
+    """Load the assembled comment body saved by the `run` subcommand."""
+    path = OUTPUT_DIR / f"mo_trigger_{key}.txt"
+    if not path.exists():
+        logger.error(
+            "%s: %s not found \u2014 run `run --live` first to stage it",
+            key, path,
+        )
+        return None
+    return path.read_text(encoding="utf-8").rstrip()
+
+
+def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
+    """
+    Post each staged MO-trigger comment (from outputs/) to the matching
+    JIRA container. The duplicate marker from config is appended to
+    every posted body and is also the dedupe key used against existing
+    comments so re-runs are idempotent.
+    """
+    logger = get_logger(TASK_NAME)
+    config = load_config(mode_override=mode)
+    logger.info(
+        "comment: %s mode (keys=%s, dry_run=%s)",
+        config.mode, keys, dry_run,
+    )
+
+    mo_task_config = (config.get(TASK_NAME) or {})
+    marker = str(mo_task_config.get("duplicate_marker") or "").strip()
+    if not marker:
+        logger.warning(
+            "duplicate_marker not configured \u2014 comments will post "
+            "without a dedupe footer"
+        )
+
+    jira = JiraClient(config, mock_data_dir=MOCK_DIR)
+
+    posted = 0
+    skipped = 0
+    for key in keys:
+        body = _read_staged_body(key, logger)
+        if body is None:
+            skipped += 1
+            continue
+
+        issue = resolve_container(jira, key, logger)
+        if issue is None:
+            logger.warning("%s: could not resolve issue \u2014 skipping", key)
+            skipped += 1
+            continue
+
+        existing = ((issue.get("fields") or {}).get("comment") or {}).get("comments") or []
+        if marker and has_duplicate_marker(existing, marker):
+            logger.info(
+                "%s: marker %s already present in comments \u2014 skipping",
+                key, marker,
+            )
+            skipped += 1
+            continue
+
+        final_body = f"{body}\n\n{marker}" if marker else body
+
+        if dry_run:
+            logger.info(
+                "%s: [dry-run] would post MO-trigger comment (%d chars)",
+                key, len(final_body),
+            )
+            print(f"--- dry-run comment for {key} ---")
+            print(final_body)
+            print()
+            continue
+
+        if config.is_mock:
+            logger.info("%s: [mock] would post MO-trigger comment", key)
+            continue
+
+        try:
+            jira.add_comment(key, final_body)
+        except FriendlyError as exc:
+            logger.error("%s: failed to post comment: %s", key, exc.message)
+            skipped += 1
+            continue
+
+        logger.info("%s: posted MO-trigger comment", key)
+        posted += 1
+
+    logger.info(
+        "comment summary: requested=%d posted=%d skipped=%d",
+        len(keys), posted, skipped,
+    )
+    print(
+        f"\nRequested: {len(keys)}   Posted: {posted}   Skipped: {skipped}"
+    )
+    return 0
+
+
+# ── CLI ──────────────────────────────────────────────────────────────
+
+SUBCOMMANDS = ("run", "comment")
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tasks.mo_trigger_comment.main",
         description=(
-            "Assemble MO-trigger comments for containers where prereq WPs "
-            "are done and SMT Build hasn't started. Phase 1 only \u2014 "
-            "prints + saves to outputs/, no JIRA/Confluence writes."
+            "Assemble MO-trigger comments. `run` gathers containers, "
+            "writes outputs/mo_trigger_{KEY}.txt, and (with --publish) "
+            "refreshes the Confluence staging page. `comment` posts a "
+            "previously-staged comment onto specific JIRA containers."
         ),
     )
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
-        "--mock", action="store_const", const="mock", dest="mode",
-        help="Read from mock_data/ (default)",
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    def _add_common(sp: argparse.ArgumentParser) -> None:
+        group = sp.add_mutually_exclusive_group()
+        group.add_argument(
+            "--mock", action="store_const", const="mock", dest="mode",
+            help="Read from mock_data/ (default)",
+        )
+        group.add_argument(
+            "--live", action="store_const", const="live", dest="mode",
+            help="Hit live JIRA + M3 + Confluence (company laptop only)",
+        )
+        sp.set_defaults(mode="mock")
+        sp.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show what would happen but do not write files, "
+                 "post JIRA comments, or update Confluence.",
+        )
+
+    run_p = subparsers.add_parser(
+        "run",
+        help="Assemble comments + save to outputs/ (+ --publish to Confluence).",
     )
-    group.add_argument(
-        "--live", action="store_const", const="live", dest="mode",
-        help="Hit live JIRA + M3 (company laptop only)",
-    )
-    parser.add_argument(
-        "--dry-run",
+    _add_common(run_p)
+    run_p.add_argument(
+        "--publish",
         action="store_true",
-        help="Print the assembled comment but do not write outputs/*.txt",
+        help="Also refresh the Confluence staging page "
+             "(pages.mo_trigger_comment). Live + non-dry-run only.",
     )
-    parser.set_defaults(mode="mock")
-    args = parser.parse_args()
+
+    comment_p = subparsers.add_parser(
+        "comment",
+        help="Post previously-staged comments to specific JIRA containers.",
+    )
+    _add_common(comment_p)
+    comment_p.add_argument(
+        "--keys",
+        nargs="+",
+        required=True,
+        metavar="KEY",
+        help="Container keys to comment on (e.g. --keys NPIOTHER-4566 ACDC-1041)",
+    )
+
+    return parser
+
+
+def _normalize_argv(argv: list[str]) -> list[str]:
+    """
+    Back-compat shim: if the first argument is a flag, inject the
+    default `run` subcommand. Bare `-h`/`--help` falls through so
+    argparse can show the top-level help.
+    """
+    if not argv:
+        return argv
+    first = argv[0]
+    if first in SUBCOMMANDS or first in ("-h", "--help"):
+        return argv
+    if first.startswith("-"):
+        return ["run"] + argv
+    return argv
+
+
+def main() -> int:
+    argv = _normalize_argv(sys.argv[1:])
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     try:
-        return run(mode=args.mode, dry_run=args.dry_run)
+        if args.command == "run":
+            return run_assemble(
+                mode=args.mode,
+                dry_run=args.dry_run,
+                publish=args.publish,
+            )
+        if args.command == "comment":
+            return run_comment(
+                mode=args.mode,
+                keys=args.keys,
+                dry_run=args.dry_run,
+            )
+        parser.error(f"unknown command: {args.command}")
+        return 2
     except FriendlyError as exc:
         return handle_friendly(exc)
 
