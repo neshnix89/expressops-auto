@@ -1,7 +1,7 @@
 # PROJECT STATUS
 
-> Last updated: 2026-04-19
-> Updated by: Task 1 Phase B build session
+> Last updated: 2026-04-20
+> Updated by: bom_scanner live-ready session
 
 ---
 
@@ -31,16 +31,17 @@ Priority: automate the repetitive checks first, write operations later.
 
 | # | Task Name | Category | Status | Systems | Risk Level |
 |---|-----------|----------|--------|---------|------------|
-| 1 | to_status_check | General | **Phase A ✓ / Phase B code ready, needs live test** | JIRA + M3 (Playwright) | Low (read-only) |
-| 2 | imr_creation | General | Backlog | M3 (write) + JIRA (write) | HIGH |
-| 3 | bom_new_component_check | General | Backlog | M3 + JIRA | Low (read-only) |
+| 1 | to_status_check | General | Phase A done, Phase B live-test pending | JIRA + M3 (Playwright) | Low |
+| 2 | bom_scanner | General | **Live ✓ — scheduled daily 9:30 AM** | JIRA + M3 (ODBC) + Confluence | Low (read-only scan, selective write) |
+| 3 | bom_new_component_check | General | Backlog (BOM PLC portion covered by #2) | M3 + JIRA | Low (read-only) |
 | 4 | ic_npi_container_check | General | Backlog | JIRA | Low (read-only) |
 | 5 | prototype_run_check | General | Backlog | JIRA | Low (read-only) |
 | 6 | container_type_mismatch | General | Backlog | JIRA | Low (read-only) |
 | 7 | pilot_qty_check | General | Backlog | JIRA | Low (read-only) |
-| 8 | bom_routing_edm_check | MR | Backlog | M3 + EDM + JIRA | Low (read-only) |
+| 8 | bom_routing_edm_check | MR | Backlog (BOM PLC portion covered by #2) | M3 + EDM + JIRA | Low (read-only) |
 | 9 | mr_handover_doc | MR | Backlog | JIRA + Confluence | Medium (write) |
 | 10 | ewa_plan_check | Clocking | Backlog | Unknown system | Low (read-only) |
+| 11 | imr_creation | General | Backlog | M3 (write) + JIRA (write) | HIGH |
 
 ### Priority Order (suggested)
 Start with read-only checks that exercise core clients, build confidence:
@@ -97,6 +98,17 @@ Start with read-only checks that exercise core clients, build confidence:
      and pressing Enter reset the list, or does it need F5 (Refresh) first?
 
 **Next step**: Live test on company laptop → fix any issues → mark ✓.
+
+### Task 2 — bom_scanner — Live ✓ 2026-04-20
+- Scans Work Containers (JIRA SMT PCBA Singapore + Confluence MR page).
+- Extracts article numbers from Description field via regex.
+- Classifies articles as SPI (primary) or SNO (reference) via MITBAL.MBORTY.
+- Queries MPDMAT+MITMAS_AP for BOM components with PLC != 310.
+- Validates articles exist in MPDHED (STD structure at MF1) before BOM query.
+- Publishes color-coded results to Confluence page 572180443.
+- Selective JIRA comment posting via `comment --keys` subcommand.
+- Scheduled daily at 9:30 AM via Windows Task Scheduler.
+- Duplicate comment guard uses marker "#Ref: BOM-PLCCheck#".
 
 ---
 
@@ -163,6 +175,15 @@ Full details in `M3_CONNECTIVITY_REFERENCE.md`.
 |---------|-------|-------------|------------|
 | Document references | ADMEDP.EDM_REFERENCES | PRSG, PT, RELEASESTATE | Yes |
 
+### M3 BOM / PLC Tables (confirmed 2026-04-20)
+| Purpose | Table | Key Columns | Confirmed? |
+|---------|-------|-------------|------------|
+| BOM header | MPDHED | PHPRNO, PHSTRT | Yes |
+| BOM materials | MPDMAT | PMPRNO, PMMTNO, PMSTRT, PMFACI | Yes (3.1M rows) |
+| BOM summary | MPDSUM | — | Exists but EMPTY |
+| Item/warehouse | MITBAL | MBITNO, MBWHLO, MBORTY, MBSTAT | Yes |
+| PLC field | MITMAS_AP.MMCFI3 | String values | Yes |
+
 ---
 
 ## Decisions Made
@@ -174,6 +195,15 @@ Full details in `M3_CONNECTIVITY_REFERENCE.md`.
 5. **2026-04-18:** Read-only tasks first, write tasks later.
 6. **2026-04-19:** Playwright is the only viable method for XDRX800 TO lookup — MvxMCSvt returns no panel data, EXPORTMI is locked, no custom MI exists, no ODS table backing XDRX800.
 7. **2026-04-19:** Individual TO lookups (by DTHID filter) rather than bulk fetch + client-side filter. Only ~13 TOs to look up; pagination avoidance outweighs the extra browser interactions.
+8. **2026-04-20:** PLC status is in MITMAS_AP.MMCFI3, not a PDS-specific
+   table. Pure ODBC path — no Playwright needed for BOM PLC checks.
+9. **2026-04-20:** Article numbers extracted from Description field, not
+   Summary or custom fields (both empty). Regex coverage ~82%.
+10. **2026-04-20:** MPDSUM is empty in PFODS. Use MPDMAT for BOM components.
+11. **2026-04-20:** scan/comment separation — scan publishes to Confluence
+    only; operator selectively pushes JIRA comments via `comment --keys`.
+12. **2026-04-20:** MITBAL.MBORTY classifies articles: SPI=primary,
+    SNO=reference. Others skipped.
 
 ---
 

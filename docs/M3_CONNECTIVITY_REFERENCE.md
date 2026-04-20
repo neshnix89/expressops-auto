@@ -49,6 +49,10 @@ cursor = conn.cursor()
 | `XDOPAH` | Custom table (XDRX prefix) | `XDTRNR`, `XDSTAT`, `XDRESP`, `XDFACI`, `XDTWHL`, `XDITNO` |
 | `KBXHED_AP` | Kit Box Header | `KBTRNR`, `KBTRSL`, `KBTRSH` |
 | `CSYTAB` | System Constants | `CTSTCO`, `CTSTKY`, `CTTX40` |
+| `MPDHED` | Product Structure Header | `PHPRNO`, `PHSTRT` (filter `'STD'`) |
+| `MPDMAT` | BOM Materials (3.1M rows) | `PMPRNO` (parent), `PMMTNO` (component), `PMSTRT`, `PMFACI` |
+| `MPDSUM` | Product Structure Summary | EMPTY — do not use |
+| `MITBAL` | Item/Warehouse Balance | `MBITNO`, `MBWHLO`, `MBORTY` (SPI/SNO), `MBSTAT` |
 
 ### Oracle SQL Notes
 - Use `ROWNUM <= N` (not `TOP N`)
@@ -366,6 +370,8 @@ conn = oracledb.connect(dsn="sgp01.sg.pepperl-fuchs.com:1521/...", ...)
 | EDM documents | **ODBC** to `ADMEDP` | Direct Oracle |
 | Generic table read | **ODBC** to `PFODS` | If table exists in ODS |
 | Custom program data | **Playwright** | For any MNE-only program |
+| BOM PLC check | **ODBC** (MPDMAT+MITMAS_AP) | Direct SQL join, fast |
+| Order type classification | **ODBC** (MITBAL) | MBORTY at MF1 |
 
 ---
 

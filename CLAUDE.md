@@ -88,6 +88,34 @@ expressops-auto/
 - **Column prefixes:** PH-prefixed columns; positional `?` parameters for queries.
 - **No REST API.** M3 uses session-based servlets. ODBC is the viable path.
 
+### BOM / Product Structure Tables (confirmed 2026-04-20)
+- `MPDHED` — Product structure header. Key: PHPRNO (product number),
+  PHSTRT (structure type, filter 'STD'). Use to verify a product exists
+  before querying BOM materials.
+- `MPDMAT` — BOM materials/components (3.1M rows). Key: PMPRNO (parent),
+  PMMTNO (component), PMSTRT ('STD'), PMFACI ('MF1').
+  Same component appears at multiple positions (PMDWPO). Use DISTINCT.
+- `MPDSUM` — Product structure summary. EXISTS in PFODS but EMPTY (0 rows).
+  Do not use.
+- `MITBAL` — Item/warehouse balance. Key: MBITNO, MBWHLO ('MF1').
+  MBORTY = order type: 'SPI' (produced in Singapore), 'SNO' (reference).
+- `MITMAS_AP` — Item master. MMCFI3 = PLC status (string: '310', '200',
+  'INT', 'NEW', blank). MMSTAT = item status. MMITDS = description.
+
+### PLC Status Reference
+- PLC is stored in MITMAS_AP.MMCFI3 (Custom Field Information 3)
+- PLC 310 = "Without limitation" — full sales release
+- Values are strings, not always numeric ('INT', 'NEW', blank are valid)
+- PLC is an extension of MMS001 item status, documented in DPPF-A020001
+
+### Article Number Extraction
+- customfield_13502 (M3 Article Number) is EMPTY on all containers
+- customfield_15805 (Component Part Number) is EMPTY on all containers
+- Extract from DESCRIPTION field (not Summary) using regex patterns:
+  `#(\d{6,8})`, `Y(\d{7,8})`, `\b(70\d{5,6})\b`, `PCB/PCBA#(\d{6,8})`
+- Coverage: ~82% of SMT PCBA Singapore containers
+- Containers without article numbers are typically early-stage development
+
 ### EDM Oracle
 - **Schema:** `ADMEDP`
 - **Key table:** `ADMEDP.EDM_REFERENCES`
@@ -99,6 +127,11 @@ expressops-auto/
 - **Auth:** PAT Bearer token
 - **Publishing:** BeautifulSoup for HTML manipulation; `ac:structured-macro` for status badges.
 - **Critical rule:** Always read existing page content before writing — preserve manual team edits (PIC feedback columns, Handover fields, Remarks, MR Status).
+
+### MR Status Report Page (560866215)
+Three tables: MR Week Schedule (purple, index 0), Active MR (blue, index 1),
+COMPLETED MR (index 2 — skip). Container keys are in `<a>` tags with
+`href="/browse/KEY"`. Extract with BeautifulSoup `find_all("a", href=True)`.
 
 ---
 
