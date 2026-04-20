@@ -152,6 +152,28 @@ def _compute_mo_dates(duration_days: int) -> tuple[date, date]:
     return start, end
 
 
+def _consolidate(articles: list[str], by_article: dict[str, str]) -> str:
+    """
+    Collapse per-article M3 status lines for the comment body.
+
+    * No articles → empty string (caller substitutes a fallback).
+    * Single article → its line verbatim.
+    * Multiple articles, all identical → the shared line once, no prefix.
+    * Multiple articles, differing → "article: line" pairs joined by ", ".
+
+    `articles` drives both the presence check and the emission order so
+    the assembled output is deterministic even when the dict is not.
+    """
+    if not articles:
+        return ""
+    ordered = [by_article.get(a, "") for a in articles]
+    if len(articles) == 1:
+        return ordered[0]
+    if len(set(ordered)) == 1:
+        return ordered[0]
+    return ", ".join(f"{article}: {by_article.get(article, '')}" for article in articles)
+
+
 def _assignee_or_placeholder(
     wps: list[dict[str, Any]], wp_name: str, logger, container_key: str,
 ) -> str:
@@ -219,8 +241,8 @@ def process_container(
     mo_start, mo_end = _compute_mo_dates(duration_days)
 
     # M3 enrichment — per article. When multiple articles share a
-    # container we run the checks for every one and concatenate the
-    # lines so the planner sees each.
+    # container we consolidate identical lines and only break them out
+    # with an article-number prefix when they genuinely differ.
     articles = sorted({
         art for item in items
         for art in extract_article_numbers(item.get("part_number", ""))
@@ -231,27 +253,27 @@ def process_container(
             "M3 checks skipped", key,
         )
 
-    e5_lines: list[str] = []
-    breaking_lines: list[str] = []
-    aoi_test_lines: list[str] = []
-    pkg_lines: list[str] = []
+    e5_by_article: dict[str, str] = {}
+    breaking_by_article: dict[str, str] = {}
+    aoi_test_by_article: dict[str, str] = {}
+    pkg_by_article: dict[str, str] = {}
 
     for article in articles:
-        e5_lines.append(m3_checks.check_partial_e5(m3, article, logger))
+        e5_by_article[article] = m3_checks.check_partial_e5(m3, article, logger)
         breaking, aoi_test = m3_checks.check_routing(m3, article, te_assignee, logger)
-        breaking_lines.append(breaking)
-        aoi_test_lines.append(aoi_test)
-        pkg_lines.append(m3_checks.check_bom_packaging(m3, article, logger))
+        breaking_by_article[article] = breaking
+        # Strip the TE-assignee prefix so identical routings across
+        # articles collapse cleanly; it's re-applied by the assembler.
+        aoi_test_by_article[article] = aoi_test.removeprefix(f"{te_assignee} ").strip()
+        pkg_by_article[article] = m3_checks.check_bom_packaging(m3, article, logger)
 
-    e5_status_line = "; ".join(e5_lines) if e5_lines else "(no article # \u2014 check manually)"
-    breaking_status_line = "; ".join(breaking_lines) if breaking_lines else \
+    e5_status_line = _consolidate(articles, e5_by_article) or "(no article # \u2014 check manually)"
+    breaking_status_line = _consolidate(articles, breaking_by_article) or \
         "\u26a0 Breaking check skipped (no article)"
-    packaging_material_status_line = "; ".join(pkg_lines) if pkg_lines else \
+    packaging_material_status_line = _consolidate(articles, pkg_by_article) or \
         "\u26a0 Packaging check skipped (no article)"
-    aoi_test_status = "; ".join(
-        line.removeprefix(f"{te_assignee} ").strip()
-        for line in aoi_test_lines
-    ) if aoi_test_lines else "\u26a0 AOI/Test check skipped (no article)"
+    aoi_test_status = _consolidate(articles, aoi_test_by_article) or \
+        "\u26a0 AOI/Test check skipped (no article)"
 
     fyi_list = build_fyi_list(
         mo_task_config.get("default_fyi") or [],

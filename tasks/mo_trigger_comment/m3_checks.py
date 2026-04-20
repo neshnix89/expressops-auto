@@ -203,8 +203,12 @@ def check_routing(
 def check_bom_packaging(m3: M3Client, article: str, logger) -> str:
     """
     Confirm a packaging material is present in the BOM at Dwgpos 5000
-    and that its item number starts with "PM" (packaging-material
-    prefix in M3).
+    and that its MITMAS_AP description (MMITDS) starts with "PM" \u2014
+    the convention P+F uses to mark packaging-material items.
+
+    MMITDS values from the ODBC driver can carry leading whitespace; the
+    startswith check runs after .strip() so padded descriptions still
+    classify correctly.
     """
     rows = _query_or_warn(
         m3, BOM_PACKAGING_SQL, (article,), f"bom_pkg_{article}.json", logger,
@@ -222,10 +226,11 @@ def check_bom_packaging(m3: M3Client, article: str, logger) -> str:
         m3, ITEM_STATUS_SQL, (pmmtno,), f"item_{pmmtno}.json", logger,
     )
     description = _row_value(item_rows[0], "MMITDS") if item_rows else ""
+    description_stripped = description.strip()
 
-    if pmmtno.upper().startswith("PM"):
+    if description_stripped.upper().startswith("PM"):
         return f"Packaging Material ({pmmtno}) already in BOM"
     return (
         f"\u26a0 Dwgpos 5000 component {pmmtno} not PM: "
-        f"{description or '(no description)'}"
+        f"{description_stripped or '(no description)'}"
     )

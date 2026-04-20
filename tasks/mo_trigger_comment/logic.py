@@ -259,6 +259,12 @@ def parse_item_table(description_html: str) -> list[dict[str, str]]:
         description = tds[columns["desc_col"]].get_text(" ", strip=True)
         qty_text = _extract_qty(tds[columns["qty_col"]])
 
+        # Planners sometimes leave a 0-qty row as a placeholder for
+        # articles that were dropped from the build. Don't surface them
+        # in the assembled comment.
+        if qty_text.strip() in {"", "0"}:
+            continue
+
         rows.append({
             "part_number": part_text,
             "description": description,
