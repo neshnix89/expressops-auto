@@ -84,6 +84,15 @@ FROM PFODS.MPDHED
 WHERE PHPRNO = ? AND PHSTRT = 'STD' AND PHFACI = 'MF1'
 """.strip()
 
+# MITBAL order-type classification. MBORTY tells us whether an article
+# is the primary item being produced in this container (SPI), a
+# reference article already released (SNO), or something else we should
+# not be touching at all.
+MITBAL_ORTY_SQL = """
+SELECT MBORTY FROM PFODS.MITBAL
+WHERE MBITNO = ? AND MBWHLO = 'MF1'
+""".strip()
+
 
 # ── Phase A: Gather containers ───────────────────────────────────────
 
@@ -182,6 +191,41 @@ def product_structure_exists(m3: M3Client, article: str, logger) -> bool:
         return False
 
 
+def classify_order_type(m3: M3Client, article: str, logger) -> str | None:
+    """
+    Classify an article as SPI (primary), SNO (reference), or skip.
+
+    Returns 'SPI' | 'SNO' on a valid classification, or None if the
+    article should be skipped (no MITBAL row, blank MBORTY, or any
+    other value). Mock-mode quirk: missing fixture defaults to SPI so
+    existing m3_bom_* fixtures continue to exercise the BOM path.
+    """
+    mock_filename = f"m3_mitbal_{article}.json"
+    try:
+        rows = m3.query(
+            MITBAL_ORTY_SQL,
+            params=(article,),
+            mock_filename=mock_filename,
+        )
+    except FriendlyError as exc:
+        if m3.config.is_mock and "mock data not found" in exc.message:
+            logger.debug("No MITBAL mock for %s — defaulting to SPI", article)
+            return "SPI"
+        raise
+
+    if not rows:
+        logger.info("article %s: no MITBAL row, skipping", article)
+        return None
+
+    raw = rows[0].get("MBORTY") if isinstance(rows[0], dict) else None
+    orty = (str(raw).strip().upper() if raw is not None else "")
+    if orty in ("SPI", "SNO"):
+        return orty
+    logger.info("article %s: order type %s, skipping",
+                article, orty or "(blank)")
+    return None
+
+
 def query_bom_flagged(
     m3: M3Client,
     article_number: str,
@@ -260,8 +304,19 @@ def scan_single_container(
                         key, article)
             record["articles"].append({
                 "article_number": article,
+                "order_type": None,
                 "flagged": [],
                 "note": "no STD product structure",
+            })
+            continue
+
+        order_type = classify_order_type(m3, article, logger)
+        if order_type is None:
+            record["articles"].append({
+                "article_number": article,
+                "order_type": None,
+                "flagged": [],
+                "note": "order type skipped",
             })
             continue
 
@@ -269,6 +324,7 @@ def scan_single_container(
         if flagged is None:
             record["articles"].append({
                 "article_number": article,
+                "order_type": order_type,
                 "flagged": [],
                 "note": "no BOM in M3",
             })
@@ -276,6 +332,7 @@ def scan_single_container(
 
         record["articles"].append({
             "article_number": article,
+            "order_type": order_type,
             "flagged": flagged,
             "note": "clean" if not flagged else "",
         })

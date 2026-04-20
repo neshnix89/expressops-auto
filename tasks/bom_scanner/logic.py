@@ -145,6 +145,17 @@ def normalize_component(row: dict[str, Any]) -> dict[str, str]:
 BOM_SCANNER_MARKER = "(Automated by BOM Scanner)"
 
 
+def _article_section(article: dict[str, Any]) -> str:
+    article_number = article.get("article_number", "")
+    rows = ["|| Component || PLC || Description ||"]
+    for comp in article.get("flagged") or []:
+        component = comp.get("component", "")
+        plc = comp.get("plc", "") or "(blank)"
+        description = comp.get("description", "")
+        rows.append(f"| {component} | {plc} | {description} |")
+    return f"*Article {article_number}:*\n" + "\n".join(rows)
+
+
 def build_aggregated_comment_body(
     reporter_name: str,
     articles_with_flags: list[dict[str, Any]],
@@ -154,12 +165,10 @@ def build_aggregated_comment_body(
     JIRA wiki-markup comment body covering every flagged article in one
     container — one comment total, regardless of how many articles.
 
-    Each entry in ``articles_with_flags`` is the same dict the scanner
-    records in ``result["articles"]`` — at minimum ``article_number`` and
-    ``flagged`` (list of normalized component dicts). Entries with an
-    empty ``flagged`` list are ignored; the caller is expected to have
-    filtered already, but we double-check to avoid emitting an empty
-    section.
+    Articles are grouped by MITBAL order type: SPI (primary) first, then
+    SNO (reference). A section heading is emitted only when that section
+    has at least one flagged article, so a container with SPI-only flags
+    still reads cleanly.
 
     The italicised marker line is still a plain substring, so
     :func:`already_commented` continues to match it on re-runs.
@@ -169,21 +178,18 @@ def build_aggregated_comment_body(
         f"have PLC status != {target_status}:"
     )
 
-    sections: list[str] = []
-    for art in articles_with_flags:
-        flagged = art.get("flagged") or []
-        if not flagged:
-            continue
-        article_number = art.get("article_number", "")
-        rows = ["|| Component || PLC || Description ||"]
-        for comp in flagged:
-            component = comp.get("component", "")
-            plc = comp.get("plc", "") or "(blank)"
-            description = comp.get("description", "")
-            rows.append(f"| {component} | {plc} | {description} |")
-        sections.append(f"*Article {article_number}:*\n" + "\n".join(rows))
+    spi = [a for a in articles_with_flags
+           if a.get("flagged") and (a.get("order_type") or "").upper() == "SPI"]
+    sno = [a for a in articles_with_flags
+           if a.get("flagged") and (a.get("order_type") or "").upper() == "SNO"]
 
-    body_sections = "\n\n".join(sections)
+    blocks: list[str] = []
+    if spi:
+        blocks.append("*Primary (SPI)*\n\n" + "\n\n".join(_article_section(a) for a in spi))
+    if sno:
+        blocks.append("*Reference (SNO)*\n\n" + "\n\n".join(_article_section(a) for a in sno))
+
+    body_sections = "\n\n".join(blocks)
     footer = (
         f"Please update the PLC status to {target_status} before proceeding "
         f"with MR.\n_{BOM_SCANNER_MARKER}_"
@@ -224,6 +230,7 @@ def build_confluence_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "key": key,
                 "sources": sources,
                 "article": "-",
+                "type": "-",
                 "flagged_count": 0,
                 "component_details": "",
                 "reporter": reporter,
@@ -241,6 +248,7 @@ def build_confluence_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "key": key,
                 "sources": sources,
                 "article": art.get("article_number", ""),
+                "type": art.get("order_type") or "-",
                 "flagged_count": len(flagged),
                 "component_details": details or art.get("note", ""),
                 "reporter": reporter,
@@ -274,13 +282,14 @@ def format_table(results: list[dict[str, Any]]) -> str:
         return "(no containers)"
 
     header = (
-        "Container", "Source", "Article", "Flagged", "Reporter", "Action",
+        "Container", "Source", "Article", "Type", "Flagged", "Reporter", "Action",
     )
     data = [
         (
             r["key"],
             r["sources"],
             str(r["article"]),
+            str(r.get("type") or "-"),
             str(r["flagged_count"]),
             r["reporter"] or "-",
             r["action_taken"] or "-",

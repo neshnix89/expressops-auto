@@ -30,6 +30,7 @@ from tasks.bom_scanner.logic import extract_article_numbers
 from tasks.bom_scanner.main import (
     ACTIVE_CONTAINERS_JQL,
     BOM_FLAGGED_SQL,
+    MITBAL_ORTY_SQL,
     MR_STATUS_PAGE_KEY,
 )
 
@@ -102,13 +103,8 @@ def _capture_confluence(config, mock_dir: Path, logger) -> None:
     logger.info("  Saved %d bytes of storage HTML", len(html))
 
 
-def _capture_m3_boms(
-    config,
-    mock_dir: Path,
-    sampled_issues: list[dict],
-    logger,
-) -> None:
-    """Capture the BOM-flagged query for every article across samples."""
+def _collect_article_numbers(sampled_issues: list[dict]) -> list[str]:
+    """Pinned references + every article number across the sampled issues."""
     articles: list[str] = list(PINNED_ARTICLES)
     for issue in sampled_issues:
         fields = issue.get("fields") or {}
@@ -116,6 +112,17 @@ def _capture_m3_boms(
         for art in extract_article_numbers(description):
             if art not in articles:
                 articles.append(art)
+    return articles
+
+
+def _capture_m3_boms(
+    config,
+    mock_dir: Path,
+    sampled_issues: list[dict],
+    logger,
+) -> None:
+    """Capture the BOM-flagged query for every article across samples."""
+    articles = _collect_article_numbers(sampled_issues)
 
     logger.info("Capturing M3 BOM results for %d article number(s)", len(articles))
     m3 = M3Client(config)
@@ -135,6 +142,35 @@ def _capture_m3_boms(
         m3.close()
 
 
+def _capture_m3_mitbal(
+    config,
+    mock_dir: Path,
+    sampled_issues: list[dict],
+    logger,
+) -> None:
+    """
+    Capture MITBAL MBORTY (order type) for every article. Lets mock
+    mode distinguish SPI (primary) from SNO (reference) instead of the
+    all-SPI fallback.
+    """
+    articles = _collect_article_numbers(sampled_issues)
+
+    logger.info("Capturing M3 MITBAL order types for %d article(s)", len(articles))
+    m3 = M3Client(config)
+    try:
+        for article in articles:
+            try:
+                rows = m3.query(MITBAL_ORTY_SQL, params=(article,))
+            except Exception as exc:
+                logger.error("  %s: MITBAL query failed \u2014 %s", article, exc)
+                continue
+            m3.save_mock(rows, f"m3_mitbal_{article}.json", mock_dir)
+            orty = (rows[0].get("MBORTY") if rows else None) or "(no row)"
+            logger.info("  %s: MBORTY=%s", article, orty)
+    finally:
+        m3.close()
+
+
 def capture(config, mock_dir: Path, logger) -> None:
     """Entry point used by scripts/capture_mock_data.py."""
     mock_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +179,7 @@ def capture(config, mock_dir: Path, logger) -> None:
     sampled = _capture_jira(jira, mock_dir, logger)
 
     _capture_confluence(config, mock_dir, logger)
+    _capture_m3_mitbal(config, mock_dir, sampled, logger)
     _capture_m3_boms(config, mock_dir, sampled, logger)
 
     logger.info("bom_scanner capture complete.")
