@@ -17,8 +17,9 @@ if "%1"=="push" (
 
 if "%1"=="sync" (
     echo Syncing from GitHub...
+    curl.exe -L -o "%TEMP%\expressops.zip" "https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip"
     powershell -ExecutionPolicy Bypass -Command ^
-        "Invoke-WebRequest -Uri 'https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip' -OutFile '%TEMP%\expressops.zip'; Expand-Archive -Path '%TEMP%\expressops.zip' -DestinationPath '%TEMP%\expressops' -Force; Copy-Item -Path '%TEMP%\expressops\expressops-auto-main\*' -Destination '%ROOT%' -Recurse -Force"
+        "Expand-Archive -Path '%TEMP%\expressops.zip' -DestinationPath '%TEMP%\expressops' -Force; Copy-Item -Path '%TEMP%\expressops\expressops-auto-main\*' -Destination '%ROOT%' -Recurse -Force"
     echo Done.
     goto :eof
 )
