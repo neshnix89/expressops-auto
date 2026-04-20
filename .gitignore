@@ -11,6 +11,9 @@ venv/
 # Logs
 logs/
 
+# Task outputs (generated comments, exports)
+outputs/
+
 # IDE
 .vscode/
 .idea/
