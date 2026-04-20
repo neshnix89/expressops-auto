@@ -50,3 +50,17 @@ pages:
   kpi_dashboard: 560871424
   to_status_check: 572178513
   bom_scanner: 572180443
+
+# MO-trigger comment assembler (tasks/mo_trigger_comment)
+mo_trigger_comment:
+  addressee: "Ng Ker Cheng Hazel"
+  qm_default_assignee: "Chern JR Daniel"
+  smt_line: "Line 5"
+  mo_duration_days: 4
+  default_fyi:
+    - "Moghanan Thinesh Neo Wei Siang"
+    - "Teo Geok Hui"
+    - "Sawabi Siti Aslinda"
+    - "Jainutdeen Jahabar"
+    - "Ng Ker Cheng Hazel"
+  duplicate_marker: "#Ref: MO-Trigger#"
