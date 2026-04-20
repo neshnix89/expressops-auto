@@ -146,9 +146,11 @@ def _reporter_display_name(issue: dict[str, Any]) -> str:
 
 
 def _compute_mo_dates(duration_days: int) -> tuple[date, date]:
+    # TASK.md spec: "MO end = MO start + N working days" \u2014 literally
+    # N added to the start, so Wed + 4 WD lands on the following Tue.
     today = date.today()
     start = next_working_day(today)
-    end = add_working_days(start, max(duration_days - 1, 0))
+    end = add_working_days(start, max(duration_days, 0))
     return start, end
 
 
