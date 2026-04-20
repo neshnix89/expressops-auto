@@ -142,7 +142,12 @@ def normalize_component(row: dict[str, Any]) -> dict[str, str]:
 
 # ── Comment body ─────────────────────────────────────────────────────
 
-BOM_SCANNER_MARKER = "(Automated by BOM Scanner)"
+# Literal footer line stamped on every comment we post.
+BOM_SCANNER_MARKER = "#Ref: BOM-PLCCheck#"
+# Substring used for duplicate detection. Kept narrower than the full
+# marker so an operator who quotes or truncates the reference in a
+# reply still trips the dedupe check on re-run.
+BOM_SCANNER_MARKER_NEEDLE = "Ref: BOM-PLCCheck"
 
 
 def _article_section(article: dict[str, Any]) -> str:
@@ -192,7 +197,7 @@ def build_aggregated_comment_body(
     body_sections = "\n\n".join(blocks)
     footer = (
         f"Please update the PLC status to {target_status} before proceeding "
-        f"with MR.\n_{BOM_SCANNER_MARKER}_"
+        f"with MR.\n{BOM_SCANNER_MARKER}"
     )
     return f"{header}\n\n{body_sections}\n\n{footer}"
 
@@ -201,7 +206,7 @@ def already_commented(comments: list[dict[str, Any]]) -> bool:
     """True if any existing comment carries the BOM Scanner marker line."""
     for c in comments or []:
         body = c.get("body") or ""
-        if BOM_SCANNER_MARKER in body:
+        if BOM_SCANNER_MARKER_NEEDLE in body:
             return True
     return False
 
