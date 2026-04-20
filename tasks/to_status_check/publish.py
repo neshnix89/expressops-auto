@@ -23,6 +23,12 @@ logger = get_logger("to_status_check.publish")
 
 PAGE_KEY = "to_status_check"
 
+CLOSE_BAT_PATH = r"C:\Users\tmoghanan\Documents\AI\expressops-auto\scripts\close_logistics.bat"
+CLOSE_PS_CMD = (
+    r"C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe "
+    r"-m tasks.to_status_check.main --live --close-ready"
+)
+
 
 def _cell(value: Any) -> str:
     if value is None or value == "":
@@ -30,10 +36,32 @@ def _cell(value: Any) -> str:
     return html.escape(str(value))
 
 
+def _code_macro(language: str, body: str) -> str:
+    """Confluence storage-format code macro with CDATA body."""
+    return (
+        '<ac:structured-macro ac:name="code">'
+        f'<ac:parameter ac:name="language">{language}</ac:parameter>'
+        f'<ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body>'
+        '</ac:structured-macro>'
+    )
+
+
+def _close_instructions_html() -> str:
+    """Footer block explaining how to trigger the --close-ready action."""
+    return (
+        "<hr/>"
+        "<p>To close Logistics WPs where TO status &gt;= 90:</p>"
+        "<p><strong>Batch script:</strong></p>"
+        + _code_macro("text", CLOSE_BAT_PATH)
+        + "<p><strong>Manual command:</strong></p>"
+        + _code_macro("powershell", CLOSE_PS_CMD)
+    )
+
+
 def rows_to_html(rows: list[dict[str, Any]], include_m3: bool) -> str:
     """Render container rows as a Confluence storage-format HTML table."""
     if not rows:
-        return "<p><em>No active Work Containers.</em></p>"
+        return "<p><em>No active Work Containers.</em></p>" + _close_instructions_html()
 
     headers = ["Container", "Status", "TO Number"]
     if include_m3:
@@ -78,6 +106,7 @@ def rows_to_html(rows: list[dict[str, Any]], include_m3: bool) -> str:
         f"<tr>{header_html}</tr>"
         + "".join(body_rows)
         + "</tbody></table>"
+        + _close_instructions_html()
     )
 
 
