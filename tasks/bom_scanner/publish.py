@@ -26,7 +26,12 @@ PAGE_KEY = "bom_scanner"
 RUN_BAT_PATH = r"C:\Users\tmoghanan\Documents\AI\expressops-auto\scripts\bom_scanner_run.bat"
 RUN_PS_CMD = (
     r"C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe "
-    r"-m tasks.bom_scanner.main --live --target-status 310 --publish"
+    r"-m tasks.bom_scanner.main scan --live --target-status 310"
+)
+COMMENT_PS_CMD = (
+    r"C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe "
+    r"-m tasks.bom_scanner.main comment --live --target-status 310 "
+    r"--keys KEY1 KEY2"
 )
 
 
@@ -47,15 +52,24 @@ def _code_macro(language: str, body: str) -> str:
 
 
 def _run_instructions_html(target_status: str) -> str:
-    """Footer block explaining how to re-trigger the scanner."""
-    ps_cmd = RUN_PS_CMD.replace("--target-status 310", f"--target-status {target_status}")
+    """
+    Footer block. Explains how to re-run the scan (re-publishes this
+    page) and how to push a JIRA comment on a chosen container.
+
+    The scan command is strictly read-only against JIRA — it only
+    refreshes this Confluence page. Comments are a deliberate, manual
+    step via the `comment` subcommand with explicit `--keys`.
+    """
+    scan_cmd = RUN_PS_CMD.replace("--target-status 310", f"--target-status {target_status}")
+    comment_cmd = COMMENT_PS_CMD.replace("--target-status 310", f"--target-status {target_status}")
     return (
         "<hr/>"
-        "<p>To re-run the BOM Scanner (posts JIRA comments on flagged containers):</p>"
-        "<p><strong>Batch script:</strong></p>"
+        "<p><strong>Re-run the scan</strong> (refreshes this page, no JIRA writes):</p>"
         + _code_macro("text", RUN_BAT_PATH)
-        + "<p><strong>Manual command:</strong></p>"
-        + _code_macro("powershell", ps_cmd)
+        + _code_macro("powershell", scan_cmd)
+        + "<p><strong>Post a BOM comment on chosen containers</strong> "
+        "(replace KEY1/KEY2 with the keys from the table above):</p>"
+        + _code_macro("powershell", comment_cmd)
     )
 
 

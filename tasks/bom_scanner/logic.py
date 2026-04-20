@@ -145,38 +145,50 @@ def normalize_component(row: dict[str, Any]) -> dict[str, str]:
 BOM_SCANNER_MARKER = "(Automated by BOM Scanner)"
 
 
-def build_comment_body(
+def build_aggregated_comment_body(
     reporter_name: str,
-    article_number: str,
-    flagged_components: list[dict[str, str]],
+    articles_with_flags: list[dict[str, Any]],
     target_status: str,
 ) -> str:
     """
-    JIRA wiki-markup comment body for a single flagged article.
+    JIRA wiki-markup comment body covering every flagged article in one
+    container — one comment total, regardless of how many articles.
 
-    Mentions the reporter with `[~name]`, lists the offending components
-    in a fixed-width table, and ends with the marker line the re-run
-    duplicate check looks for.
+    Each entry in ``articles_with_flags`` is the same dict the scanner
+    records in ``result["articles"]`` — at minimum ``article_number`` and
+    ``flagged`` (list of normalized component dicts). Entries with an
+    empty ``flagged`` list are ignored; the caller is expected to have
+    filtered already, but we double-check to avoid emitting an empty
+    section.
+
+    The italicised marker line is still a plain substring, so
+    :func:`already_commented` continues to match it on re-runs.
     """
     header = (
-        f"[~{reporter_name}] BOM PLC Check \u2014 the following components in "
-        f"article {article_number} have a PLC status other than {target_status}:"
+        f"[~{reporter_name}] BOM PLC Check \u2014 the following components "
+        f"have PLC status != {target_status}:"
     )
 
-    # JIRA wiki-markup pipe table
-    lines = ["||Component||Current PLC||Description||"]
-    for comp in flagged_components:
-        component = comp.get("component", "")
-        plc = comp.get("plc", "") or "(blank)"
-        description = comp.get("description", "")
-        lines.append(f"|{component}|{plc}|{description}|")
-    table = "\n".join(lines)
+    sections: list[str] = []
+    for art in articles_with_flags:
+        flagged = art.get("flagged") or []
+        if not flagged:
+            continue
+        article_number = art.get("article_number", "")
+        rows = ["|| Component || PLC || Description ||"]
+        for comp in flagged:
+            component = comp.get("component", "")
+            plc = comp.get("plc", "") or "(blank)"
+            description = comp.get("description", "")
+            rows.append(f"| {component} | {plc} | {description} |")
+        sections.append(f"*Article {article_number}:*\n" + "\n".join(rows))
 
+    body_sections = "\n\n".join(sections)
     footer = (
         f"Please update the PLC status to {target_status} before proceeding "
-        f"with MR.\n\n{BOM_SCANNER_MARKER}"
+        f"with MR.\n_{BOM_SCANNER_MARKER}_"
     )
-    return f"{header}\n\n{table}\n\n{footer}"
+    return f"{header}\n\n{body_sections}\n\n{footer}"
 
 
 def already_commented(comments: list[dict[str, Any]]) -> bool:
