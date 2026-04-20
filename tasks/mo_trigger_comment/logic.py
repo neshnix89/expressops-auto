@@ -118,14 +118,107 @@ def _find_panel_header(soup: BeautifulSoup, needle: str) -> Tag | None:
     return None
 
 
+def _header_cells(tr: Tag) -> list[Tag]:
+    """
+    Return cells from a row if it looks like a header row.
+
+    Format A (NPIOTHER-4566): true <th> cells.
+    Format B (ACDC-1041): <td><b>...</b></td> cells acting as headers.
+    Returns [] when the row is clearly a data row.
+    """
+    ths = tr.find_all("th", recursive=False)
+    if ths:
+        return ths
+    tds = tr.find_all("td", recursive=False)
+    if not tds:
+        return []
+    # Treat as a header row only when every cell contains a <b> and no
+    # <a> link — a real item row has an anchor on the part-number cell.
+    if any(td.find("a") for td in tds):
+        return []
+    if all(td.find("b") is not None for td in tds):
+        return tds
+    return []
+
+
+def _header_text(cell: Tag) -> str:
+    return cell.get_text(" ", strip=True).lower()
+
+
+def _map_columns(headers: list[Tag]) -> dict[str, int]:
+    """
+    Find the column index for part number / description / qty by header
+    text. Order of preference follows the two confirmed production
+    layouts — Format B has a "Build type" col before the part number and
+    uses a literal "#PN" / "PN" label; Format A uses "Part Number PCBA".
+
+    First match wins per role so a later "Yearly Forecast" column can't
+    steal the qty slot from "Request Qty".
+    """
+    mapping: dict[str, int] = {}
+    for idx, cell in enumerate(headers):
+        text = _header_text(cell)
+        if "part_col" not in mapping and (
+            "part number" in text
+            or text in {"#pn", "pn"}
+            or text.endswith(" pn")
+            or text.startswith("pn ")
+            or text.startswith("#pn")
+        ):
+            mapping["part_col"] = idx
+            continue
+        if "desc_col" not in mapping and "description" in text:
+            mapping["desc_col"] = idx
+            continue
+        if "qty_col" not in mapping and "request" in text:
+            mapping["qty_col"] = idx
+            continue
+    return mapping
+
+
+_DIGIT_RE = re.compile(r"\d+")
+
+
+def _extract_part_number(cell: Tag) -> str:
+    """
+    Part number lives inside an <a> tag in Format A (with leading #),
+    or as plain text in Format B (often with a leading # from the "#PN"
+    header column). Strip a leading # in either case.
+    """
+    anchor = cell.find("a")
+    text = anchor.get_text(strip=True) if anchor else cell.get_text(" ", strip=True)
+    return text.lstrip("#").strip()
+
+
+def _extract_qty(cell: Tag) -> str:
+    """
+    Qty cells may contain a strikethrough old value and a bold new value
+    (`<del>72</del> <b>96</b>`). Prefer the <b> content, then reduce to
+    digits only so the assembled comment shows the current target qty.
+    """
+    bold = cell.find("b")
+    source = bold.get_text(" ", strip=True) if bold else cell.get_text(" ", strip=True)
+    match = _DIGIT_RE.search(source)
+    return match.group(0) if match else source.strip()
+
+
 def parse_item_table(description_html: str) -> list[dict[str, str]]:
     """
     Parse the "NPI Built Type & Quantities" table from the container's
     rendered description HTML. Returns a list of
     `{part_number, description, qty}` dicts — one per data row.
 
-    Empty list when the panel or table is missing. Caller treats that
-    as a skip+warning.
+    Two production formats are supported (column order differs):
+      * Format A (NPIOTHER-4566): <th> headers; part number in col 0
+        inside an <a> tag, prefixed with "#".
+      * Format B (ACDC-1041):    <td><b> headers; part number in col 1
+        as plain text; qty may carry <del>old</del> <b>new</b>.
+
+    Column roles are resolved by header text ("PN"/"Part Number",
+    "Description", "Request"), never by hard-coded index.
+
+    Empty list when the panel, table, or expected columns are missing.
+    Caller treats that as a skip+warning.
     """
     if not description_html:
         return []
@@ -139,23 +232,32 @@ def parse_item_table(description_html: str) -> list[dict[str, str]]:
     if table is None:
         return []
 
+    trs = table.find_all("tr")
+    columns: dict[str, int] | None = None
     rows: list[dict[str, str]] = []
-    for tr in table.find_all("tr"):
-        tds = tr.find_all("td", recursive=False)
-        if len(tds) < 3:
-            # header row (<th> cells) or a shorter row we don't use
+
+    for tr in trs:
+        header_cells = _header_cells(tr)
+        if header_cells:
+            if columns is None:
+                columns = _map_columns(header_cells)
             continue
 
-        part_cell = tds[0]
-        anchor = part_cell.find("a")
-        part_text = (anchor.get_text(strip=True) if anchor else part_cell.get_text(strip=True))
-        part_text = part_text.lstrip("#").strip()
+        if columns is None or not {"part_col", "desc_col", "qty_col"}.issubset(columns):
+            # Saw a data row before a usable header — skip; a later
+            # header row (unusual) would still set `columns`.
+            continue
 
-        description = tds[1].get_text(" ", strip=True)
-        qty_text = tds[2].get_text(" ", strip=True)
+        tds = tr.find_all("td", recursive=False)
+        max_idx = max(columns.values())
+        if len(tds) <= max_idx:
+            continue
 
+        part_text = _extract_part_number(tds[columns["part_col"]])
         if not part_text:
             continue
+        description = tds[columns["desc_col"]].get_text(" ", strip=True)
+        qty_text = _extract_qty(tds[columns["qty_col"]])
 
         rows.append({
             "part_number": part_text,
