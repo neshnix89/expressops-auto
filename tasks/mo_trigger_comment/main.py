@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -27,6 +28,7 @@ PROJECT_ROOT = TASK_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.config_loader import load_config
+from core.confluence import ConfluenceClient
 from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
@@ -45,7 +47,9 @@ from tasks.mo_trigger_comment.logic import (
     find_wp_by_name,
     format_date,
     get_wp_assignee,
+    get_wp_assignee_username,
     has_duplicate_marker,
+    jira_mention,
     next_working_day,
     parse_delivery_info,
     parse_item_table,
@@ -140,9 +144,13 @@ def _rendered_description(issue: dict[str, Any]) -> str:
     return (issue.get("fields") or {}).get("description") or ""
 
 
-def _reporter_display_name(issue: dict[str, Any]) -> str:
+def _reporter_fields(issue: dict[str, Any]) -> tuple[str, str]:
+    """Return ``(username, displayName)`` for the issue's reporter."""
     reporter = (issue.get("fields") or {}).get("reporter") or {}
-    return (reporter.get("displayName") or "").strip()
+    return (
+        (reporter.get("name") or "").strip(),
+        (reporter.get("displayName") or "").strip(),
+    )
 
 
 def _compute_mo_dates(duration_days: int) -> tuple[date, date]:
@@ -176,18 +184,32 @@ def _consolidate(articles: list[str], by_article: dict[str, str]) -> str:
     return ", ".join(f"{article}: {by_article.get(article, '')}" for article in articles)
 
 
-def _assignee_or_placeholder(
+def _assignee_mention(
     wps: list[dict[str, Any]], wp_name: str, logger, container_key: str,
 ) -> str:
+    """
+    Return a JIRA ``[~username]`` mention for the named WP's assignee so
+    the comment renders as a linked @mention. Falls back to the plain
+    display name when only that is available (rare), and to
+    ``[UNASSIGNED]`` when the WP has no assignee at all.
+    """
     wp = find_wp_by_name(wps, wp_name)
-    name = get_wp_assignee(wp)
-    if not name:
+    username = get_wp_assignee_username(wp)
+    if username:
+        return jira_mention(username)
+    display = get_wp_assignee(wp)
+    if display:
         logger.warning(
-            "%s: %s WP unassigned \u2014 using [UNASSIGNED]",
-            container_key, wp_name,
+            "%s: %s WP has displayName '%s' but no username — "
+            "falling back to plain name (no mention link)",
+            container_key, wp_name, display,
         )
-        return "[UNASSIGNED]"
-    return name
+        return display
+    logger.warning(
+        "%s: %s WP unassigned \u2014 using [UNASSIGNED]",
+        container_key, wp_name,
+    )
+    return "[UNASSIGNED]"
 
 
 def process_container(
@@ -237,13 +259,31 @@ def process_container(
         logger.warning("%s: %s", key, w)
     is_programme_ic = detect_programme_ic(issue, wps)
 
-    pe_assignee = _assignee_or_placeholder(wps, "pe - technprep", logger, key)
-    te_assignee = _assignee_or_placeholder(wps, "te - technprep", logger, key)
+    pe_assignee = _assignee_mention(wps, "pe - technprep", logger, key)
+    te_assignee = _assignee_mention(wps, "te - technprep", logger, key)
 
     qm_wp = find_wp_by_name(wps, "qm p+l")
-    qm_assignee = get_wp_assignee(qm_wp) or str(
-        mo_task_config.get("qm_default_assignee") or "Chern JR Daniel"
-    )
+    qm_username = get_wp_assignee_username(qm_wp)
+    if qm_username:
+        qm_assignee = jira_mention(qm_username)
+    else:
+        default_username = str(mo_task_config.get("qm_default_username") or "").strip()
+        if default_username:
+            qm_assignee = jira_mention(default_username)
+        else:
+            # No WP assignee and no configured username fallback —
+            # emit the display name as plain text so the comment still
+            # names someone, and warn so the operator notices.
+            qm_assignee = str(
+                mo_task_config.get("qm_default_display")
+                or mo_task_config.get("qm_default_assignee")
+                or "[UNASSIGNED]"
+            )
+            logger.warning(
+                "%s: QM P+L unassigned and no qm_default_username configured "
+                "-- MOI line will show plain display name (no mention link)",
+                key,
+            )
 
     smt_line = str(mo_task_config.get("smt_line") or "Line 5")
     duration_days = int(mo_task_config.get("mo_duration_days") or 4)
@@ -284,9 +324,11 @@ def process_container(
     aoi_test_status = _consolidate(articles, aoi_test_by_article) or \
         "\u26a0 AOI/Test check skipped (no article)"
 
+    reporter_username, reporter_display = _reporter_fields(issue)
     fyi_list = build_fyi_list(
         mo_task_config.get("default_fyi") or [],
-        _reporter_display_name(issue),
+        reporter_username,
+        reporter_display,
         wps,
     )
 
@@ -421,24 +463,77 @@ def run_assemble(mode: str, dry_run: bool, publish: bool) -> int:
 # ── comment subcommand ───────────────────────────────────────────────
 
 
-def _read_staged_body(key: str, logger) -> str | None:
-    """Load the assembled comment body saved by the `run` subcommand."""
-    path = OUTPUT_DIR / f"mo_trigger_{key}.txt"
-    if not path.exists():
+# Matches the per-container expand/code macro emitted by publish.py:
+#   <ac:parameter ac:name="title">Show comment for {KEY}</ac:parameter>
+#   ...<ac:plain-text-body><![CDATA[{BODY}]]></ac:plain-text-body>
+# Whitespace-tolerant because Confluence's stored representation may
+# reflow after a human edit.
+_CONFLUENCE_COMMENT_RE = re.compile(
+    r'<ac:parameter\s+ac:name="title">\s*'
+    r'Show comment for ([\w-]+)\s*'
+    r'</ac:parameter>'
+    r'.*?<!\[CDATA\[(.*?)\]\]>',
+    re.DOTALL,
+)
+
+
+def _parse_confluence_bodies(html_body: str) -> dict[str, str]:
+    """
+    Extract ``{container_key: comment_body}`` pairs from the Confluence
+    staging page HTML. Each ready container has exactly one
+    "Show comment for KEY" expand/code macro on the page.
+    """
+    if not html_body:
+        return {}
+    return {
+        m.group(1): m.group(2).rstrip()
+        for m in _CONFLUENCE_COMMENT_RE.finditer(html_body)
+    }
+
+
+def _load_confluence_bodies(config, logger) -> dict[str, str]:
+    """
+    Fetch the mo_trigger_comment staging page and return the
+    ``{key: body}`` map currently shown on it. Edits made in Confluence
+    are the source of truth for what gets posted to JIRA. A failed fetch
+    returns an empty dict; the caller reports each missing key.
+    """
+    from tasks.mo_trigger_comment.publish import PAGE_KEY
+
+    page_id = config.pages.get(PAGE_KEY)
+    if not page_id:
         logger.error(
-            "%s: %s not found \u2014 run `run --live` first to stage it",
-            key, path,
+            "No Confluence page ID configured for '%s' \u2014 "
+            "add `pages.%s: <id>` to config/config.yaml",
+            PAGE_KEY, PAGE_KEY,
         )
-        return None
-    return path.read_text(encoding="utf-8").rstrip()
+        return {}
+
+    client = ConfluenceClient(config, mock_data_dir=MOCK_DIR)
+    try:
+        html_body = client.get_page_html(page_id)
+    except FriendlyError as exc:
+        logger.error(
+            "Failed to fetch Confluence page %s: %s",
+            page_id, exc.message,
+        )
+        return {}
+
+    bodies = _parse_confluence_bodies(html_body)
+    logger.info(
+        "Loaded %d staged comment(s) from Confluence page %s",
+        len(bodies), page_id,
+    )
+    return bodies
 
 
 def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
     """
-    Post each staged MO-trigger comment (from outputs/) to the matching
-    JIRA container. The duplicate marker from config is appended to
-    every posted body and is also the dedupe key used against existing
-    comments so re-runs are idempotent.
+    Post MO-trigger comments to JIRA using the current content of the
+    Confluence staging page as the source of truth — so any edits a
+    planner made on Confluence after `run --publish` are what lands on
+    JIRA. The duplicate marker from config is appended to every posted
+    body and also used to de-dupe existing comments on re-runs.
     """
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
@@ -455,13 +550,20 @@ def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
             "without a dedupe footer"
         )
 
+    bodies = _load_confluence_bodies(config, logger)
+
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
 
     posted = 0
     skipped = 0
     for key in keys:
-        body = _read_staged_body(key, logger)
-        if body is None:
+        body = bodies.get(key)
+        if not body:
+            logger.error(
+                "%s: no staged comment found on Confluence page — "
+                "run `run --live --publish` first (or check the key)",
+                key,
+            )
             skipped += 1
             continue
 

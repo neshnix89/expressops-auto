@@ -78,6 +78,31 @@ def get_wp_assignee(wp: dict[str, Any] | None) -> str | None:
     return name.strip() or None
 
 
+def get_wp_assignee_username(wp: dict[str, Any] | None) -> str | None:
+    """
+    Return assignee JIRA username (login name) from `fields.assignee.name`,
+    or None when unassigned/missing. Used to build `[~username]` mentions
+    that JIRA's wiki renderer expands to linked display names.
+    """
+    if not wp:
+        return None
+    assignee = (wp.get("fields") or {}).get("assignee") or {}
+    name = assignee.get("name") or ""
+    return name.strip() or None
+
+
+def jira_mention(username: str | None, fallback: str = "[UNASSIGNED]") -> str:
+    """
+    Format a JIRA on-prem user mention. `[~username]` is expanded by the
+    wiki renderer to a linked display name on read. When the username is
+    missing, returns `fallback` so the comment still has a placeholder
+    that a reviewer will notice.
+    """
+    if not username:
+        return fallback
+    return f"[~{username}]"
+
+
 def check_readiness(wps: list[dict[str, Any]]) -> tuple[bool, list[str]]:
     """
     Return (ready, reasons). A container is ready when every prerequisite
@@ -404,31 +429,47 @@ def detect_programme_ic(
 
 
 def build_fyi_list(
-    default_fyi: Iterable[str],
+    default_fyi: Iterable[dict[str, str]],
+    reporter_username: str | None,
     reporter_display_name: str | None,
     wps: list[dict[str, Any]],
 ) -> list[str]:
     """
-    Default names + container reporter + all WP assignees, deduplicated
-    while preserving first-seen order. Empty/None names are dropped.
+    Default people + container reporter + all WP assignees, emitted as
+    JIRA ``[~username]`` mentions (the wiki renderer expands them to a
+    linked display name on read). When a username is missing the plain
+    display name is used as a readable fallback.
+
+    ``default_fyi`` is a list of dicts like ``{username, display}`` —
+    usernames are required for a clickable mention; display is used for
+    dedupe keying and as a fallback.
+
+    Deduplicated by username (case-insensitive) when present, else by
+    display name. Order of first appearance is preserved.
     """
     seen: set[str] = set()
     ordered: list[str] = []
 
-    def _add(name: str | None) -> None:
-        if not name:
+    def _add(username: str | None, display: str | None) -> None:
+        uname = (username or "").strip()
+        disp = (display or "").strip()
+        if not uname and not disp:
             return
-        cleaned = name.strip()
-        if not cleaned or cleaned in seen:
+        key = uname.lower() if uname else disp.lower()
+        if key in seen:
             return
-        seen.add(cleaned)
-        ordered.append(cleaned)
+        seen.add(key)
+        ordered.append(jira_mention(uname) if uname else disp)
 
-    for name in default_fyi or []:
-        _add(name)
-    _add(reporter_display_name)
+    for entry in default_fyi or []:
+        if isinstance(entry, dict):
+            _add(entry.get("username"), entry.get("display"))
+        # Bare strings are ignored — config must be migrated to the
+        # {username, display} form for clickable mentions.
+
+    _add(reporter_username, reporter_display_name)
     for wp in wps:
-        _add(get_wp_assignee(wp))
+        _add(get_wp_assignee_username(wp), get_wp_assignee(wp))
     return ordered
 
 
@@ -568,7 +609,9 @@ def assemble_comment(
     parts.append("")
     parts.append(table)
     parts.append("")
-    parts.append(f"Please trigger @{pe_assignee} for the program creation.")
+    # pe_assignee is already a formatted mention (e.g. "[~jdoe]") or an
+    # [UNASSIGNED] placeholder — don't prepend a literal "@".
+    parts.append(f"Please trigger {pe_assignee} for the program creation.")
     parts.append("")
     if is_pilot:
         parts.append(

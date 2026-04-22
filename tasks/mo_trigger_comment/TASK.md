@@ -177,14 +177,18 @@ Confirmed HTML:
 
 #### 2c. WP Assignees
 
+Every assignee that appears in the generated comment renders as a JIRA
+`[~username]` mention (the wiki renderer expands it to a linked display
+name). Username comes from `fields.assignee.name`; `displayName` is
+used only as a fallback when the username is missing.
+
 | WP Name | Used For | Fallback |
 |---------|----------|----------|
-| PE - TechnPrep | Program creation trigger | "[UNASSIGNED]" + warning |
+| PE - TechnPrep | Program-creation trigger line | "[UNASSIGNED]" + warning |
 | TE - TechnPrep | AOI/Test line attribution | "[UNASSIGNED]" + warning |
-| QM P+L | MOI check (pilot run only) | "Chern JR Daniel" |
+| QM P+L | MOI check (pilot run only) | config `qm_default_username` → `[~default]`; else plain display |
 
-Assignee = `fields.assignee.displayName`.
-Also collect ALL WP assignees for FYI list.
+Also collect ALL WP assignees (username + displayName) for the FYI list.
 
 #### 2d. Pilot Run Detection (two-signal check)
 
@@ -207,20 +211,28 @@ Effect: skip "PE Please reuse buyoff Board" line.
 
 #### 2f. Addressee
 
-Always "Ng Ker Cheng Hazel" (from config).
+Always "Ng Ker Cheng Hazel" (from config). Rendered as plain text in the
+"Hi {addressee}," greeting — this is NOT a JIRA mention.
 
 #### 2g. FYI List
 
-Default (always):
+Every name in the FYI list renders as a JIRA `[~username]` mention so
+the recipient gets notified and sees a clickable link. Sources:
+
+Default (always, from `default_fyi` in config):
 - Moghanan Thinesh Neo Wei Siang
 - Teo Geok Hui
 - Sawabi Siti Aslinda
 - Jainutdeen Jahabar
 - Ng Ker Cheng Hazel
 
-Additional (deduplicated by displayName):
-- Container reporter (`fields.reporter.displayName`)
-- All WP assignees from every child WP
+Additional (deduplicated by username, case-insensitive, then by display
+name when no username is available):
+- Container reporter (`fields.reporter.name` + `fields.reporter.displayName`)
+- All WP assignees (`fields.assignee.name` + `fields.assignee.displayName`)
+
+Entries without a username fall back to the plain display name — the
+name still appears in the comment but isn't a clickable mention.
 
 #### 2h. IMR Number
 
@@ -305,10 +317,10 @@ Please proceed for {order_type_label} MO planning of PCBAs shown below.
 |-------------|-------------|-----|----------|----------|--------|
 | {part_no}   | {desc}      | {qty}pcs | Line 5 | {start} | {end} |
 
-Please trigger @{pe_assignee} for the program creation.
+Please trigger {pe_mention} for the program creation.
 
 [PILOT RUN ONLY:]
-Please include in MO F6 text: Please Trigger {qm_assignee} before packaging for MOI Check.
+Please include in MO F6 text: Please Trigger {qm_mention} before packaging for MOI Check.
 
 E5: {e5_status}
 
@@ -321,10 +333,14 @@ IMR: [pending]
 [IF NOT PROGRAMME IC:]
 PE: Please reuse buyoff Board
 
-{te_assignee} {aoi_test_status}
+{te_mention} {aoi_test_status}
 
-FYI: {fyi_list}
+FYI: {fyi_mentions_joined}
 ```
+
+`{pe_mention}`, `{te_mention}`, `{qm_mention}`, and each entry in
+`{fyi_mentions_joined}` are JIRA `[~username]` strings. JIRA's wiki
+renderer expands each one to a linked, notifying @mention on read.
 
 Order type label mapping:
 - "PR – Pilot Run" → "Pilot Run"
@@ -339,18 +355,25 @@ Order type label mapping:
 
 ```yaml
 mo_trigger_comment:
-  addressee: "Ng Ker Cheng Hazel"
-  qm_default_assignee: "Chern JR Daniel"
+  addressee: "Ng Ker Cheng Hazel"           # greeting only, not a mention
+  qm_default_username: ""                    # JIRA login for Chern JR Daniel
+  qm_default_display: "Chern JR Daniel"
   smt_line: "Line 5"
   mo_duration_days: 4
   default_fyi:
-    - "Moghanan Thinesh Neo Wei Siang"
-    - "Teo Geok Hui"
-    - "Sawabi Siti Aslinda"
-    - "Jainutdeen Jahabar"
-    - "Ng Ker Cheng Hazel"
+    - { username: "", display: "Moghanan Thinesh Neo Wei Siang" }
+    - { username: "", display: "Teo Geok Hui" }
+    - { username: "", display: "Sawabi Siti Aslinda" }
+    - { username: "", display: "Jainutdeen Jahabar" }
+    - { username: "", display: "Ng Ker Cheng Hazel" }
   duplicate_marker: "#Ref: MO-Trigger#"
 ```
+
+All person mentions in the generated comment (PE trigger, QM MOI line,
+TE AOI/Test, FYI list) render as JIRA `[~username]`, which the wiki
+renderer expands to a linked display name on read. Usernames come from
+`fields.assignee.name` on the child WPs; the config entries above
+supply usernames for the static defaults.
 
 ---
 

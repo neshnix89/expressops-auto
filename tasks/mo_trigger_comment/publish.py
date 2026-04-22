@@ -22,6 +22,7 @@ config change is the only thing needed to re-point the publisher.
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime
 from typing import Any
 
@@ -216,6 +217,62 @@ def _run_instructions_html() -> str:
     )
 
 
+# ── Preserving manual edits on re-publish ────────────────────────────
+
+# Matches the per-container expand/code macro that _render_ready_section
+# emits for each ready row:
+#   <ac:parameter ac:name="title">Show comment for {KEY}</ac:parameter>
+#   ... <ac:plain-text-body><![CDATA[{BODY}]]></ac:plain-text-body>
+# Whitespace-tolerant because Confluence's stored form may reflow after
+# a human edit in the rich-text editor.
+_STAGED_COMMENT_RE = re.compile(
+    r'<ac:parameter\s+ac:name="title">\s*'
+    r'Show comment for ([\w-]+)\s*'
+    r'</ac:parameter>'
+    r'.*?<!\[CDATA\[(.*?)\]\]>',
+    re.DOTALL,
+)
+
+
+def _parse_staged_bodies(html_body: str) -> dict[str, str]:
+    """
+    Pull ``{container_key: comment_body}`` pairs from the current staging
+    page's storage-format HTML. Each ready container has exactly one
+    "Show comment for KEY" expand/code macro with the body in CDATA.
+    """
+    if not html_body:
+        return {}
+    return {
+        m.group(1): m.group(2).rstrip()
+        for m in _STAGED_COMMENT_RE.finditer(html_body)
+    }
+
+
+def _merge_preserved_bodies(
+    results: list[dict[str, Any]],
+    preserved: dict[str, str],
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    For any ready container whose key already has a comment block on the
+    staging page, swap in the existing body so manual edits survive a
+    re-publish. Row metadata (order type, MO dates, badges, articles) is
+    always refreshed from the current run — only the editable comment
+    body is preserved. Returns (merged, preserved_count).
+    """
+    if not preserved:
+        return list(results), 0
+    merged: list[dict[str, Any]] = []
+    preserved_count = 0
+    for r in results:
+        key = r.get("key")
+        if r.get("ready") and r.get("body") and key in preserved:
+            merged.append({**r, "body": preserved[key]})
+            preserved_count += 1
+        else:
+            merged.append(r)
+    return merged, preserved_count
+
+
 # ── Public renderer ──────────────────────────────────────────────────
 
 
@@ -279,7 +336,19 @@ def publish_results(
     current = client.get_page(page_id)
     title = current.get("title") or "MO Trigger Comments"
 
-    html_body = results_to_html(results, jira_base_url=config.jira_base_url)
+    # Preserve any manually edited comment bodies already on the page.
+    # The summary and row metadata are always regenerated from the
+    # current run; only the body text a planner may have edited is kept.
+    existing_html = (current.get("body") or {}).get("storage", {}).get("value", "") or ""
+    preserved = _parse_staged_bodies(existing_html)
+    results_for_render, preserved_count = _merge_preserved_bodies(results, preserved)
+    if preserved_count:
+        logger.info(
+            "Preserving %d existing comment body/ies from Confluence page %s",
+            preserved_count, page_id,
+        )
+
+    html_body = results_to_html(results_for_render, jira_base_url=config.jira_base_url)
 
     logger.info("Publishing %d result(s) to Confluence page %s", len(results), page_id)
     result = client.update_page(page_id, title=title, html_body=html_body)

@@ -55,15 +55,26 @@ pages:
   mo_trigger_comment: 0
 
 # MO-trigger comment assembler (tasks/mo_trigger_comment)
+# Every person reference in the generated comment renders as a JIRA
+# `[~username]` mention, which the wiki renderer expands to a linked
+# display name on read. The config therefore stores JIRA *usernames*
+# for anyone who should be mentioned; `display` fields are retained
+# only as readable context and as a fallback for log messages.
 mo_trigger_comment:
-  addressee: "Ng Ker Cheng Hazel"
-  qm_default_assignee: "Chern JR Daniel"
+  addressee: "Ng Ker Cheng Hazel"           # greeting only ("Hi …,") — not a mention
+  qm_default_username: ""                    # JIRA login for Chern JR Daniel (fill in)
+  qm_default_display: "Chern JR Daniel"
   smt_line: "Line 5"
   mo_duration_days: 4
   default_fyi:
-    - "Moghanan Thinesh Neo Wei Siang"
-    - "Teo Geok Hui"
-    - "Sawabi Siti Aslinda"
-    - "Jainutdeen Jahabar"
-    - "Ng Ker Cheng Hazel"
+    - username: ""                           # JIRA login (fill in)
+      display: "Moghanan Thinesh Neo Wei Siang"
+    - username: ""
+      display: "Teo Geok Hui"
+    - username: ""
+      display: "Sawabi Siti Aslinda"
+    - username: ""
+      display: "Jainutdeen Jahabar"
+    - username: ""
+      display: "Ng Ker Cheng Hazel"
   duplicate_marker: "#Ref: MO-Trigger#"
