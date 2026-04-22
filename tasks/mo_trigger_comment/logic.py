@@ -33,13 +33,16 @@ ORDER_TYPE_CF = "customfield_13905"
 
 # Maps canonical WP names → set of acceptable resolution names.
 # SMT Build is handled specially (status check, not resolution).
+# "Won't Do" counts as resolved for every prerequisite — planners use it
+# whenever a step is legitimately skipped (e.g. Programme IC skipping PE,
+# reused PCB skipping PCB, existing routing skipping Routing/TE).
+_DONE_RESOLUTIONS: set[str] = {"Done", "Acknowledged", "Won't Do"}
 _READINESS_RESOLUTIONS: dict[str, set[str]] = {
-    "material": {"Done", "Acknowledged"},
-    "pcb": {"Done", "Acknowledged"},
-    "routing - technprep": {"Done", "Acknowledged"},
-    # Programme IC containers skip PE with "Won't Do".
-    "pe - technprep": {"Done", "Acknowledged", "Won't Do"},
-    "te - technprep": {"Done", "Acknowledged"},
+    "material": _DONE_RESOLUTIONS,
+    "pcb": _DONE_RESOLUTIONS,
+    "routing - technprep": _DONE_RESOLUTIONS,
+    "pe - technprep": _DONE_RESOLUTIONS,
+    "te - technprep": _DONE_RESOLUTIONS,
 }
 
 SMT_BUILD_BLOCKED_STATUSES = {"Done", "In Progress"}

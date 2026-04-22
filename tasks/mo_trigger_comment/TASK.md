@@ -111,14 +111,16 @@ A container is **ready** when ALL of:
 
 | WP Name (case-insensitive) | Required State |
 |----------------------------|---------------|
-| Material | resolution in {Done, Acknowledged} |
-| PCB | resolution in {Done, Acknowledged} |
-| Routing - TechnPrep | resolution in {Done, Acknowledged} |
+| Material | resolution in {Done, Acknowledged, Won't Do} |
+| PCB | resolution in {Done, Acknowledged, Won't Do} |
+| Routing - TechnPrep | resolution in {Done, Acknowledged, Won't Do} |
 | PE - TechnPrep | resolution in {Done, Acknowledged, Won't Do} |
-| TE - TechnPrep | resolution in {Done, Acknowledged} |
+| TE - TechnPrep | resolution in {Done, Acknowledged, Won't Do} |
 | SMT Build | status is NOT "Done" AND NOT "In Progress" |
 
-PE - TechnPrep allows "Won't Do" because Programme IC skips PE.
+"Won't Do" counts as resolved on every prerequisite WP — planners use it
+whenever a step is legitimately skipped (e.g. Programme IC skipping PE,
+reused PCB skipping PCB, existing routing skipping Routing/TE).
 
 ### Step 2 — Extract JIRA Data
 
