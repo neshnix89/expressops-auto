@@ -26,7 +26,7 @@ from core.errors import missing_dependency
 
 
 MODEL = "claude-opus-4-6"
-MAX_TOKENS = 600
+MAX_TOKENS = 1000
 
 # Pricing ($/M tokens) — Opus 4.6, used only for the rough batch estimate.
 _INPUT_PRICE_PER_M = 15.0
