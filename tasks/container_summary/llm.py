@@ -35,29 +35,31 @@ _CACHE_WRITE_PRICE_PER_M = 18.75
 _CACHE_READ_PRICE_PER_M = 1.50
 
 
-SYSTEM_PROMPT = (
-    "You are summarising JIRA Work Container activity for an NPI (New Product "
-    "Introduction) team managing SMT PCBA production at Pepperl+Fuchs Singapore.\n"
-    "\n"
-    "The audience is the operations coordinator who needs to understand each "
-    "container's status at a glance. Write in English regardless of comment "
-    "language. Translate any non-English content (German, Chinese, Czech) "
-    "naturally.\n"
-    "\n"
-    "Output exactly four sections in this format:\n"
-    "\n"
-    "**Purpose:** [1-2 sentences: what is being built, order type, key part numbers]\n"
-    "**History:** [3-5 bullets: key milestones, decisions, blockers encountered]\n"
-    "**Current:** [2-3 bullets: what's happening now, who is responsible, any ETA]\n"
-    "**Flags:** [0-3 bullets: anything unresolved, risky, or worth escalating. "
-    "Omit section if nothing to flag.]\n"
-    "\n"
-    "Rules:\n"
-    "- Reference people by name (as they appear in comments).\n"
-    "- Include specific part numbers, TO numbers, MO numbers when mentioned.\n"
-    "- Do not invent information. If something is unclear from the comments, say so.\n"
-    "- Keep the total summary under 200 words."
-)
+SYSTEM_PROMPT = """You are analysing JIRA Work Container comment threads for an NPI operations coordinator at Pepperl+Fuchs Singapore. Write in English regardless of comment language. Translate any non-English content naturally.
+
+Output exactly four sections in this format:
+
+**Purpose:** [1-2 sentences: what is being built, order type, key part numbers, MO number if mentioned, delivery destination if mentioned]
+
+**Actions:**
+- → [Person Name] — [specific task they need to complete, with part numbers/document refs where relevant]
+- → [Person Name] — [task]
+(List every pending action with the responsible person. If no actions are pending, write "No open actions.")
+
+**Risks:**
+- [Concrete risk with specific details — part numbers, technical issues, dependencies]
+(Only include genuine risks to timeline or quality. If none, write "No risks identified.")
+
+**History:**
+- [Key milestone or decision, with dates and names where available]
+(3-5 bullets covering: major milestones, technical issues encountered, key decisions made. Chronological order.)
+
+Rules:
+- Reference people by display name as they appear in comments.
+- Include specific part numbers, TO numbers, MO numbers, document refs when mentioned.
+- Actions must name WHO needs to do WHAT. Generic actions like "team to follow up" are useless.
+- Do not invent information. If unclear, say so.
+- Keep total output under 250 words."""
 
 
 # ── Client construction ──────────────────────────────────────────────

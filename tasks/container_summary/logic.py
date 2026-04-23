@@ -527,44 +527,93 @@ def _fmt_datetime(dt: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
 
 
+_NARRATIVE_SECTIONS = ("Purpose", "Actions", "Risks", "History")
+_SECTION_SPLIT_RE = re.compile(
+    r"\*\*(" + "|".join(_NARRATIVE_SECTIONS) + r")\s*:\s*\*\*",
+    re.IGNORECASE,
+)
+
+
+def _parse_narrative_sections(narrative: str) -> dict[str, str]:
+    """
+    Split the LLM narrative by its ``**Section:**`` headers and return
+    the raw body of each. Missing sections map to an empty string so
+    callers can emit them in a stable order regardless of what the model
+    actually wrote.
+    """
+    sections = {h.lower(): "" for h in _NARRATIVE_SECTIONS}
+    if not narrative:
+        return sections
+    parts = _SECTION_SPLIT_RE.split(narrative)
+    # parts = [prelude, header_1, body_1, header_2, body_2, ...]
+    for i in range(1, len(parts) - 1, 2):
+        header = parts[i].strip().lower()
+        body = parts[i + 1].strip()
+        if header in sections:
+            sections[header] = body
+    return sections
+
+
+def _extract_bullets(body: str) -> list[str]:
+    """Return every ``- `` / ``* `` / ``• `` bullet line, unwrapped."""
+    items: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("- ", "* ", "• ")):
+            items.append(stripped[2:].strip())
+    return items
+
+
+def _render_bullet_section(label: str, body: str) -> str:
+    """
+    Render one bulleted section. A one-line body with no bullets
+    (e.g. "No open actions.") renders as a plain paragraph instead of
+    an empty ``<ul>``.
+    """
+    body = body.strip()
+    if not body:
+        return ""
+    header = f"<p><strong>{label}:</strong></p>"
+    bullets = _extract_bullets(body)
+    if bullets:
+        return header + "<ul>" + "".join(
+            f"<li>{html.escape(item)}</li>" for item in bullets
+        ) + "</ul>"
+    # Fallback for responses like "No risks identified." on a single line.
+    return header + f"<p>{html.escape(body)}</p>"
+
+
 def _narrative_html(narrative: str) -> str:
     """
-    Convert the LLM narrative (Markdown-ish bold + bullets) into
-    Confluence storage format. Lightweight — we don't support nested
-    lists, just **bold** runs and leading "- " / "* " bullets.
+    Render the Opus narrative into Confluence storage format, split by
+    the four expected sections (Purpose, Actions, Risks, History).
+
+    When the text doesn't contain recognisable section headers (e.g.
+    the LLM call returned empty or malformed output), fall back to
+    plain-paragraph rendering so the dashboard is still legible.
     """
-    if not narrative:
+    if not narrative or not narrative.strip():
         return "<p><em>No narrative available.</em></p>"
 
-    lines = [ln.rstrip() for ln in narrative.splitlines()]
-    out: list[str] = []
-    list_open = False
+    sections = _parse_narrative_sections(narrative)
+    if not any(sections.values()):
+        return f"<p>{html.escape(narrative.strip())}</p>"
 
-    def close_list() -> None:
-        nonlocal list_open
-        if list_open:
-            out.append("</ul>")
-            list_open = False
+    parts: list[str] = []
+    purpose = sections.get("purpose", "").strip()
+    if purpose:
+        parts.append(f"<p><em>{html.escape(purpose)}</em></p>")
 
-    def format_inline(text: str) -> str:
-        escaped = html.escape(text)
-        return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    for label, key in (("Actions", "actions"),
+                       ("Risks", "risks"),
+                       ("History", "history")):
+        section_html = _render_bullet_section(label, sections.get(key, ""))
+        if section_html:
+            parts.append(section_html)
 
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            close_list()
-            continue
-        if stripped.startswith(("- ", "* ", "• ")):
-            if not list_open:
-                out.append("<ul>")
-                list_open = True
-            out.append(f"<li>{format_inline(stripped[2:].strip())}</li>")
-        else:
-            close_list()
-            out.append(f"<p>{format_inline(stripped)}</p>")
-    close_list()
-    return "".join(out)
+    return "".join(parts) if parts else (
+        f"<p>{html.escape(narrative.strip())}</p>"
+    )
 
 
 def _expand_macro(title: str, body_html: str) -> str:
