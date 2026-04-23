@@ -59,7 +59,8 @@ Rules:
 - Include specific part numbers, TO numbers, MO numbers, document refs when mentioned.
 - Actions must name WHO needs to do WHAT. Generic actions like "team to follow up" are useless.
 - Do not invent information. If unclear, say so.
-- Keep total output under 250 words."""
+- Do not use markdown formatting (no ** or * or #). Output plain text only — the caller handles HTML formatting.
+- Keep total output under 300 words."""
 
 
 # ── Client construction ──────────────────────────────────────────────
@@ -186,6 +187,11 @@ def call_opus(
     except (AttributeError, IndexError) as exc:
         logger.error("Opus response had unexpected shape: %s", exc)
         return "", {}
+
+    # Strip any leftover markdown bold markers — the section renderer in
+    # logic.py emits its own HTML, and a stray ** in the body would show
+    # up literally in the Confluence expand macro.
+    narrative = narrative.replace("**", "")
 
     usage_obj = getattr(response, "usage", None)
     usage = {

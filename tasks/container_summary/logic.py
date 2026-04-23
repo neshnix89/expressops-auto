@@ -528,8 +528,12 @@ def _fmt_datetime(dt: datetime | None) -> str:
 
 
 _NARRATIVE_SECTIONS = ("Purpose", "Actions", "Risks", "History")
+# Match headers whether the model wrapped them in ** or emitted plain
+# text (the system prompt forbids markdown, but we're defensive).
+# ``^`` with re.MULTILINE anchors to line start so a stray "Actions:"
+# inside a sentence cannot split the narrative mid-flight.
 _SECTION_SPLIT_RE = re.compile(
-    r"\*\*(" + "|".join(_NARRATIVE_SECTIONS) + r")\s*:\s*\*\*",
+    r"(?m)^\s*(?:\*\*)?(" + "|".join(_NARRATIVE_SECTIONS) + r")\s*:\s*(?:\*\*)?\s*",
     re.IGNORECASE,
 )
 
