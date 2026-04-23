@@ -235,13 +235,51 @@ def _parse_park_ts(raw: str) -> datetime | None:
         return None
 
 
-def parse_parking_log(raw: str | None) -> dict[str, Any]:
+def _find_parking_reason(
+    start: datetime, comments: list[dict[str, Any]],
+) -> str:
+    """
+    Return the first 120 chars of the comment (with 'parked' or 'flag'
+    in its body, case-insensitive) whose timestamp is closest to
+    ``start`` — in either direction. Empty string when no candidate
+    comment exists.
+    """
+    best_body: str | None = None
+    best_delta: float | None = None
+    for c in comments or []:
+        body = c.get("body") or ""
+        if not body:
+            continue
+        low = body.lower()
+        if "parked" not in low and "flag" not in low:
+            continue
+        created = JiraClient.parse_timestamp(c.get("created") or "")
+        if created is None:
+            continue
+        delta = abs((created - start).total_seconds())
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_body = body
+    if best_body is None:
+        return ""
+    snippet = re.sub(r"\s+", " ", best_body).strip()
+    return snippet[:120]
+
+
+def parse_parking_log(
+    raw: str | None,
+    comments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """
     Parse the `Issue_parked_log` string — `Start:YYYY-MM-DD HH:MM:SS;End:...;Start:...;`.
 
     Missing End on the last pair means the container is currently parked.
     Total parked working days is summed across all completed pairs plus
     (today - last_start) when currently parked.
+
+    When ``comments`` is supplied, each entry also carries a ``reason``
+    — the first 120 chars of the 'parked'/'flag' comment whose
+    timestamp is closest to the entry's start.
     """
     entries: list[dict[str, Any]] = []
     currently_parked = False
@@ -259,7 +297,7 @@ def parse_parking_log(raw: str | None) -> dict[str, Any]:
         if kind == "start":
             if current is not None:
                 entries.append(current)
-            current = {"start": ts, "end": None}
+            current = {"start": ts, "end": None, "reason": ""}
         else:
             if current is None:
                 continue
@@ -269,6 +307,11 @@ def parse_parking_log(raw: str | None) -> dict[str, Any]:
     if current is not None:
         entries.append(current)
         currently_parked = current["end"] is None
+
+    for entry in entries:
+        start_dt = entry.get("start")
+        if start_dt is not None:
+            entry["reason"] = _find_parking_reason(start_dt, comments or [])
 
     total_days = 0
     today = date.today()
@@ -465,7 +508,7 @@ def summarise_container(
 
     identity = extract_identity(issue)
     wp_rollup = build_wp_rollup(children)
-    parking = parse_parking_log(fields.get(CF_ISSUE_PARKED_LOG))
+    parking = parse_parking_log(fields.get(CF_ISSUE_PARKED_LOG), comments)
     timeline = build_keyword_timeline(comments)
     comments_analysis = analyse_comments(comments)
     staleness = calculate_staleness(
@@ -675,8 +718,13 @@ def _row_detail_html(summary: dict[str, Any]) -> str:
         for e in parking["entries"]:
             start = e.get("start")
             end = e.get("end")
+            reason = (e.get("reason") or "").strip()
+            end_html = _fmt_date(end) if end else "<em>(currently parked)</em>"
+            reason_suffix = (
+                f" &mdash; {html.escape(reason)}" if reason else ""
+            )
             park_rows.append(
-                f"<li>{_fmt_datetime(start)} &rarr; {_fmt_datetime(end) if end else '<em>(currently parked)</em>'}</li>"
+                f"<li>{_fmt_date(start)} &rarr; {end_html}{reason_suffix}</li>"
             )
         parts.append(
             "<p><strong>Parking log</strong> "
