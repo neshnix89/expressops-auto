@@ -1,0 +1,407 @@
+[
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910628",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910628",
+    "key": "NPIOTHER-4094",
+    "fields": {
+      "summary": "Documentation",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=pkalivoda",
+        "name": "pkalivoda",
+        "key": "JIRAUSER22956",
+        "emailAddress": "pkalivoda@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kalivoda Pavel",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910627",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910627",
+    "key": "NPIOTHER-4093",
+    "fields": {
+      "summary": "Logistics",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=lkynclova",
+        "name": "lkynclova",
+        "key": "JIRAUSER21100",
+        "emailAddress": "lkynclova@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kynclova Lucie",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910626",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910626",
+    "key": "NPIOTHER-4092",
+    "fields": {
+      "summary": "SMT Build",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=rvik",
+        "name": "rvik",
+        "key": "JIRAUSER21945",
+        "emailAddress": "rvik@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Vik Radomir",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910625",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910625",
+    "key": "NPIOTHER-4091",
+    "fields": {
+      "summary": "TE - TechnPrep",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=rkejzlar",
+        "name": "rkejzlar",
+        "key": "JIRAUSER22758",
+        "emailAddress": "rkejzlar@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?ownerId=JIRAUSER22758&avatarId=20201",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&ownerId=JIRAUSER22758&avatarId=20201",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&ownerId=JIRAUSER22758&avatarId=20201",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&ownerId=JIRAUSER22758&avatarId=20201"
+        },
+        "displayName": "Kejzlar Radim",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10001",
+        "id": "10001",
+        "description": "This issue won't be actioned.",
+        "name": "Won't Do"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910624",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910624",
+    "key": "NPIOTHER-4090",
+    "fields": {
+      "summary": "PE - TechnPrep",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=pkalivoda",
+        "name": "pkalivoda",
+        "key": "JIRAUSER22956",
+        "emailAddress": "pkalivoda@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kalivoda Pavel",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910623",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910623",
+    "key": "NPIOTHER-4089",
+    "fields": {
+      "summary": "Routing - TechnPrep",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=pkalivoda",
+        "name": "pkalivoda",
+        "key": "JIRAUSER22956",
+        "emailAddress": "pkalivoda@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kalivoda Pavel",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910622",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910622",
+    "key": "NPIOTHER-4088",
+    "fields": {
+      "summary": "PCB",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=thhoang",
+        "name": "thhoang",
+        "key": "JIRAUSER16798",
+        "emailAddress": "thhoang@vn.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kaitlyn Hoang Thi Ai Linh",
+        "active": true,
+        "timeZone": "Asia/Ho_Chi_Minh"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910621",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910621",
+    "key": "NPIOTHER-4087",
+    "fields": {
+      "summary": "Material",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=thhoang",
+        "name": "thhoang",
+        "key": "JIRAUSER16798",
+        "emailAddress": "thhoang@vn.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kaitlyn Hoang Thi Ai Linh",
+        "active": true,
+        "timeZone": "Asia/Ho_Chi_Minh"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  },
+  {
+    "expand": "operations,versionedRepresentations,editmeta,changelog,renderedFields",
+    "id": "910616",
+    "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/issue/910616",
+    "key": "NPIOTHER-4085",
+    "fields": {
+      "summary": "QS DDE-5123 PTDE-AYP2 05-7453C \"TI die shrink #905851\"  #70204594",
+      "assignee": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/user?username=dkvicala",
+        "name": "dkvicala",
+        "key": "JIRAUSER16716",
+        "emailAddress": "dkvicala@cz.pepperl-fuchs.com",
+        "avatarUrls": {
+          "48x48": "https://pfjira.pepperl-fuchs.com/secure/useravatar?avatarId=10122",
+          "24x24": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=small&avatarId=10122",
+          "16x16": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=xsmall&avatarId=10122",
+          "32x32": "https://pfjira.pepperl-fuchs.com/secure/useravatar?size=medium&avatarId=10122"
+        },
+        "displayName": "Kvicala Daniel",
+        "active": true,
+        "timeZone": "Europe/Berlin"
+      },
+      "resolution": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/resolution/10000",
+        "id": "10000",
+        "description": "Work has been completed on this issue.",
+        "name": "Done"
+      },
+      "status": {
+        "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/status/10002",
+        "description": "The issue is considered finished, the resolution can be \u201cdone\u201d, \u201cwon\u00b4t do\u201d, \u201cduplicate\u201d or \u201ccannot reproduce\u201d. Issues which are done can be reopened.",
+        "iconUrl": "https://pfjira.pepperl-fuchs.com/",
+        "name": "Done",
+        "id": "10002",
+        "statusCategory": {
+          "self": "https://pfjira.pepperl-fuchs.com/rest/api/2/statuscategory/3",
+          "id": 3,
+          "key": "done",
+          "colorName": "success",
+          "name": "Done"
+        }
+      }
+    },
+    "renderedFields": null
+  }
+]
