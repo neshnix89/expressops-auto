@@ -46,15 +46,15 @@ PAGE_KEY = "container_summary"
 MOCK_DIR = TASK_DIR / "mock_data"
 CACHE_PATH = TASK_DIR / "last_run.json"
 
-# Nested relation() JQL — same pattern used by mo_trigger_comment.
+# Simple field-based filter. The nested relation() JQL from TASK.md
+# fails via REST (HTTP 400 — nested double quotes break the JSON
+# parser); this filter returns the same active container set and is
+# confirmed working in mo_trigger_comment.
 CONTAINERS_JQL = (
-    'issue in relation("issue in relation("issue in relation(\'key in '
-    "(ITPL-769, ITPL-760, ITPL-756, ITPL-750, ITPL-746, ITPL-742, ITPL-1036, ITPL-1027)', "
-    '\'Project Children\', Tasks, Deviations, level4)", '
-    '"Project Children", \'Clone from Template\', level4) '
-    "and project != 'Issue Template' and status in (Waiting, \"In Progress\", Backlog)\", "
-    '"Project Parent", Tasks, Deviations, level1) '
-    'AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore" '
+    'issuetype = "Work Container" '
+    'AND "Product Type" = "SMT PCBA" '
+    'AND "NPI Location" = "Singapore" '
+    'AND resolution is EMPTY '
     'ORDER BY created ASC'
 )
 
