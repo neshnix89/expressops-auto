@@ -97,6 +97,49 @@ class ConfluenceClient:
         url = f"{self.base_url}/rest/api/content/{page_id}"
         return self._request("PUT", url, json=payload).json()
 
+    def upload_attachment(
+        self,
+        page_id: int | str,
+        filename: str,
+        content: bytes,
+        content_type: str = "application/json",
+    ) -> dict[str, Any]:
+        """
+        Upload or update a file attachment on a Confluence page.
+
+        Looks up existing attachments on the page; if one with the same
+        ``filename`` exists, POSTs a new version to ``{id}/data``.
+        Otherwise creates a new attachment. Temporarily drops the
+        session ``Content-Type`` header so ``requests`` can generate its
+        own multipart boundary.
+        """
+        if self.config.is_mock:
+            return {"id": "mock-attachment"}
+
+        url = f"{self.base_url}/rest/api/content/{page_id}/child/attachment"
+
+        existing = self._request("GET", url).json()
+        attach_id = None
+        for att in existing.get("results", []):
+            if att.get("title") == filename:
+                attach_id = att["id"]
+                break
+
+        headers = {"X-Atlassian-Token": "nocheck"}
+        session_ct = self.session.headers.pop("Content-Type", None)
+
+        try:
+            files = {"file": (filename, content, content_type)}
+            if attach_id:
+                upload_url = f"{url}/{attach_id}/data"
+                resp = self._request("POST", upload_url, files=files, headers=headers)
+            else:
+                resp = self._request("POST", url, files=files, headers=headers)
+            return resp.json()
+        finally:
+            if session_ct:
+                self.session.headers["Content-Type"] = session_ct
+
     def _load_mock(self, filename: str) -> dict[str, Any]:
         if self.mock_data_dir is None:
             raise FriendlyError(

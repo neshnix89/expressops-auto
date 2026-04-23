@@ -346,6 +346,22 @@ def run(args: argparse.Namespace) -> int:
 
     _publish(confluence, page_id, html_body, logger)
 
+    # Upload the structured JSON as a page attachment so the
+    # Tampermonkey overlay on JIRA can fetch a single container without
+    # parsing the HTML. Runs only after the HTML publish succeeds; any
+    # upload failure is logged but does not fail the whole run.
+    try:
+        export = logic.build_json_export(summaries)
+        payload = json.dumps(export, indent=2, default=str).encode("utf-8")
+        confluence.upload_attachment(
+            page_id, "container_summary.json", payload,
+        )
+        logger.info("Uploaded container_summary.json attachment")
+    except FriendlyError as exc:
+        logger.warning(
+            "JSON attachment upload failed: %s (%s)", exc.message, exc.hint,
+        )
+
     # Only persist cache once the publish has succeeded — on failure,
     # the next run will re-summarise and retry.
     if client is not None:

@@ -581,7 +581,7 @@ _SECTION_SPLIT_RE = re.compile(
 )
 
 
-def _parse_narrative_sections(narrative: str) -> dict[str, str]:
+def parse_narrative_sections(narrative: str) -> dict[str, str]:
     """
     Split the LLM narrative by its ``**Section:**`` headers and return
     the raw body of each. Missing sections map to an empty string so
@@ -601,7 +601,7 @@ def _parse_narrative_sections(narrative: str) -> dict[str, str]:
     return sections
 
 
-def _extract_bullets(body: str) -> list[str]:
+def extract_bullets(body: str) -> list[str]:
     """Return every ``- `` / ``* `` / ``• `` bullet line, unwrapped."""
     items: list[str] = []
     for line in body.splitlines():
@@ -621,7 +621,7 @@ def _render_bullet_section(label: str, body: str) -> str:
     if not body:
         return ""
     header = f"<p><strong>{label}:</strong></p>"
-    bullets = _extract_bullets(body)
+    bullets = extract_bullets(body)
     if bullets:
         return header + "<ul>" + "".join(
             f"<li>{html.escape(item)}</li>" for item in bullets
@@ -642,7 +642,7 @@ def _narrative_html(narrative: str) -> str:
     if not narrative or not narrative.strip():
         return "<p><em>No narrative available.</em></p>"
 
-    sections = _parse_narrative_sections(narrative)
+    sections = parse_narrative_sections(narrative)
     if not any(sections.values()):
         return f"<p>{html.escape(narrative.strip())}</p>"
 
@@ -820,3 +820,87 @@ def build_confluence_html(summaries: list[dict[str, Any]]) -> str:
         "</ac:rich-text-body>"
         "</ac:structured-macro>"
     )
+
+
+# ── 10. build_json_export ────────────────────────────────────────────
+
+
+def _iso_date(dt: datetime | None) -> str:
+    return dt.date().isoformat() if dt else ""
+
+
+def _container_json(summary: dict[str, Any]) -> dict[str, Any]:
+    identity = summary.get("identity") or {}
+    wp_rollup = summary.get("wp_rollup") or {}
+    staleness = summary.get("staleness") or {}
+    comments_stats = summary.get("comments") or {}
+    parking = summary.get("parking") or {}
+
+    sections = parse_narrative_sections(summary.get("narrative") or "")
+    purpose = sections.get("purpose", "").strip()
+    actions = extract_bullets(sections.get("actions", ""))
+    risks = extract_bullets(sections.get("risks", ""))
+    history = extract_bullets(sections.get("history", ""))
+
+    last_human = comments_stats.get("last_human") or {}
+    last_activity_date = _iso_date(last_human.get("date")) if last_human else ""
+    last_activity_author = last_human.get("author", "") if last_human else ""
+
+    timeline = []
+    for ev in summary.get("timeline") or []:
+        timeline.append({
+            "date": _iso_date(ev.get("date")),
+            "author": ev.get("author", "") or "",
+            "keyword": ev.get("keyword", "") or "",
+            "context": ev.get("context", "") or "",
+        })
+
+    parking_entries = []
+    for e in parking.get("entries") or []:
+        parking_entries.append({
+            "start": _iso_date(e.get("start")),
+            "end": _iso_date(e.get("end")),
+            "reason": (e.get("reason") or "").strip(),
+        })
+
+    return {
+        "key": identity.get("key", ""),
+        "summary": identity.get("summary", ""),
+        "order_type": identity.get("order_type", ""),
+        "status": identity.get("status", ""),
+        "wp_rollup": wp_rollup.get("summary_line", ""),
+        "wp_done": wp_rollup.get("done", 0),
+        "wp_total": wp_rollup.get("total", 0),
+        "age_wd": staleness.get("age_wd", 0),
+        "flags": summary.get("flags") or [],
+        "purpose": purpose,
+        "actions": actions,
+        "risks": risks,
+        "history": history,
+        "last_activity_date": last_activity_date,
+        "last_activity_author": last_activity_author,
+        "keyword_timeline": timeline,
+        "parking": {
+            "total_wd": parking.get("total_parked_days", 0),
+            "currently_parked": bool(parking.get("currently_parked")),
+            "entries": parking_entries,
+        },
+    }
+
+
+def build_json_export(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Shape the per-container summary dicts into the JSON structure
+    consumed by the Tampermonkey overlay. Keys are container keys so
+    the overlay can look up a container directly without scanning a
+    list. Datetimes are emitted as ``YYYY-MM-DD`` strings.
+    """
+    generated_at = datetime.now().replace(microsecond=0).isoformat()
+    return {
+        "generated_at": generated_at,
+        "containers": {
+            (s.get("identity") or {}).get("key", ""): _container_json(s)
+            for s in summaries
+            if (s.get("identity") or {}).get("key")
+        },
+    }
