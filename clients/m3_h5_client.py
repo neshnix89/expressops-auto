@@ -60,6 +60,63 @@ COLUMN_MAP = {
 }
 
 
+# Column index → field name mapping for XECX450 list rows.
+ECX450_COLUMN_MAP = {
+    0: "item_number",   # PHPRNO
+    1: "facility",      # PHFACI
+    2: "structure_type",  # PHSTRT
+    9: "rnd1_status",   # LHSTA1
+    10: "rnd2_status",  # LHSTA2
+    11: "production_status",  # LHSTA3
+}
+
+
+def parse_ecx450_xml(xml_text: str) -> dict[str, Any]:
+    """
+    Parse XECX450 generic.do XML response for release status at MF1/STD.
+
+    Finds the row where facility=MF1 and structure_type=STD, then reads
+    the style attribute on C9/C10/C11: "HIGHINTGR" means Released (True).
+
+    Returns a result dict or {"error": "<reason>"} if the row is not found.
+    """
+    if not xml_text or "<LR" not in xml_text:
+        return {"error": "empty or non-list XML response"}
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        logger.warning("Failed to parse XECX450 XML response")
+        return {"error": "XML parse error"}
+
+    for lr in root.iter("LR"):
+        cells: dict[int, tuple[str, str]] = {}  # col_idx → (text, style)
+        for lc in lr.findall("LC"):
+            cell_name = lc.get("name", "")
+            try:
+                col_idx = int(cell_name.split("C")[-1])
+            except (ValueError, IndexError):
+                continue
+            cells[col_idx] = ((lc.text or "").strip(), lc.get("style", ""))
+
+        facility = cells.get(1, ("", ""))[0]
+        structure_type = cells.get(2, ("", ""))[0]
+
+        if facility != "MF1" or structure_type != "STD":
+            continue
+
+        return {
+            "item_number": cells.get(0, ("", ""))[0],
+            "facility": facility,
+            "structure_type": structure_type,
+            "rnd1_released": cells.get(9, ("", ""))[1] == "HIGHINTGR",
+            "rnd2_released": cells.get(10, ("", ""))[1] == "HIGHINTGR",
+            "production_released": cells.get(11, ("", ""))[1] == "HIGHINTGR",
+        }
+
+    return {"error": "MF1/STD structure not found"}
+
+
 def parse_xdrx800_xml(xml_text: str) -> list[dict[str, Any]]:
     """
     Parse XDRX800 generic.do XML response into a list of TO record dicts.
@@ -517,7 +574,187 @@ class M3H5Client:
         logger.info("TO %s not found in XDRX800", to_number)
         return None
 
+    # ── XECX450: Product Locks/Releases ────────────────────────────────
+
+    def get_e5_release_status(self, item_number: str) -> dict[str, Any]:
+        """
+        Look up R&D1, R&D2, and Production release status for item_number
+        at facility MF1, structure type STD via XECX450.
+
+        In mock mode, reads from mock_data_dir/ecx450_{item_number}.xml.
+        Returns a result dict or {"error": "<reason>"} on failure.
+        """
+        if not self._connected:
+            raise RuntimeError("Call connect() before querying")
+
+        if self.is_mock:
+            return self._mock_ecx450_lookup(item_number)
+
+        return self._live_ecx450_lookup(item_number)
+
+    def _open_xecx450(self) -> None:
+        """
+        Open XECX450 via the M3 portal search dialog.
+
+        Mirrors _open_xdrx800 exactly — same Ctrl+R approach, different
+        program name and result text.
+        """
+        page = self._page
+
+        logger.info("Search dialog (XECX450)...")
+        page.evaluate("""
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'r', code: 'KeyR', keyCode: 82, which: 82,
+                ctrlKey: true, bubbles: true, cancelable: true
+            }));
+        """)
+        page.wait_for_timeout(2000)
+        if not page.locator("#cmdText").is_visible():
+            page.evaluate(
+                "$('#cmdText').parents().each(function(){$(this).show()}); "
+                "$('#cmdText').show().focus()"
+            )
+            page.wait_for_timeout(1000)
+
+        logger.info("Typing ecx450 slowly...")
+        cmd = page.locator("#cmdText")
+        cmd.click()
+        cmd.fill("")
+        for char in "ecx450":
+            cmd.type(char, delay=200)
+        page.wait_for_timeout(3000)
+        page.screenshot(path="debug_pw_ecx450_autocomplete.png")
+
+        all_text = page.inner_text("body")
+        has_result = (
+            "Product Locks" in all_text
+            or "Releases and History" in all_text
+            or "XECX450" in all_text
+        )
+        logger.info("  XECX450 result visible: %s", has_result)
+
+        if not has_result:
+            logger.info("  No results yet. Clicking OK...")
+            page.get_by_text("OK", exact=True).first.click()
+            page.wait_for_timeout(3000)
+            page.screenshot(path="debug_pw_ecx450_after_ok.png")
+
+            all_text = page.inner_text("body")
+            has_result = (
+                "Product Locks" in all_text
+                or "Releases and History" in all_text
+                or "XECX450" in all_text
+            )
+            logger.info("  XECX450 result after OK: %s", has_result)
+
+            if not has_result:
+                for frame in page.frames:
+                    ft = frame.content()
+                    if "Product Locks" in ft or "XECX450" in ft:
+                        logger.info("  Found in frame: %s", frame.url[:60])
+                        has_result = True
+
+        if has_result:
+            logger.info("Clicking Product Locks/Releases and History...")
+            try:
+                page.locator("text=Product Locks/Releases and History").first.click()
+            except Exception:
+                try:
+                    page.locator("text=Product Locks").first.click()
+                except Exception:
+                    page.locator("a:has-text('XECX450')").first.click()
+            page.wait_for_timeout(8000)
+            page.screenshot(path="debug_pw_ecx450_open.png")
+        else:
+            logger.warning("Cannot find XECX450 anywhere.")
+            logger.warning("Full page text:\n%s", page.inner_text("body")[:1000])
+
+        logger.info("XECX450 program opened")
+
+    def _live_ecx450_lookup(self, item_number: str) -> dict[str, Any]:
+        """
+        Look up release status for item_number in the live XECX450 interface.
+
+        Opens XECX450 via search dialog each call (stateless panel),
+        fills PHPRNO, presses Enter, waits for XHR, parses response.
+        """
+        self._captured_responses.clear()
+
+        self._open_xecx450()
+
+        # Find the XECX450 panel frame (contains PHPRNO field)
+        xecx_frame = None
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            for frame in self._page.frames:
+                try:
+                    content = frame.content()
+                    if "PHPRNO" in content:
+                        logger.info("Found XECX450 frame: %s", frame.url[:80])
+                        xecx_frame = frame
+                        break
+                except Exception:
+                    continue
+            if xecx_frame:
+                break
+            time.sleep(2)
+
+        if not xecx_frame:
+            logger.warning("XECX450 iframe not found after opening program")
+            return {"error": "XECX450 iframe not found"}
+
+        phprno = xecx_frame.locator('input[name="PHPRNO"]')
+        if not phprno.is_visible():
+            logger.warning("PHPRNO input not visible in XECX450 frame")
+            return {"error": "PHPRNO field not visible"}
+
+        self._captured_responses.clear()
+        phprno.fill(item_number)
+        phprno.press("Enter")
+
+        self._page.wait_for_timeout(3000)
+
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if self._captured_responses:
+                break
+            time.sleep(0.3)
+
+        if not self._captured_responses:
+            logger.warning(
+                "No XHR response for XECX450 item %s (timeout)", item_number
+            )
+            return {"error": "no XHR response (timeout)"}
+
+        for xml_text in reversed(self._captured_responses):
+            result = parse_ecx450_xml(xml_text)
+            if "error" not in result:
+                return result
+
+        # Return last parse attempt's error
+        return parse_ecx450_xml(self._captured_responses[-1])
+
     # ── Mock mode ───────────────────────────────────────────────────────
+
+    def _mock_ecx450_lookup(self, item_number: str) -> dict[str, Any]:
+        """
+        Read a saved XML response from mock_data/ecx450_{item_number}.xml.
+
+        Falls back to mock_data/ecx450_all.xml if per-item file doesn't exist.
+        """
+        if not self.mock_data_dir:
+            logger.warning("Mock mode but no mock_data_dir set")
+            return {"error": "no mock_data_dir configured"}
+
+        item_file = self.mock_data_dir / f"ecx450_{item_number}.xml"
+        if not item_file.exists():
+            item_file = self.mock_data_dir / "ecx450_all.xml"
+        if not item_file.exists():
+            logger.debug("No mock data for XECX450 item %s", item_number)
+            return {"error": f"no mock data for item {item_number}"}
+
+        xml_text = item_file.read_text(encoding="utf-8")
+        return parse_ecx450_xml(xml_text)
 
     def _mock_lookup(self, to_number: str) -> dict[str, Any] | None:
         """
