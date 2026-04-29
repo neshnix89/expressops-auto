@@ -551,25 +551,21 @@ def format_item_table(
     smt_line: str,
 ) -> str:
     """
-    Render the item table as a wiki-style markdown block (the form shown
-    in the TASK.md comment template). Each item row shows qty with "pcs"
-    appended, MO start/end formatted '21st April 2025'.
+    Render the item table in JIRA wiki markup format. Header row uses
+    double-pipe delimiters (||col||); data rows use single-pipe (|val|).
+    Each item row shows qty with "pcs" appended, MO start/end formatted
+    '21st April 2025'.
     """
-    header = (
-        "| Item Number | Description | Qty | SMT Line | MO start | MO end |"
-    )
-    divider = (
-        "|-------------|-------------|-----|----------|----------|--------|"
-    )
+    header = "||Item Number||Description||Qty||SMT Line||MO start||MO end||"
     start_str = format_date(mo_start)
     end_str = format_date(mo_end)
-    lines = [header, divider]
+    lines = [header]
     for item in items:
         qty = item.get("qty", "").strip()
         qty_out = f"{qty}pcs" if qty and not qty.lower().endswith("pcs") else qty
         lines.append(
-            f"| {item.get('part_number', '')} | {item.get('description', '')} "
-            f"| {qty_out} | {smt_line} | {start_str} | {end_str} |"
+            f"|{item.get('part_number', '')}|{item.get('description', '')}"
+            f"|{qty_out}|{smt_line}|{start_str}|{end_str}|"
         )
     return "\n".join(lines)
 

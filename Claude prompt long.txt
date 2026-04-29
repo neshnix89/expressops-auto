@@ -1,0 +1,16 @@
+Read clients/m3_h5_client.py, specifically _open_xecx450() around line 673.
+
+The problem from the live test log:
+- Search dialog opened, "ecx450" typed, result WAS found in DOM
+- The locator resolved to: <a href="#" class="inforAccordionSubmenu" data-m3-link="/mne/jsp/h5ibrix/ecx450/index.jsp">XECX450: #E5: XECX450-Product Locks/Releases</a>
+- But Playwright says "element is not visible" — it's in the DOM but hidden/obscured by the search dialog overlay
+- Timeout after 30s waiting for it to become visible
+
+The fix: after finding the XECX450 link, use JavaScript click instead of Playwright click since the element is in the DOM but not visually exposed:
+    page.locator("a[data-m3-link*='ecx450']").first.evaluate("el => el.click()")
+
+Alternatively, check how _open_xdrx800() handles the same situation — the earlier XDRX800 log showed the same "visible=False" problem with its link. If XDRX800 uses a JS click or dispatch_event, mirror that approach.
+
+Also: the link has a data-m3-link attribute containing "/mne/jsp/h5ibrix/ecx450/index.jsp" — this is a more reliable selector than text matching.
+
+Commit and push with message "fix: use JS click for XECX450 link not visible in search overlay"
