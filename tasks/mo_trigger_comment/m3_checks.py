@@ -87,11 +87,21 @@ def _query_or_warn(
 # ── E5 partial status ────────────────────────────────────────────────
 
 
-def check_partial_e5(m3: M3Client, article: str, logger) -> str:
+def check_partial_e5(
+    m3: M3Client,
+    article: str,
+    logger,
+    e5_release: dict[str, Any] | None = None,
+) -> str:
     """
     Validate MMSTAT (item) and PHSTAT (prod structure) are both in
     {20, 30, 40} — the "release" range. Both pass → proceed line.
     Either fail → explicit CHECK REQUIRED warning with both values.
+
+    When e5_release is provided (from XECX450 Playwright lookup), the
+    R&D1/R&D2/Production release status is appended to the pass line
+    instead of "check manually". When e5_release has an "error" key,
+    the error message is appended. When None, falls back to "check manually".
     """
     item_rows = _query_or_warn(
         m3, ITEM_STATUS_SQL, (article,), f"item_{article}.json", logger,
@@ -107,9 +117,22 @@ def check_partial_e5(m3: M3Client, article: str, logger) -> str:
     prod_ok = prod_status in VALID_E5_STATUSES
 
     if item_ok and prod_ok:
+        if e5_release is None:
+            return (
+                "Item sts \u2713, Prod sts \u2713 \u2014 "
+                "R&D/Production release: check manually"
+            )
+        if "error" in e5_release:
+            return (
+                f"Item sts \u2713, Prod sts \u2713 \u2014 "
+                f"R&D/Production release: {e5_release['error']}"
+            )
+        rnd1 = "Released" if e5_release.get("rnd1_released") else "Not Released"
+        rnd2 = "Released" if e5_release.get("rnd2_released") else "Not Released"
+        prod = "Released" if e5_release.get("production_released") else "Not Released"
         return (
-            "Item sts \u2713, Prod sts \u2713 \u2014 "
-            "R&D/Production release: check manually"
+            f"Item sts \u2713, Prod sts \u2713 \u2014 "
+            f"R&D1: {rnd1}, R&D2: {rnd2}, Production: {prod}"
         )
     return (
         f"\u26a0 CHECK REQUIRED \u2014 Item sts: {item_status or '(missing)'}, "

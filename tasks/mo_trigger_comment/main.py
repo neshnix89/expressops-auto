@@ -219,6 +219,7 @@ def process_container(
     m3: M3Client,
     mo_task_config: dict[str, Any],
     logger,
+    m3h5_client=None,
 ) -> dict[str, Any]:
     """
     Run the full Phase-1 pipeline on a single container and return a
@@ -308,7 +309,17 @@ def process_container(
     pkg_by_article: dict[str, str] = {}
 
     for article in articles:
-        e5_by_article[article] = m3_checks.check_partial_e5(m3, article, logger)
+        e5_release = None
+        if m3h5_client is not None:
+            try:
+                e5_release = m3h5_client.get_e5_release_status(article)
+            except Exception as exc:
+                logger.warning(
+                    "%s: XECX450 lookup failed for %s: %s", key, article, exc
+                )
+        e5_by_article[article] = m3_checks.check_partial_e5(
+            m3, article, logger, e5_release=e5_release
+        )
         breaking, aoi_test = m3_checks.check_routing(m3, article, te_assignee, logger)
         breaking_by_article[article] = breaking
         # Strip the TE-assignee prefix so identical routings across
@@ -392,6 +403,12 @@ def run_assemble(mode: str, dry_run: bool, publish: bool) -> int:
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
 
+    m3h5_client = None
+    if mode != "mock":
+        from clients.m3_h5_client import M3H5Client
+        m3h5_client = M3H5Client(config)
+        m3h5_client.connect()
+
     results: list[dict[str, Any]] = []
     try:
         keys = fetch_container_keys(jira, logger)
@@ -416,6 +433,7 @@ def run_assemble(mode: str, dry_run: bool, publish: bool) -> int:
                 m3=m3,
                 mo_task_config=mo_task_config,
                 logger=logger,
+                m3h5_client=m3h5_client,
             )
             results.append(result)
 
@@ -448,6 +466,8 @@ def run_assemble(mode: str, dry_run: bool, publish: bool) -> int:
         )
     finally:
         m3.close()
+        if m3h5_client is not None:
+            m3h5_client.close()
 
     if publish:
         if dry_run:
