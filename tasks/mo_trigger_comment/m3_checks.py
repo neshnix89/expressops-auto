@@ -98,10 +98,11 @@ def check_partial_e5(
     {20, 30, 40} — the "release" range. Both pass → proceed line.
     Either fail → explicit CHECK REQUIRED warning with both values.
 
-    When e5_release is provided (from XECX450 Playwright lookup), the
-    R&D1/R&D2/Production release status is appended to the pass line
-    instead of "check manually". When e5_release has an "error" key,
-    the error message is appended. When None, falls back to "check manually".
+    When e5_release is provided and has no "error" key, the
+    R&D1/R&D2/Production release status is appended in ALL cases —
+    both when ODBC passes and when it fails. When e5_release is None
+    or has an "error" key, ODBC-fail returns plain CHECK REQUIRED and
+    ODBC-pass falls back to "check manually" / shows the error.
     """
     item_rows = _query_or_warn(
         m3, ITEM_STATUS_SQL, (article,), f"item_{article}.json", logger,
@@ -134,10 +135,16 @@ def check_partial_e5(
             f"Item sts \u2713, Prod sts \u2713 \u2014 "
             f"R&D1: {rnd1}, R&D2: {rnd2}, Production: {prod}"
         )
-    return (
+    check_line = (
         f"\u26a0 CHECK REQUIRED \u2014 Item sts: {item_status or '(missing)'}, "
         f"Prod sts: {prod_status or '(missing)'}"
     )
+    if e5_release is not None and "error" not in e5_release:
+        rnd1 = "Released" if e5_release.get("rnd1_released") else "Not Released"
+        rnd2 = "Released" if e5_release.get("rnd2_released") else "Not Released"
+        prod = "Released" if e5_release.get("production_released") else "Not Released"
+        check_line += f" | R&D1: {rnd1}, R&D2: {rnd2}, Production: {prod}"
+    return check_line
 
 
 # ── Routing checks ───────────────────────────────────────────────────
