@@ -1,9 +1,13 @@
 """
-M3 H5 Client — Playwright-based browser automation for XDRX800 (Transport Orders).
+M3 H5 Client — Playwright-based browser automation for M3 programs (XDRX800, XECX450).
 
-This client automates the MNE web frontend because XDRX800 is an MNE-only
-program with no REST API, no ODBC table, and no MvxMCSvt panel data.
-The only way to query TO status programmatically is through the browser.
+connect() launches Edge and authenticates via ADFS SSO. It does NOT open any
+specific M3 program. Individual programs are opened lazily on first use:
+  - XDRX800 (Transport Orders) is opened by the first get_to_status() call.
+  - XECX450 (Product Locks/Releases) is opened by each get_e5_release_status() call.
+
+Both programs share the same browser session and page — opened sequentially via
+the M3 portal search dialog.
 
 Key constraints:
   - Headless mode does NOT work (ADFS SSO requires headed Edge).
@@ -14,8 +18,9 @@ Key constraints:
 Usage:
     client = M3H5Client(config)
     client.connect()
-    result = client.get_to_status("147715")
+    result = client.get_to_status("147715")           # opens XDRX800 on first call
     results = client.get_multiple_to_status(["147715", "147297"])
+    status = client.get_e5_release_status("1234567")  # opens XECX450 on each call
     client.close()
 """
 
@@ -173,10 +178,10 @@ def parse_xdrx800_xml(xml_text: str) -> list[dict[str, Any]]:
 
 class M3H5Client:
     """
-    Playwright-based client for M3 XDRX800 (Transport Orders).
+    Playwright-based client for M3 programs (XDRX800, XECX450).
 
-    Launches Edge in headed mode, authenticates via ADFS SSO, opens XDRX800,
-    and provides methods to look up TO status by number.
+    connect() launches Edge in headed mode and authenticates via ADFS SSO.
+    M3 programs are opened lazily on first use by their respective methods.
 
     In mock mode, reads from saved XML files in mock_data_dir instead of
     launching a browser.
@@ -190,6 +195,7 @@ class M3H5Client:
         self._browser = None
         self._page = None
         self._xdrx_frame = None
+        self._xdrx_initialized = False  # True after XDRX800 is opened and filters cleared
         self._connected = False
         self._captured_responses: list[str] = []
 
@@ -197,7 +203,10 @@ class M3H5Client:
 
     def connect(self) -> None:
         """
-        Launch browser, SSO-authenticate, and open XDRX800.
+        Launch browser and SSO-authenticate against the M3 portal.
+
+        Does NOT open any specific M3 program. Programs are opened lazily
+        on first use by get_to_status() and get_e5_release_status().
 
         In mock mode this is a no-op.
         """
@@ -208,7 +217,7 @@ class M3H5Client:
 
         from playwright.sync_api import sync_playwright
 
-        logger.info("Launching Edge for M3 XDRX800...")
+        logger.info("Launching Edge for M3...")
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(
             channel="msedge", headless=False
@@ -223,27 +232,13 @@ class M3H5Client:
         self._captured_responses.clear()
         self._page.on("response", self._on_response)
 
-        # Step 1: Navigate to M3 portal (SSO auto-authenticates)
+        # Navigate to M3 portal (SSO auto-authenticates)
         logger.info("Navigating to M3 portal (SSO)...")
         self._page.goto(M3_PORTAL, timeout=60_000, wait_until="domcontentloaded")
         self._page.wait_for_timeout(6_000)
 
-        # Step 2: Open XDRX800 via search dialog
-        self._open_xdrx800()
-
-        # Step 3: Find the XDRX800 iframe
-        self._xdrx_frame = self._find_xdrx_frame()
-        if not self._xdrx_frame:
-            raise RuntimeError(
-                "XDRX800 iframe not found after opening program. "
-                "Check debug_m3_xdrx800_open.png for the page state."
-            )
-
-        # Step 4: Clear every filter so only the DTHID (TO number) matters
-        self._clear_all_filters()
-
         self._connected = True
-        logger.info("M3 H5 Client connected — XDRX800 ready")
+        logger.info("M3 H5 Client connected — SSO complete, no program opened yet")
 
     def close(self) -> None:
         """Shut down browser and Playwright."""
@@ -519,9 +514,22 @@ class M3H5Client:
         """
         Look up a TO by number in the live XDRX800 interface.
 
-        Sets the DTHID filter field, presses Enter, waits for XHR,
-        parses the response.
+        Opens XDRX800 and clears filters on the first call, then reuses the
+        browser session for subsequent lookups. Sets the DTHID filter field,
+        presses Enter, waits for XHR, parses the response.
         """
+        if not self._xdrx_initialized:
+            self._open_xdrx800()
+            self._xdrx_frame = self._find_xdrx_frame()
+            if not self._xdrx_frame:
+                raise RuntimeError(
+                    "XDRX800 iframe not found after opening program. "
+                    "Check debug_pw_xdrx800.png for the page state."
+                )
+            self._clear_all_filters()
+            self._xdrx_initialized = True
+            logger.info("XDRX800 initialized and ready")
+
         # The iframe reference goes stale after filter-reset submissions —
         # re-resolve it each lookup and update the cached handle.
         frame = self._find_xdrx_frame()
