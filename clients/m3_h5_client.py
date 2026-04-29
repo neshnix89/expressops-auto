@@ -609,8 +609,11 @@ class M3H5Client:
         """
         Open XECX450 via the M3 portal search dialog.
 
-        Mirrors _open_xdrx800 exactly — same Ctrl+R approach, different
-        program name and result text.
+        Exact working sequence confirmed from live testing:
+        1. Ctrl+R to open search dialog
+        2. fill() 'xecx450' into #cmdText (not char-by-char)
+        3. Click the OK button to submit
+        4. Wait for the XECX450 iframe to attach
         """
         page = self._page
 
@@ -622,70 +625,16 @@ class M3H5Client:
             }));
         """)
         page.wait_for_timeout(2000)
-        if not page.locator("#cmdText").is_visible():
-            page.evaluate(
-                "$('#cmdText').parents().each(function(){$(this).show()}); "
-                "$('#cmdText').show().focus()"
-            )
-            page.wait_for_timeout(1000)
 
-        logger.info("Typing ecx450 slowly...")
+        logger.info("Filling xecx450 in search box...")
         cmd = page.locator("#cmdText")
         cmd.click()
-        cmd.fill("")
-        for char in "ecx450":
-            cmd.type(char, delay=200)
-        page.wait_for_timeout(3000)
-        page.screenshot(path="debug_pw_ecx450_autocomplete.png")
+        cmd.fill("xecx450")
 
-        all_text = page.inner_text("body")
-        has_result = (
-            "Product Locks" in all_text
-            or "Releases and History" in all_text
-            or "XECX450" in all_text
-        )
-        logger.info("  XECX450 result visible: %s", has_result)
+        page.locator('button:has-text("OK")').click()
 
-        if not has_result:
-            logger.info("  No results yet. Clicking OK...")
-            page.get_by_text("OK", exact=True).first.click()
-            page.wait_for_timeout(3000)
-            page.screenshot(path="debug_pw_ecx450_after_ok.png")
-
-            all_text = page.inner_text("body")
-            has_result = (
-                "Product Locks" in all_text
-                or "Releases and History" in all_text
-                or "XECX450" in all_text
-            )
-            logger.info("  XECX450 result after OK: %s", has_result)
-
-            if not has_result:
-                for frame in page.frames:
-                    ft = frame.content()
-                    if "Product Locks" in ft or "XECX450" in ft:
-                        logger.info("  Found in frame: %s", frame.url[:60])
-                        has_result = True
-
-        if has_result:
-            # JS click bypasses Playwright's visibility check — the link is in
-            # the DOM but hidden behind the search dialog overlay.
-            logger.info("Clicking XECX450 link via JS (may be hidden by search overlay)...")
-            try:
-                page.locator("a[data-m3-link*='ecx450']").first.evaluate("el => el.click()")
-            except Exception:
-                try:
-                    page.locator("text=Product Locks/Releases and History").first.click()
-                except Exception:
-                    try:
-                        page.locator("text=Product Locks").first.click()
-                    except Exception:
-                        page.locator("a:has-text('XECX450')").first.click()
-            page.wait_for_timeout(8000)
-            page.screenshot(path="debug_pw_ecx450_open.png")
-        else:
-            logger.warning("Cannot find XECX450 anywhere.")
-            logger.warning("Full page text:\n%s", page.inner_text("body")[:1000])
+        logger.info("Waiting for XECX450 iframe...")
+        page.locator('iframe[src*="ecx450"]').wait_for(state="attached", timeout=30000)
 
         logger.info("XECX450 program opened")
 
@@ -693,64 +642,36 @@ class M3H5Client:
         """
         Look up release status for item_number in the live XECX450 interface.
 
-        Opens XECX450 via search dialog each call (stateless panel),
-        fills PHPRNO, presses Enter, waits for XHR, parses response.
+        Exact working sequence confirmed from live testing:
+        - frame_locator() (not content_frame()) to access the iframe
+        - input#PHPRNO (not [name=PHPRNO] which matches 2 elements)
+        - Ctrl+A then char-by-char type to reliably replace any prior value
+        - expect_response() instead of polling (time.sleep blocks event loop)
+        - Enter to search (F5 refreshes the browser)
         """
-        self._captured_responses.clear()
-
         self._open_xecx450()
 
-        # Find the XECX450 panel frame (contains PHPRNO field)
-        xecx_frame = None
-        deadline = time.time() + 20
-        while time.time() < deadline:
-            for frame in self._page.frames:
-                try:
-                    content = frame.content()
-                    if "PHPRNO" in content:
-                        logger.info("Found XECX450 frame: %s", frame.url[:80])
-                        xecx_frame = frame
-                        break
-                except Exception:
-                    continue
-            if xecx_frame:
-                break
-            time.sleep(2)
+        ecx_frame = self._page.frame_locator('iframe[src*="ecx450"]')
 
-        if not xecx_frame:
-            logger.warning("XECX450 iframe not found after opening program")
-            return {"error": "XECX450 iframe not found"}
+        logger.info("Waiting for PHPRNO input...")
+        ecx_frame.locator("input#PHPRNO").wait_for(state="visible", timeout=30000)
+        time.sleep(3)  # let panel fully render before interacting
 
-        phprno = xecx_frame.locator('input[name="PHPRNO"]')
-        if not phprno.is_visible():
-            logger.warning("PHPRNO input not visible in XECX450 frame")
-            return {"error": "PHPRNO field not visible"}
+        phprno = ecx_frame.locator("input#PHPRNO")
+        phprno.click()
+        phprno.press("Control+a")
+        for char in item_number:
+            phprno.type(char, delay=100)
 
-        self._captured_responses.clear()
-        phprno.fill(item_number)
-        phprno.press("Enter")
+        logger.info("Submitting XECX450 query for item %s...", item_number)
+        with self._page.expect_response(
+            lambda r: "generic.do" in r.url and r.status == 200,
+            timeout=30000,
+        ) as resp_info:
+            phprno.press("Enter")
 
-        self._page.wait_for_timeout(3000)
-
-        deadline = time.time() + 10
-        while time.time() < deadline:
-            if self._captured_responses:
-                break
-            time.sleep(0.3)
-
-        if not self._captured_responses:
-            logger.warning(
-                "No XHR response for XECX450 item %s (timeout)", item_number
-            )
-            return {"error": "no XHR response (timeout)"}
-
-        for xml_text in reversed(self._captured_responses):
-            result = parse_ecx450_xml(xml_text)
-            if "error" not in result:
-                return result
-
-        # Return last parse attempt's error
-        return parse_ecx450_xml(self._captured_responses[-1])
+        body = resp_info.value.text()
+        return parse_ecx450_xml(body)
 
     # ── Mock mode ───────────────────────────────────────────────────────
 
