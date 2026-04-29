@@ -196,6 +196,8 @@ class M3H5Client:
         self._page = None
         self._xdrx_frame = None
         self._xdrx_initialized = False  # True after XDRX800 is opened and filters cleared
+        self._ecx450_frame = None
+        self._ecx450_initialized = False  # True after XECX450 is opened once
         self._connected = False
         self._captured_responses: list[str] = []
 
@@ -631,10 +633,13 @@ class M3H5Client:
         cmd.click()
         cmd.fill("xecx450")
 
+        initial_count = page.locator('iframe[src*="ecx450"]').count()
         page.locator('button:has-text("OK")').click()
 
-        logger.info("Waiting for XECX450 iframe...")
-        page.locator('iframe[src*="ecx450"]').wait_for(state="attached", timeout=30000)
+        logger.info("Waiting for new XECX450 iframe (was %d)...", initial_count)
+        page.locator('iframe[src*="ecx450"]').nth(initial_count).wait_for(
+            state="attached", timeout=30000
+        )
 
         logger.info("XECX450 program opened")
 
@@ -642,22 +647,27 @@ class M3H5Client:
         """
         Look up release status for item_number in the live XECX450 interface.
 
-        Exact working sequence confirmed from live testing:
-        - frame_locator() (not content_frame()) to access the iframe
-        - input#PHPRNO (not [name=PHPRNO] which matches 2 elements)
-        - Ctrl+A then char-by-char type to reliably replace any prior value
-        - expect_response() instead of polling (time.sleep blocks event loop)
+        Opens XECX450 once on the first call and reuses the same iframe for
+        all subsequent lookups. Calling _open_xecx450() on every lookup
+        creates duplicate iframes and eventually breaks the search dialog.
+
+        - frame_locator().last targets the newest XECX450 iframe
+        - Ctrl+A + char-by-char type replaces any prior value in PHPRNO
+        - expect_response() captures the XHR without blocking the event loop
         - Enter to search (F5 refreshes the browser)
         """
-        self._open_xecx450()
+        if not self._ecx450_initialized:
+            self._open_xecx450()
+            self._ecx450_frame = self._page.frame_locator('iframe[src*="ecx450"]').last
+            logger.info("Waiting for PHPRNO input (first open)...")
+            self._ecx450_frame.locator("input#PHPRNO").wait_for(
+                state="visible", timeout=30000
+            )
+            time.sleep(3)  # let panel fully render before interacting
+            self._ecx450_initialized = True
+            logger.info("XECX450 initialized and ready")
 
-        ecx_frame = self._page.frame_locator('iframe[src*="ecx450"]')
-
-        logger.info("Waiting for PHPRNO input...")
-        ecx_frame.locator("input#PHPRNO").wait_for(state="visible", timeout=30000)
-        time.sleep(3)  # let panel fully render before interacting
-
-        phprno = ecx_frame.locator("input#PHPRNO")
+        phprno = self._ecx450_frame.locator("input#PHPRNO")
         phprno.click()
         phprno.press("Control+a")
         for char in item_number:
