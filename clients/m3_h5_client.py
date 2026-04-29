@@ -419,12 +419,17 @@ class M3H5Client:
                         pass
 
         # [5] Try to click Transport Orders
+        # JS click bypasses Playwright's visibility check — the link is in the
+        # DOM but hidden behind the search dialog overlay.
         if has_transport:
-            logger.info("Clicking Transport Orders...")
+            logger.info("Clicking XDRX800 link via JS (may be hidden by search overlay)...")
             try:
-                page.locator("text=Transport Orders").first.click()
+                page.locator("a[data-m3-link*='xdrx800']").first.evaluate("el => el.click()")
             except Exception:
-                page.locator("a:has-text('Transport')").first.click()
+                try:
+                    page.locator("text=Transport Orders").first.click()
+                except Exception:
+                    page.locator("a:has-text('Transport')").first.click()
             page.wait_for_timeout(8000)
             page.screenshot(path="debug_pw_xdrx800.png")
         else:
@@ -663,14 +668,19 @@ class M3H5Client:
                         has_result = True
 
         if has_result:
-            logger.info("Clicking Product Locks/Releases and History...")
+            # JS click bypasses Playwright's visibility check — the link is in
+            # the DOM but hidden behind the search dialog overlay.
+            logger.info("Clicking XECX450 link via JS (may be hidden by search overlay)...")
             try:
-                page.locator("text=Product Locks/Releases and History").first.click()
+                page.locator("a[data-m3-link*='ecx450']").first.evaluate("el => el.click()")
             except Exception:
                 try:
-                    page.locator("text=Product Locks").first.click()
+                    page.locator("text=Product Locks/Releases and History").first.click()
                 except Exception:
-                    page.locator("a:has-text('XECX450')").first.click()
+                    try:
+                        page.locator("text=Product Locks").first.click()
+                    except Exception:
+                        page.locator("a:has-text('XECX450')").first.click()
             page.wait_for_timeout(8000)
             page.screenshot(path="debug_pw_ecx450_open.png")
         else:
