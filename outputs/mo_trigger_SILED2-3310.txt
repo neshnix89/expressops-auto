@@ -1,0 +1,23 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for PT – Prototype Run MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70205456|PCBA SJ5|242pcs|Line 5|8th May 2026|14th May 2026|
+|70206089|PCBA SJ10|242pcs|Line 5|8th May 2026|14th May 2026|
+
+Please trigger [~asesuraj] for the program creation.
+
+E5: Item sts ✓, Prod sts ✓ — R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0223A
+Packaging Material (273446) already in BOM
+Delivery: RnD tests in Trutnov / CZ2
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~jkratochvi], [~asesuraj], [~sfernandez], [~siti], [~duonguyen], [~tmoghanan]

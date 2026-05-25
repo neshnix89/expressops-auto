@@ -1,0 +1,22 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Development Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70205473|PCBA S LB/FB8xxx MDL CY5|10pcs|Line 5|5th May 2026|11th May 2026|
+
+Please trigger [~mbaddah] for the program creation.
+
+E5: Item sts ✓, Prod sts ✓ — R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0224C
+Packaging Material (054570) already in BOM
+Delivery: laboratory sample for RnD team
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI and Test required
+
+FYI: [~mwidenmeye], [~asesuraj], [~sfernandez], [~mbaddah], [~siti], [~thhoang], [~wneo]

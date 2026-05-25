@@ -1,0 +1,8 @@
+2026-04-23 17:38:02 [INFO   ] expressops.container_summary — run: live mode (no_llm=False, full_refresh=False, dry_run=False, key=None)
+2026-04-23 17:38:04 [INFO   ] expressops.container_summary — Fetched 41 container(s)
+2026-04-23 17:38:06 [INFO   ] expressops.container_summary — Fetched children for 41 container(s)
+2026-04-23 17:38:08 [INFO   ] expressops.container_summary — LLM: 0 container(s) will be (re)summarised — est. ~$0.00
+2026-04-23 17:38:08 [INFO   ] expressops.container_summary — LLM: 0 processed, 41 skipped (unchanged) — actual $0.0000
+2026-04-23 17:38:13 [INFO   ] expressops.container_summary — Confluence page 572192191 updated
+2026-04-23 17:38:14 [INFO   ] expressops.container_summary — Uploaded container_summary.json attachment
+2026-04-23 17:38:14 [INFO   ] expressops.container_summary — Cache saved to last_run.json

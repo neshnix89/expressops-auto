@@ -1,0 +1,27 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Qualification Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70196765|PCBA B R100-MPT-RD V3 (use Sunshine PCBs)|630pcs|Line 5|4th May 2026|8th May 2026|
+|70196766|PCBA B R100-MPT-RDL V3 (use Sunshine PCBs)|630pcs|Line 5|4th May 2026|8th May 2026|
+|70196765|PCBA B R100-MPT-RD V3 (use Suntak PCBs)|630pcs|Line 5|4th May 2026|8th May 2026|
+|70196766|PCBA B R100-MPT-RDL V3 (use Suntak PCBs)|630pcs|Line 5|4th May 2026|8th May 2026|
+|70101128|PCBA B R100-MPT-RD V3 (standard Wuerth)|108pcs|Line 5|4th May 2026|8th May 2026|
+|70101129|PCBA B R100-MPT-RDL V3 (standard Wuerth)|108pcs|Line 5|4th May 2026|8th May 2026|
+
+Please trigger [~chonlim] for the program creation.
+
+E5: Item sts ✓, Prod sts ✓ — R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0227
+⚠ No packaging material (Dwgpos 5000) in BOM
+Delivery: hand over from SMT -> COB -> mainline. Send all scrap / failed parts from PCBA test / final test to Tobias Freund
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] Test required
+
+FYI: [~tofreund], [~chonlim], [~sfernandez], [~siti], [~duonguyen], [~tmoghanan]

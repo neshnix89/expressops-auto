@@ -1,0 +1,23 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Qualification Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70207619|PCBA S M12 2-N0|105pcs|Line 5|22nd May 2026|29th May 2026|
+|70207621|PCBA S M12 4-N0|105pcs|Line 5|22nd May 2026|29th May 2026|
+
+Please trigger [~abin] for the program creation.
+
+E5: Item sts ✓, Prod sts ✓ — R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0223A
+Packaging Material (054569) already in BOM
+Delivery: Send all PCBA`s to BT1
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~mrudolph], [~abin], [~sfernandez], [~siti], [~thhoang], [~tmoghanan]

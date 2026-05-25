@@ -1,0 +1,44 @@
+2026-05-25 09:30:04 [INFO   ] expressops.bom_scanner — scan: live mode (target_status=310, source=both, dry_run=False)
+2026-05-25 09:30:06 [INFO   ] expressops.bom_scanner — JIRA: 28 active Work Container(s)
+2026-05-25 09:30:07 [INFO   ] expressops.bom_scanner — Confluence: 41 container key(s) from MR Status Report
+2026-05-25 09:30:07 [INFO   ] expressops.bom_scanner — Total unique containers: 62
+2026-05-25 09:30:22 [INFO   ] expressops.bom_scanner — NPIOTHER-3543: no article # in description
+2026-05-25 09:30:23 [INFO   ] expressops.bom_scanner — NPIOTHER-3674: no article # in description
+2026-05-25 09:30:27 [INFO   ] expressops.bom_scanner — NPIOTHER-4060: no article # in description
+2026-05-25 09:30:27 [INFO   ] expressops.bom_scanner — NPIOTHER-4070: no article # in description
+2026-05-25 09:30:34 [INFO   ] expressops.bom_scanner — article 70205901: order type 106, skipping
+2026-05-25 09:30:36 [INFO   ] expressops.bom_scanner — article 70207321: order type 106, skipping
+2026-05-25 09:30:36 [INFO   ] expressops.bom_scanner — LCUSAMB-2156: article 70170514: no STD product structure, skipping
+2026-05-25 09:30:40 [INFO   ] expressops.bom_scanner — article 70196902: order type 106, skipping
+2026-05-25 09:30:40 [INFO   ] expressops.bom_scanner — article 70196903: order type 106, skipping
+2026-05-25 09:30:43 [INFO   ] expressops.bom_scanner — article 70207004: order type 106, skipping
+2026-05-25 09:30:43 [INFO   ] expressops.bom_scanner — NPIOTHER-4681: article 333333: no STD product structure, skipping
+2026-05-25 09:30:49 [INFO   ] expressops.bom_scanner — article 70207423: order type 106, skipping
+2026-05-25 09:30:53 [INFO   ] expressops.bom_scanner — article 70207544: order type 106, skipping
+2026-05-25 09:30:58 [INFO   ] expressops.bom_scanner — article 70207280: order type 106, skipping
+2026-05-25 09:31:02 [INFO   ] expressops.bom_scanner — article 70207394: order type 106, skipping
+2026-05-25 09:31:02 [INFO   ] expressops.bom_scanner — NPIOTHER-4951: article 015336: no STD product structure, skipping
+2026-05-25 09:31:14 [INFO   ] expressops.bom_scanner — POSX-7007: article 70205208: no STD product structure, skipping
+2026-05-25 09:31:15 [INFO   ] expressops.bom_scanner — NPIOTHER-5048: no article # in description
+2026-05-25 09:31:19 [INFO   ] expressops.bom_scanner — article 70198104: order type 106, skipping
+2026-05-25 09:31:24 [INFO   ] expressops.bom_scanner — article 70195229: order type 106, skipping
+2026-05-25 09:31:31 [INFO   ] expressops.bom_scanner — NPIOTHER-2264: no article # in description
+2026-05-25 09:31:32 [INFO   ] expressops.bom_scanner — NPIOTHER-2306: article 421411: no STD product structure, skipping
+2026-05-25 09:31:34 [INFO   ] expressops.bom_scanner — NPIOTHER-4115: article 70186057: no STD product structure, skipping
+2026-05-25 09:31:34 [INFO   ] expressops.bom_scanner — NPIOTHER-4115: article 70100158: no STD product structure, skipping
+2026-05-25 09:31:35 [INFO   ] expressops.bom_scanner — NPIOTHER-2975: article 70118128: no STD product structure, skipping
+2026-05-25 09:31:38 [INFO   ] expressops.bom_scanner — NPIOTHER-1589: no article # in description
+2026-05-25 09:31:38 [INFO   ] expressops.bom_scanner — article 70200844: order type 106, skipping
+2026-05-25 09:31:43 [INFO   ] expressops.bom_scanner — article 70200841: order type 106, skipping
+2026-05-25 09:31:44 [INFO   ] expressops.bom_scanner — SILED2-2127: no article # in description
+2026-05-25 09:31:44 [INFO   ] expressops.bom_scanner — KCDVR-1270: no article # in description
+2026-05-25 09:31:48 [INFO   ] expressops.bom_scanner — NPIOTHER-1401: no article # in description
+2026-05-25 09:31:49 [INFO   ] expressops.bom_scanner — article 70200544: order type 106, skipping
+2026-05-25 09:31:55 [INFO   ] expressops.bom_scanner — article 70191313: order type 106, skipping
+2026-05-25 09:32:02 [INFO   ] expressops.bom_scanner — DDE4735-1912: article 70207747: no STD product structure, skipping
+2026-05-25 09:32:05 [INFO   ] expressops.bom_scanner — POSX-6651: article 70204737: no STD product structure, skipping
+2026-05-25 09:32:23 [INFO   ] expressops.bom_scanner — NPIOTHER-201: no article # in description
+2026-05-25 09:32:26 [INFO   ] expressops.bom_scanner — DDE4711-974: article 70183784: no STD product structure, skipping
+2026-05-25 09:32:33 [INFO   ] expressops.bom_scanner — article 70200847: order type 106, skipping
+2026-05-25 09:32:34 [INFO   ] expressops.bom_scanner.publish — Publishing 62 result(s) to Confluence page 572180443
+2026-05-25 09:32:42 [INFO   ] expressops.bom_scanner.publish — Published v25 -> https://pfteamspace.pepperl-fuchs.com/pages/viewpage.action?pageId=572180443

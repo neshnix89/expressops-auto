@@ -1,0 +1,23 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Qualification Sample MO planning of PCBAs shown below.
+
+| Item Number | Description | Qty | SMT Line | MO start | MO end |
+|-------------|-------------|-----|----------|----------|--------|
+| 70202725 | PCBA S C HiCTB16 TRX RAC IO16Y | 3pcs | Line 5 | 30th April 2026 | 7th May 2026 |
+
+Please trigger [~asesuraj] for the program creation.
+
+E5: Item sts ✓, Prod sts ✓ — R&D/Production release: check manually
+
+Depaneling Required
+⚠ No BREAKING-ARRAY in routing
+⚠ No packaging material (Dwgpos 5000) in BOM
+Delivery: Book into MOPs location for MO allocation after MR complete
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~htay], [~asesuraj], [~sfernandez], [~thhoang], [~tmoghanan]

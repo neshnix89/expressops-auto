@@ -1,0 +1,23 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Development Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70190468|PCBA B R100-OBT-RD|36pcs|Line 5|26th May 2026|1st June 2026|
+|70190469|PCBA B R100-OBT-RDL|36pcs|Line 5|26th May 2026|1st June 2026|
+
+Please trigger [~chonlim] for the program creation.
+
+E5: ⚠ CHECK REQUIRED — Item sts: 20, Prod sts: 10 | R&D1: Released, R&D2: Released, Production: Not Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0227
+⚠ No packaging material (Dwgpos 5000) in BOM
+Delivery: One panel each for the assembly of sample sensors in Singapore R100 line. Second panels to RnD Berlin (D. Heinemann).
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] ⚠ No AOI or Test in routing
+
+FYI: [~dheinemann], [~sfernandez], [~chonlim], [~siti], [~duonguyen], [~tmoghanan]

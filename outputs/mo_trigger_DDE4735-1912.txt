@@ -1,0 +1,24 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Pilot Run MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70207756|PCBA S IUH1-F720-FR2-03 RF V4|10pcs|Line 5|15th May 2026|21st May 2026|
+
+Please trigger [~abin] for the program creation.
+
+Please include in MO F6 text: Please Trigger [~mmohdali] before packaging for MOI Check.
+
+E5: ⚠ CHECK REQUIRED — Item sts: 20, Prod sts: 10 | R&D1: Released, R&D2: Released, Production: Not Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0223A
+Packaging Material (128535) already in BOM
+Delivery: please send 5 PCBAs asap to Jens Pichler, R&D Mannheim please put 5 PCBAs on stock for finished good build PTDE-AZ38
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~jpichler], [~mmohdali], [~abin], [~sfernandez], [~siti], [~thhoang], [~tmoghanan]

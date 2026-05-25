@@ -1,0 +1,190 @@
+﻿2026-04-30 01:01:34 [INFO   ] expressops.mo_trigger_comment ΓÇö run: live mode (dry_run=True, publish=False)
+2026-04-30 01:01:34 [INFO   ] expressops.m3_h5_client ΓÇö Launching Edge for M3...
+2026-04-30 01:01:35 [INFO   ] expressops.m3_h5_client ΓÇö Navigating to M3 portal (SSO)...
+2026-04-30 01:01:48 [INFO   ] expressops.m3_h5_client ΓÇö M3 H5 Client connected ΓÇö SSO complete, no program opened yet
+2026-04-30 01:01:49 [INFO   ] expressops.mo_trigger_comment ΓÇö JIRA: 44 open SG SMT PCBA container(s)
+2026-04-30 01:01:49 [INFO   ] expressops.mo_trigger_comment ΓÇö APL-3750: not ready ΓÇö material: missing; pcb: missing; routing - technprep: missing; pe - technprep: missing; te - technprep: missing; smt build: missing
+2026-04-30 01:01:50 [INFO   ] expressops.mo_trigger_comment ΓÇö POSX-4670: not ready ΓÇö material: missing; pcb: missing; routing - technprep: missing; pe - technprep: missing; te - technprep: missing; smt build: missing
+2026-04-30 01:01:51 [INFO   ] expressops.mo_trigger_comment ΓÇö POSX-4728: not ready ΓÇö material: missing; pcb: missing; routing - technprep: missing; pe - technprep: missing; te - technprep: missing; smt build: missing
+2026-04-30 01:01:51 [INFO   ] expressops.mo_trigger_comment ΓÇö POSX-4749: not ready ΓÇö material: missing; pcb: missing; routing - technprep: missing; pe - technprep: missing; te - technprep: missing; smt build: missing
+2026-04-30 01:01:52 [INFO   ] expressops.mo_trigger_comment ΓÇö DDE4949-411: not ready ΓÇö material: missing; pcb: missing; routing - technprep: missing; pe - technprep: missing; te - technprep: missing; smt build: missing
+2026-04-30 01:01:52 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9903: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:53 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9904: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:54 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9905: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:54 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9906: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:55 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9907: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:55 [INFO   ] expressops.mo_trigger_comment ΓÇö IEPLT-9908: not ready ΓÇö routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:01:56 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-3543: not ready ΓÇö smt build: status=In Progress (must not be Done/In Progress)
+2026-04-30 01:01:57 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-3673: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:01:57 [WARNING] expressops.mo_trigger_comment ΓÇö NPIOTHER-3674: no NPI Built Type table parsed ΓÇö skipping
+2026-04-30 01:01:58 [WARNING] expressops.mo_trigger_comment ΓÇö NPIOTHER-3685: no NPI Built Type table parsed ΓÇö skipping
+2026-04-30 01:01:59 [INFO   ] expressops.mo_trigger_comment ΓÇö POSX-6558: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:01:59 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4014: not ready ΓÇö pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:02:00 [WARNING] expressops.mo_trigger_comment ΓÇö NPIOTHER-4060: no NPI Built Type table parsed ΓÇö skipping
+2026-04-30 01:02:01 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4070: not ready ΓÇö pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:02:01 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4154: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:02:02 [INFO   ] expressops.mo_trigger_comment ΓÇö LCUSAMB-2052: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:02:03 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4231: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:02:04 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4305: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:02:04 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4381: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:02:05 [INFO   ] expressops.m3_h5_client ΓÇö Search dialog (XECX450)...
+2026-04-30 01:02:07 [INFO   ] expressops.m3_h5_client ΓÇö Filling xecx450 in search box...
+2026-04-30 01:02:07 [INFO   ] expressops.m3_h5_client ΓÇö Waiting for new XECX450 iframe (was 0)...
+2026-04-30 01:02:07 [INFO   ] expressops.m3_h5_client ΓÇö XECX450 program opened
+2026-04-30 01:02:07 [INFO   ] expressops.m3_h5_client ΓÇö Waiting for PHPRNO input (first open)...
+2026-04-30 01:02:15 [INFO   ] expressops.m3_h5_client ΓÇö XECX450 initialized and ready
+2026-04-30 01:02:16 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149550...
+2026-04-30 01:02:18 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149551...
+2026-04-30 01:02:20 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149552...
+2026-04-30 01:02:21 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149553...
+2026-04-30 01:02:23 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149554...
+2026-04-30 01:02:25 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149555...
+2026-04-30 01:02:26 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149556...
+2026-04-30 01:02:28 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149557...
+2026-04-30 01:02:29 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149558...
+2026-04-30 01:02:31 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149559...
+2026-04-30 01:02:33 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149560...
+2026-04-30 01:02:35 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149561...
+2026-04-30 01:02:36 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149562...
+2026-04-30 01:02:38 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149563...
+2026-04-30 01:02:40 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149564...
+2026-04-30 01:02:41 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149565...
+2026-04-30 01:02:43 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149566...
+2026-04-30 01:02:45 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149567...
+2026-04-30 01:02:47 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149568...
+2026-04-30 01:02:49 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149569...
+2026-04-30 01:02:50 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149570...
+2026-04-30 01:02:53 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149571...
+2026-04-30 01:02:54 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70149572...
+2026-04-30 01:02:55 [INFO   ] expressops.mo_trigger_comment ΓÇö SILED2-3268: assembled comment (pilot=True, programme_ic=False, articles=23)
+========================================================================
+SILED2-3268  ΓÇö  MO start 4th May 2026 ΓÇö MO end 8th May 2026
+Articles: 70149550, 70149551, 70149552, 70149553, 70149554, 70149555, 70149556, 70149557, 70149558, 70149559, 70149560, 70149561, 70149562, 70149563, 70149564, 70149565, 70149566, 70149567, 70149568, 70149569, 70149570, 70149571, 70149572
+------------------------------------------------------------------------
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Pilot Run MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70149550|PCBA S M12 ┬á ┬á ┬á 2-N|54pcs|Line 5|4th May 2026|8th May 2026|
+|70149551|PCBA S M12 ┬á ┬á ┬á 2-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149552|PCBA S M12 ┬á ┬á ┬á 2-N0|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149553|PCBA S M12 ┬á ┬á ┬á 4-N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149554|PCBA S M12 ┬á ┬á ┬á 4-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149555|PCBA S M12 ┬á ┬á ┬á 4-N0|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149556|PCBA S M18 ┬á ┬á ┬á 3-S1N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149557|PCBA S M18 ┬á ┬á ┬á 5-N|36pcs|Line 5|4th May 2026|8th May 2026|
+|70149558|PCBA S M18 ┬á ┬á ┬á 5-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149559|PCBA S M18 ┬á ┬á ┬á 5-N0|36pcs|Line 5|4th May 2026|8th May 2026|
+|70149560|PCBA S M18 ┬á ┬á ┬á 8-N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149561|PCBA S M18 ┬á ┬á ┬á 8-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149562|PCBA S M18 ┬á ┬á ┬á 8-N0|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149563|PCBA S M22 ┬á ┬á ┬á 6-N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149564|PCBA S M22 ┬á ┬á ┬á 6-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149565|PCBA S M22 ┬á ┬á ┬á 10-N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149566|PCBA S M30 ┬á ┬á ┬á 5-S1N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149567|PCBA S M30 ┬á ┬á ┬á 10-N|36pcs|Line 5|4th May 2026|8th May 2026|
+|70149568|PCBA S M30 ┬á ┬á ┬á 10-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149569|PCBA S M30 ┬á ┬á ┬á 10-N0|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149570|PCBA S M30 ┬á ┬á ┬á 15-N|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149571|PCBA S M30 ┬á ┬á ┬á 15-SN|18pcs|Line 5|4th May 2026|8th May 2026|
+|70149572|PCBA S M30 ┬á ┬á ┬á 15-N0|18pcs|Line 5|4th May 2026|8th May 2026|
+
+Please trigger [~mbaddah] for the program creation.
+
+Please include in MO F6 text: Please Trigger [~dchernjr] before packaging for MOI Check.
+
+E5: Item sts Γ£ô, Prod sts Γ£ô ΓÇö R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0223A
+70149550: Packaging Material (819860) already in BOM, 70149551: Packaging Material (819860) already in BOM, 70149552: Packaging Material (819860) already in BOM, 70149553: Packaging Material (819860) already in BOM, 70149554: Packaging Material (819860) already in BOM, 70149555: Packaging Material (819860) already in BOM, 70149556: Packaging Material (819860) already in BOM, 70149557: Packaging Material (819860) already in BOM, 70149558: Packaging Material (819860) already in BOM, 70149559: Packaging Material (819860) already in BOM, 70149560: Packaging Material (819860) already in BOM, 70149561: Packaging Material (819860) already in BOM, 70149562: Packaging Material (819860) already in BOM, 70149563: Packaging Material (819860) already in BOM, 70149564: Packaging Material (819860) already in BOM, 70149565: Packaging Material (819860) already in BOM, 70149566: Packaging Material (819860) already in BOM, 70149567: Packaging Material (819860) already in BOM, 70149568: Packaging Material (819860) already in BOM, 70149569: Packaging Material (819860) already in BOM, 70149570: Packaging Material (819860) already in BOM, 70149571: ΓÜá Dwgpos 5000 component 816860 not PM: CON HDRM008 2M54 1 S 42M3   TH, 70149572: Packaging Material (819860) already in BOM
+Delivery: (not specified)
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~lrousek], [~dchernjr], [~mbaddah], [~sfernandez], [~siti], [~duonguyen], [~wneo]
+
+2026-04-30 01:02:56 [INFO   ] expressops.mo_trigger_comment ΓÇö ACDC-1041: not ready ΓÇö smt build: status=In Progress (must not be Done/In Progress)
+2026-04-30 01:02:57 [INFO   ] expressops.mo_trigger_comment ΓÇö ACDC-1052: not ready ΓÇö smt build: status=In Progress (must not be Done/In Progress)
+2026-04-30 01:02:58 [INFO   ] expressops.mo_trigger_comment ΓÇö CAPF-2954: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:02:58 [INFO   ] expressops.mo_trigger_comment ΓÇö LCUSAMB-2142: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:02:59 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4566: not ready ΓÇö smt build: status=Done (must not be Done/In Progress)
+2026-04-30 01:03:00 [INFO   ] expressops.mo_trigger_comment ΓÇö LCUSAMB-2156: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:00 [INFO   ] expressops.mo_trigger_comment ΓÇö LCUSAMB-2163: not ready ΓÇö smt build: status=In Progress (must not be Done/In Progress)
+2026-04-30 01:03:01 [WARNING] expressops.mo_trigger_comment ΓÇö OBXR100-596: pe - technprep WP unassigned ΓÇö using [UNASSIGNED]
+2026-04-30 01:03:01 [WARNING] expressops.mo_trigger_comment ΓÇö OBXR100-596: QM P+L unassigned and no qm_default_username configured -- MOI line will show plain display name (no mention link)
+2026-04-30 01:03:02 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70196754...
+2026-04-30 01:03:03 [INFO   ] expressops.mo_trigger_comment ΓÇö OBXR100-596: assembled comment (pilot=False, programme_ic=True, articles=1)
+========================================================================
+OBXR100-596  ΓÇö  MO start 4th May 2026 ΓÇö MO end 8th May 2026
+Articles: 70196754
+------------------------------------------------------------------------
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Development Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70196754|ICUC-P Bootloader STM32G431|250pcs|Line 5|4th May 2026|8th May 2026|
+
+Please trigger [UNASSIGNED] for the program creation.
+
+E5: ΓÜá CHECK REQUIRED ΓÇö Item sts: 20, Prod sts: 10 | R&D1: Released, R&D2: Released, Production: Not Released
+
+Depaneling Required
+ΓÜá No BREAKING-ARRAY in routing
+ΓÜá No packaging material (Dwgpos 5000) in BOM
+Delivery: Programmed IC will be used PCBA build
+IMR: [pending]
+
+[~sfernandez] ΓÜá No AOI or Test in routing
+
+FYI: [~keseenivas], [~sfernandez], [~siti], [~duonguyen], [~tmoghanan]
+
+2026-04-30 01:03:04 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4600: not ready ΓÇö pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:05 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4610: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:06 [INFO   ] expressops.mo_trigger_comment ΓÇö SILED2-3310: not ready ΓÇö pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:06 [INFO   ] expressops.mo_trigger_comment ΓÇö LCUSAMB-2238: not ready ΓÇö pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:07 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4681: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:08 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4682: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:08 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4751: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:09 [WARNING] expressops.mo_trigger_comment ΓÇö NPIOTHER-4752: QM P+L unassigned and no qm_default_username configured -- MOI line will show plain display name (no mention link)
+2026-04-30 01:03:10 [INFO   ] expressops.m3_h5_client ΓÇö Submitting XECX450 query for item 70202725...
+2026-04-30 01:03:11 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4752: assembled comment (pilot=False, programme_ic=False, articles=1)
+========================================================================
+NPIOTHER-4752  ΓÇö  MO start 4th May 2026 ΓÇö MO end 8th May 2026
+Articles: 70202725
+------------------------------------------------------------------------
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Qualification Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70202725|PCBA S C HiCTB16 TRX RAC IO16Y|3pcs|Line 5|4th May 2026|8th May 2026|
+
+Please trigger [~asesuraj] for the program creation.
+
+E5: Item sts Γ£ô, Prod sts Γ£ô ΓÇö R&D1: Released, R&D2: Released, Production: Released
+
+Depaneling Required
+ΓÜá No BREAKING-ARRAY in routing
+ΓÜá No packaging material (Dwgpos 5000) in BOM
+Delivery: Book into MOPs location for MO allocation after MR complete
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~htay], [~asesuraj], [~sfernandez], [~thhoang], [~tmoghanan]
+
+2026-04-30 01:03:12 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4771: not ready ΓÇö pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:13 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4781: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:14 [INFO   ] expressops.mo_trigger_comment ΓÇö NPIOTHER-4804: not ready ΓÇö material: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pcb: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); routing - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); pe - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"]); te - technprep: resolution=(none) (need one of ['Acknowledged', 'Done', "Won't Do"])
+2026-04-30 01:03:14 [INFO   ] expressops.mo_trigger_comment ΓÇö Summary: scanned=44 ready=3 written=0
+
+Scanned: 44   Ready: 3   Dry-run (no files written)
+2026-04-30 01:03:14 [INFO   ] expressops.m3_h5_client ΓÇö M3 H5 Client closed

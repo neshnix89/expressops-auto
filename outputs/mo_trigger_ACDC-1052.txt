@@ -1,0 +1,25 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Pilot Run MO planning of PCBAs shown below.
+
+| Item Number | Description | Qty | SMT Line | MO start | MO end |
+|-------------|-------------|-----|----------|----------|--------|
+| 70183489 | PCBA S M30 NBN25-US | 110pcs | Line 5 | 30th April 2026 | 7th May 2026 |
+
+Please trigger [~asesuraj] for the program creation.
+
+Please include in MO F6 text: Please Trigger [~chuang] before packaging for MOI Check.
+
+E5: Item sts ✓, Prod sts ✓ — R&D/Production release: check manually
+
+Depaneling Required
+Breaking already included in routing. Doc: 77-0223A
+Packaging Material (819860) already in BOM
+Delivery: (not specified)
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~lrousek], [~chuang], [~asesuraj], [~sfernandez], [~siti], [~duonguyen], [~wneo]

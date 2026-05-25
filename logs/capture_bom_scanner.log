@@ -1,0 +1,44 @@
+2026-04-20 21:08:11 [INFO   ] expressops.capture_bom_scanner — Capturing mock data for task: bom_scanner
+2026-04-20 21:08:11 [INFO   ] expressops.capture_bom_scanner — Output directory: C:\Users\tmoghanan\Documents\AI\expressops-auto\tasks\bom_scanner\mock_data
+2026-04-20 21:08:11 [INFO   ] expressops.capture_bom_scanner — Found task-specific capture.py — running custom capture...
+2026-04-20 21:08:12 [INFO   ] expressops.capture_bom_scanner — Capturing active Work Container search
+2026-04-20 21:08:14 [INFO   ] expressops.capture_bom_scanner —   Saved 35 containers -> search_issue_in_relation__issue_in_relation___issue_in_relation__key_in__ITPL_769__ITPL.json
+2026-04-20 21:08:14 [INFO   ] expressops.capture_bom_scanner — Capturing full issue (description + reporter) for 10 sample(s)
+2026-04-20 21:08:15 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9903: reporter=mschuetze desc=734 chars
+2026-04-20 21:08:15 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9904: reporter=mschuetze desc=613 chars
+2026-04-20 21:08:16 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9905: reporter=mschuetze desc=743 chars
+2026-04-20 21:08:16 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9906: reporter=mschuetze desc=741 chars
+2026-04-20 21:08:16 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9907: reporter=mschuetze desc=730 chars
+2026-04-20 21:08:17 [INFO   ] expressops.capture_bom_scanner —   IEPLT-9908: reporter=mschuetze desc=734 chars
+2026-04-20 21:08:17 [INFO   ] expressops.capture_bom_scanner —   NPIOTHER-3543: reporter=whng desc=1366 chars
+2026-04-20 21:08:19 [INFO   ] expressops.capture_bom_scanner —   NPIOTHER-3673: reporter=kinhing desc=7751 chars
+2026-04-20 21:08:20 [INFO   ] expressops.capture_bom_scanner —   NPIOTHER-3674: reporter=whng desc=1519 chars
+2026-04-20 21:08:20 [INFO   ] expressops.capture_bom_scanner —   NPIOTHER-3685: reporter=whng desc=1524 chars
+2026-04-20 21:08:20 [INFO   ] expressops.capture_bom_scanner — Capturing Confluence page 560866215 (mr_status_report)
+2026-04-20 21:08:21 [INFO   ] expressops.capture_bom_scanner —   Saved 142894 bytes of storage HTML
+2026-04-20 21:08:21 [INFO   ] expressops.capture_bom_scanner — Capturing M3 MITBAL order types for 10 article(s)
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70203371: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70198800: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70204501: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   263899: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70159480: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70120808: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70169260: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70153361: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   312671: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner —   70204299: MBORTY=SPI
+2026-04-20 21:08:22 [INFO   ] expressops.capture_bom_scanner — Capturing M3 BOM results for 10 article number(s)
+2026-04-20 21:08:23 [INFO   ] expressops.capture_bom_scanner —   70203371: 0 flagged row(s)
+2026-04-20 21:08:23 [INFO   ] expressops.capture_bom_scanner —   70198800: 0 flagged row(s)
+2026-04-20 21:08:23 [INFO   ] expressops.capture_bom_scanner —   70204501: 0 flagged row(s)
+2026-04-20 21:08:24 [INFO   ] expressops.capture_bom_scanner —   263899: 0 flagged row(s)
+2026-04-20 21:08:24 [INFO   ] expressops.capture_bom_scanner —   70159480: 3 flagged row(s)
+2026-04-20 21:08:25 [INFO   ] expressops.capture_bom_scanner —   70120808: 4 flagged row(s)
+2026-04-20 21:08:25 [INFO   ] expressops.capture_bom_scanner —   70169260: 2 flagged row(s)
+2026-04-20 21:08:25 [INFO   ] expressops.capture_bom_scanner —   70153361: 0 flagged row(s)
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner —   312671: 0 flagged row(s)
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner —   70204299: 2 flagged row(s)
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner — bom_scanner capture complete.
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner — Mock data capture complete.
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner — Files saved to: C:\Users\tmoghanan\Documents\AI\expressops-auto\tasks\bom_scanner\mock_data
+2026-04-20 21:08:26 [INFO   ] expressops.capture_bom_scanner — Commit these files to git so VPS can use them for testing.

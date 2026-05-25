@@ -1,0 +1,23 @@
+Hi Ng Ker Cheng Hazel,
+
+Please proceed for Qualification Sample MO planning of PCBAs shown below.
+
+||Item Number||Description||Qty||SMT Line||MO start||MO end||
+|70204289|PCBA S R100-OBT-RD|36pcs|Line 5|14th May 2026|20th May 2026|
+|70204290|PCBA S R100-OBT-RDL|36pcs|Line 5|14th May 2026|20th May 2026|
+
+Please trigger [~abin] for the program creation.
+
+E5: ⚠ CHECK REQUIRED — Item sts: 20, Prod sts: 10 | R&D1: Released, R&D2: Not Released, Production: Not Released
+
+Depaneling Required
+⚠ No BREAKING-ARRAY in routing
+Packaging Material (128536) already in BOM
+Delivery: Samples to be used for COB assembly. Half of the COB direct for RnD, Berlin and other half to build finish goods for RnD
+IMR: [pending]
+
+PE: Please reuse buyoff Board
+
+[~sfernandez] AOI required
+
+FYI: [~dheinemann], [~abin], [~sfernandez], [~siti], [~duonguyen], [~wneo]
