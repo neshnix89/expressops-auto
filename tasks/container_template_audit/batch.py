@@ -1,0 +1,642 @@
+"""
+NPI Container Template Audit — Batch System
+
+Audits all active SMT PCBA Singapore containers against the NPI template rules,
+publishes results to Confluence page 592255806, and supports posting draft
+comments to JIRA.
+
+Usage:
+    python batch.py scan                       # audit all, publish to Confluence
+    python batch.py scan --dry-run             # audit all, print results, no publish
+    python batch.py scan --live                # same but hit live systems
+    python batch.py comment --keys K1 K2      # post draft comments to JIRA
+    python batch.py comment --keys K1 --dry-run
+"""
+from __future__ import annotations
+
+import argparse
+import html
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+TASK_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = TASK_DIR.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    import yaml
+except ImportError:
+    print("Missing dependency: pip install pyyaml")
+    sys.exit(1)
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    print("Missing dependency: pip install beautifulsoup4")
+    sys.exit(1)
+
+from core.config_loader import load_config
+from core.confluence import ConfluenceClient
+from core.jira_client import JiraClient
+from core.logger import get_logger
+
+from tasks.container_template_audit.main import AuditReport, Finding, NPIAuditor, Severity
+
+AUDIT_PAGE_ID = "592255806"
+GUARD_MARKER = "#Ref: AuditCheck#"
+RULES_PATH = PROJECT_ROOT / "config" / "audit_rules.yaml"
+MOCK_DIR = TASK_DIR / "mock_data"
+
+ACTIVE_CONTAINERS_JQL = (
+    'issuetype = "Work Container" '
+    'AND "Product Type" = "SMT PCBA" '
+    'AND "NPI Location" = "Singapore" '
+    'AND resolution is EMPTY '
+    'ORDER BY created ASC'
+)
+
+
+# ---------------------------------------------------------------------------
+# Compatibility shim — lets NPIAuditor use pre-fetched issue data
+# ---------------------------------------------------------------------------
+
+class _CachedJiraClient:
+    """Returns pre-fetched issue data so NPIAuditor skips a second API call."""
+
+    def __init__(self, issue_data: dict):
+        self._data = issue_data
+
+    def get_issue(self, key: str) -> dict:
+        return self._data
+
+
+# ---------------------------------------------------------------------------
+# YAML rule engine
+# ---------------------------------------------------------------------------
+
+def load_audit_rules() -> list[dict]:
+    if not RULES_PATH.exists():
+        return []
+    with open(RULES_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return [r for r in (data.get("rules") or []) if r.get("enabled", True)]
+
+
+def _desc_field_empty_html(rendered_html: str, field_label: str) -> bool:
+    """Return True if the cell adjacent to field_label is blank/dash in HTML."""
+    if not rendered_html or not field_label:
+        return False
+    soup = BeautifulSoup(rendered_html, "html.parser")
+    for td in soup.find_all(["td", "th"]):
+        if field_label.lower() in td.get_text().lower():
+            nxt = td.find_next_sibling(["td", "th"])
+            if nxt:
+                val = nxt.get_text(strip=True)
+                return not val or val in ("-", "–", "—")
+    return False
+
+
+def run_yaml_rules(
+    fields: dict,
+    rendered_description: str,
+    rules: list[dict],
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for rule in rules:
+        check = rule.get("check", "")
+        sev_str = rule.get("severity", "WARNING").upper()
+        severity = Severity.ERROR if sev_str == "ERROR" else Severity.WARNING
+        message = rule.get("message", "")
+        fix_hint = rule.get("fix_hint", "")
+
+        if check == "description_count":
+            keyword = rule.get("keyword", "")
+            threshold = int(rule.get("threshold", 1))
+            count = (rendered_description or "").lower().count(keyword.lower())
+            if count > threshold:
+                findings.append(Finding(
+                    severity, "YAML Rule",
+                    message.format(count=count),
+                    fix_hint,
+                ))
+
+        elif check == "description_field_empty":
+            label = rule.get("field_label", "")
+            if _desc_field_empty_html(rendered_description, label):
+                findings.append(Finding(severity, "YAML Rule", message, fix_hint))
+
+        elif check == "jira_field_missing":
+            field_id = rule.get("field_id", "")
+            val = fields.get(field_id)
+            if val is None or (isinstance(val, str) and not val.strip()):
+                findings.append(Finding(severity, "YAML Rule", message, fix_hint))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Confluence page parsing
+# ---------------------------------------------------------------------------
+
+def _cell_text(cell) -> str:
+    """Extract plain text from a td, converting <br/> to newlines."""
+    for br in cell.find_all("br"):
+        br.replace_with("\n")
+    return cell.get_text()
+
+
+def _extract_key_from_cell(cell) -> str:
+    """Extract a JIRA key (e.g. NPIOTHER-123) from a table cell."""
+    a = cell.find("a")
+    if a:
+        text = a.get_text(strip=True)
+        if _looks_like_key(text):
+            return text
+    text = cell.get_text(strip=True)
+    if _looks_like_key(text):
+        return text
+    return ""
+
+
+def _looks_like_key(text: str) -> bool:
+    import re
+    return bool(re.match(r'^[A-Z]+-\d+$', text.strip()))
+
+
+def parse_existing_page(html_body: str) -> tuple[dict[str, str], list[dict]]:
+    """
+    Parse the audit Confluence page.
+
+    Returns:
+        draft_comments — {key: draft_text} from issues table (column 5)
+        ignore_rows    — [{key, summary, ignored_on, reason}] from ignore table
+    """
+    draft_comments: dict[str, str] = {}
+    ignore_rows: list[dict] = []
+
+    if not html_body:
+        return draft_comments, ignore_rows
+
+    soup = BeautifulSoup(html_body, "html.parser")
+    tables = soup.find_all("table")
+
+    if len(tables) >= 1:
+        rows = tables[0].find_all("tr")[1:]
+        for row in rows:
+            cells = row.find_all(["td", "th"])
+            if len(cells) >= 5:
+                key = _extract_key_from_cell(cells[0])
+                if key:
+                    draft_comments[key] = _cell_text(cells[4]).strip()
+
+    if len(tables) >= 2:
+        rows = tables[1].find_all("tr")[1:]
+        for row in rows:
+            cells = row.find_all(["td", "th"])
+            if len(cells) >= 4:
+                key = _extract_key_from_cell(cells[0])
+                if key:
+                    ignore_rows.append({
+                        "key": key,
+                        "summary": cells[1].get_text(strip=True),
+                        "ignored_on": cells[2].get_text(strip=True),
+                        "reason": cells[3].get_text(strip=True),
+                    })
+
+    return draft_comments, ignore_rows
+
+
+# ---------------------------------------------------------------------------
+# Draft comment
+# ---------------------------------------------------------------------------
+
+def build_draft_comment(key: str, reporter_name: str, findings: list[Finding]) -> str:
+    lines = []
+    for f in findings:
+        if f.severity == Severity.ERROR:
+            lines.append(f"❌ {f.message}")
+        elif f.severity == Severity.WARNING:
+            lines.append(f"⚠️ {f.message}")
+    findings_text = "\n".join(lines)
+    name = reporter_name or "requestor"
+    return (
+        f"Hi [~{name}],\n\n"
+        f"We noticed the following on your NPI container *{key}* during our routine audit:\n\n"
+        f"{findings_text}\n\n"
+        f"Please review and update the container, or let us know if you need help.\n\n"
+        f"{GUARD_MARKER}"
+    )
+
+
+def _already_posted(issue: dict) -> bool:
+    comments = (
+        ((issue.get("fields") or {}).get("comment") or {}).get("comments") or []
+    )
+    return any(GUARD_MARKER in (c.get("body") or "") for c in comments)
+
+
+# ---------------------------------------------------------------------------
+# Confluence HTML helpers
+# ---------------------------------------------------------------------------
+
+def _esc(v: Any) -> str:
+    if v is None or v == "":
+        return "-"
+    return html.escape(str(v))
+
+
+def _th(text: str) -> str:
+    return f"<th>{html.escape(text)}</th>"
+
+
+def _td(content: str) -> str:
+    return f"<td>{content}</td>"
+
+
+def _jira_link(base_url: str, key: str) -> str:
+    href = f"{base_url.rstrip('/')}/browse/{key}"
+    return f'<a href="{html.escape(href, quote=True)}">{html.escape(key)}</a>'
+
+
+def _issues_found_html(findings: list[Finding]) -> str:
+    parts = []
+    for f in findings:
+        if f.severity == Severity.ERROR:
+            parts.append(f"❌ {html.escape(f.message)}")
+        elif f.severity == Severity.WARNING:
+            parts.append(f"⚠️ {html.escape(f.message)}")
+    return "<br/>".join(parts)
+
+
+def _draft_to_html(draft: str) -> str:
+    """Convert plain-text draft (with \n) to HTML for a Confluence cell."""
+    if not draft:
+        return ""
+    lines = html.escape(draft).split("\n")
+    return "<br/>".join(lines)
+
+
+def build_page_html(
+    now_str: str,
+    total_checked: int,
+    error_count: int,
+    warning_count: int,
+    clean_count: int,
+    issue_rows: list[dict],
+    ignore_rows: list[dict],
+    jira_base_url: str,
+) -> str:
+    header = (
+        f"<p><strong>Last run:</strong> {html.escape(now_str)} | "
+        f"{total_checked} containers checked | "
+        f"❌ {error_count} errors | "
+        f"⚠️ {warning_count} warnings | "
+        f"✅ {clean_count} clean</p>"
+    )
+
+    # Issues table — always render as a table so ignore.py can parse it
+    issues_header = (
+        "<tr>"
+        + _th("Container") + _th("Summary") + _th("Status")
+        + _th("Issues Found") + _th("Draft Comment")
+        + "</tr>"
+    )
+    issue_body_rows = []
+    for row in issue_rows:
+        key = row["key"]
+        cells = (
+            _td(_jira_link(jira_base_url, key))
+            + _td(_esc(row.get("summary")))
+            + _td(_esc(row.get("status")))
+            + _td(row.get("issues_html", ""))
+            + _td(row.get("draft_html", ""))
+        )
+        issue_body_rows.append(f"<tr>{cells}</tr>")
+
+    issues_table = (
+        "<h2>Containers with Issues</h2>"
+        "<table><tbody>"
+        + issues_header
+        + "".join(issue_body_rows)
+        + "</tbody></table>"
+    )
+
+    # Ignore table — always render as a table so ignore.py can append rows
+    ignore_header = (
+        "<tr>"
+        + _th("Container") + _th("Summary") + _th("Ignored On") + _th("Reason")
+        + "</tr>"
+    )
+    ignore_body_rows = []
+    for row in ignore_rows:
+        key = row.get("key", "")
+        cells = (
+            _td(_jira_link(jira_base_url, key))
+            + _td(_esc(row.get("summary")))
+            + _td(_esc(row.get("ignored_on")))
+            + _td(_esc(row.get("reason")))
+        )
+        ignore_body_rows.append(f"<tr>{cells}</tr>")
+
+    ignore_table = (
+        "<h2>Ignored Containers</h2>"
+        "<table><tbody>"
+        + ignore_header
+        + "".join(ignore_body_rows)
+        + "</tbody></table>"
+    )
+
+    return header + issues_table + ignore_table
+
+
+# ---------------------------------------------------------------------------
+# scan subcommand
+# ---------------------------------------------------------------------------
+
+def run_scan(mode: str, dry_run: bool) -> int:
+    logger = get_logger("container_template_audit.batch")
+    config = load_config(mode_override=mode)
+    logger.info("scan: %s mode (dry_run=%s)", config.mode, dry_run)
+
+    jira = JiraClient(config, mock_data_dir=MOCK_DIR)
+    confluence = ConfluenceClient(config, mock_data_dir=MOCK_DIR)
+    rules = load_audit_rules()
+    logger.info("Loaded %d YAML rule(s) from %s", len(rules), RULES_PATH)
+
+    # Read existing page for ignore list and preserved drafts
+    existing_html = ""
+    try:
+        existing_html = confluence.get_page_html(AUDIT_PAGE_ID)
+    except Exception as exc:
+        logger.warning("Could not read existing Confluence page %s: %s", AUDIT_PAGE_ID, exc)
+
+    existing_draft_comments, ignore_rows = parse_existing_page(existing_html)
+    ignored_keys = {row["key"] for row in ignore_rows}
+    logger.info(
+        "Existing page: %d staged draft(s), %d ignored container(s)",
+        len(existing_draft_comments), len(ignored_keys),
+    )
+
+    # Fetch active containers
+    if config.is_mock:
+        container_keys = sorted(
+            p.stem.removeprefix("issue_")
+            for p in MOCK_DIR.glob("issue_*.json")
+        )
+        logger.info("Mock mode: found %d issue files in %s", len(container_keys), MOCK_DIR)
+    else:
+        issues = jira.search_all(ACTIVE_CONTAINERS_JQL, fields=["summary", "status"])
+        container_keys = [i.get("key") for i in issues if i.get("key")]
+        logger.info("JIRA: %d active SG SMT PCBA container(s)", len(container_keys))
+
+    issue_rows: list[dict] = []
+    total_checked = 0
+    containers_with_errors = 0
+    containers_with_warnings = 0
+    clean_count = 0
+
+    for key in container_keys:
+        if key in ignored_keys:
+            logger.debug("%s: in ignore list — skipping", key)
+            continue
+
+        try:
+            issue = jira.get_issue(key, expand="renderedFields")
+        except Exception as exc:
+            logger.warning("%s: could not fetch issue: %s", key, exc)
+            continue
+
+        fields = issue.get("fields") or {}
+        rendered_html = (issue.get("renderedFields") or {}).get("description") or ""
+        summary = (fields.get("summary") or "").strip()
+        status = (fields.get("status") or {}).get("name") or "Unknown"
+        reporter = fields.get("reporter") or {}
+        reporter_name = (reporter.get("name") or "").strip()
+
+        # Standard audit via NPIAuditor (uses pre-fetched data via _CachedJiraClient)
+        try:
+            report: AuditReport = NPIAuditor(_CachedJiraClient(issue)).audit(key)
+        except Exception as exc:
+            logger.warning("%s: audit error: %s", key, exc)
+            continue
+
+        # YAML rule checks on top
+        yaml_findings = run_yaml_rules(fields, rendered_html, rules)
+        all_findings = report.findings + yaml_findings
+
+        problem_findings = [
+            f for f in all_findings
+            if f.severity in (Severity.ERROR, Severity.WARNING)
+        ]
+
+        total_checked += 1
+
+        if not problem_findings:
+            clean_count += 1
+            continue
+
+        has_errors = any(f.severity == Severity.ERROR for f in problem_findings)
+        if has_errors:
+            containers_with_errors += 1
+        else:
+            containers_with_warnings += 1
+
+        # Determine draft comment text
+        existing_draft = existing_draft_comments.get(key, "")
+        if existing_draft and existing_draft != "Already posted":
+            draft_text = existing_draft  # preserve human edits
+        elif _already_posted(issue):
+            draft_text = "Already posted"
+        else:
+            draft_text = build_draft_comment(key, reporter_name, problem_findings)
+
+        issue_rows.append({
+            "key": key,
+            "summary": summary,
+            "status": status,
+            "issues_html": _issues_found_html(problem_findings),
+            "draft_html": _draft_to_html(draft_text),
+        })
+
+        logger.info("%s: %d issue(s) (%s)", key, len(problem_findings),
+                    "errors" if has_errors else "warnings only")
+
+    # Print summary
+    print(f"\nScan complete:")
+    print(f"  Checked   : {total_checked}")
+    print(f"  Errors    : {containers_with_errors} container(s) with errors")
+    print(f"  Warnings  : {containers_with_warnings} container(s) with warnings only")
+    print(f"  Clean     : {clean_count}")
+    print(f"  In issues table: {len(issue_rows)}")
+
+    if dry_run:
+        print("\n[dry-run] Results (not published):")
+        for row in issue_rows:
+            print(f"  {row['key']}: {row['summary']}")
+        return 0
+
+    if config.is_mock:
+        print("[mock] Skipping Confluence publish.")
+        return 0
+
+    now_str = datetime.now().strftime("%d-%b-%Y %H:%M")
+    page_html = build_page_html(
+        now_str=now_str,
+        total_checked=total_checked,
+        error_count=containers_with_errors,
+        warning_count=containers_with_warnings,
+        clean_count=clean_count,
+        issue_rows=issue_rows,
+        ignore_rows=ignore_rows,
+        jira_base_url=config.jira_base_url,
+    )
+
+    current_page = confluence.get_page(AUDIT_PAGE_ID)
+    title = (current_page.get("title") or "NPI Container Audit Dashboard")
+    result = confluence.update_page(AUDIT_PAGE_ID, title=title, html_body=page_html)
+    version = (result.get("version") or {}).get("number", "?")
+    logger.info("Published v%s to Confluence page %s", version, AUDIT_PAGE_ID)
+    page_url = (
+        f"{config.confluence_base_url.rstrip('/')}"
+        f"/pages/viewpage.action?pageId={AUDIT_PAGE_ID}"
+    )
+    print(f"Published v{version} → {page_url}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# comment subcommand
+# ---------------------------------------------------------------------------
+
+def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
+    logger = get_logger("container_template_audit.batch")
+    config = load_config(mode_override=mode)
+    logger.info("comment: %s mode (keys=%s, dry_run=%s)", config.mode, keys, dry_run)
+
+    jira = JiraClient(config, mock_data_dir=MOCK_DIR)
+    confluence = ConfluenceClient(config, mock_data_dir=MOCK_DIR)
+
+    # Load staged drafts from Confluence
+    try:
+        existing_html = confluence.get_page_html(AUDIT_PAGE_ID)
+    except Exception as exc:
+        print(f"ERROR: Could not read Confluence page {AUDIT_PAGE_ID}: {exc}")
+        return 1
+
+    draft_comments, _ = parse_existing_page(existing_html)
+
+    posted = 0
+    skipped = 0
+
+    for key in keys:
+        draft = draft_comments.get(key, "")
+
+        if not draft:
+            print(f"{key}: no staged draft found — run `scan` first")
+            skipped += 1
+            continue
+
+        if draft.strip() == "Already posted":
+            print(f"{key}: already posted (shown as 'Already posted' on Confluence)")
+            skipped += 1
+            continue
+
+        # Check JIRA for duplicate guard
+        try:
+            issue = jira.get_issue(key)
+        except Exception as exc:
+            print(f"{key}: could not fetch issue from JIRA: {exc}")
+            skipped += 1
+            continue
+
+        comments = (
+            ((issue.get("fields") or {}).get("comment") or {}).get("comments") or []
+        )
+        if any(GUARD_MARKER in (c.get("body") or "") for c in comments):
+            print(f"{key}: {GUARD_MARKER} already in JIRA comments — skipping")
+            skipped += 1
+            continue
+
+        if dry_run:
+            print(f"--- dry-run comment for {key} ---")
+            print(draft)
+            print()
+            continue
+
+        if config.is_mock:
+            print(f"{key}: [mock] would post audit comment")
+            continue
+
+        try:
+            jira.add_comment(key, draft)
+        except Exception as exc:
+            print(f"{key}: failed to post comment: {exc}")
+            skipped += 1
+            continue
+
+        logger.info("%s: posted audit comment", key)
+        print(f"{key}: posted")
+        posted += 1
+
+    print(f"\nRequested: {len(keys)}   Posted: {posted}   Skipped: {skipped}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _add_mode_args(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--mock", action="store_const", const="mock", dest="mode",
+        help="Use mock_data/ (default — safe for VPS)",
+    )
+    group.add_argument(
+        "--live", action="store_const", const="live", dest="mode",
+        help="Hit live JIRA + Confluence (company laptop only)",
+    )
+    parser.set_defaults(mode="mock")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print results but do not write to Confluence or post JIRA comments.",
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="batch.py",
+        description="NPI container template audit — batch system.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    scan_p = sub.add_parser("scan", help="Audit all containers and publish to Confluence.")
+    _add_mode_args(scan_p)
+
+    comment_p = sub.add_parser("comment", help="Post staged draft comments to JIRA.")
+    _add_mode_args(comment_p)
+    comment_p.add_argument(
+        "--keys", nargs="+", required=True, metavar="KEY",
+        help="Container keys to comment on (e.g. --keys NPIOTHER-123 POSX-456)",
+    )
+
+    return parser
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.command == "scan":
+        return run_scan(mode=args.mode, dry_run=args.dry_run)
+    if args.command == "comment":
+        return run_comment(mode=args.mode, keys=args.keys, dry_run=args.dry_run)
+
+    parser.error(f"unknown command: {args.command}")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

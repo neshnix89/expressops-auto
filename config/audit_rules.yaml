@@ -1,0 +1,65 @@
+# NPI Container Audit Rules
+# Add new rules here without touching Python code.
+# See tasks/container_template_audit/AUDIT_RULES_README.md for full guide.
+
+rules:
+
+  - id: duplicate_template
+    enabled: true
+    severity: ERROR
+    check: description_count
+    keyword: "NPI Overview"
+    threshold: 1
+    message: "NPI template deployed {count} times — should be exactly 1."
+    fix_hint: "Delete duplicate copies in description using Visual mode in Jira."
+
+  - id: missing_imr
+    enabled: true
+    severity: WARNING
+    check: description_field_empty
+    field_label: "IMR / HIM number"
+    message: "IMR/HIM number is empty — required for transport via DO."
+    fix_hint: "Fill in IMR/HIM number in the NPI Overview table."
+
+  - id: missing_cost_center
+    enabled: true
+    severity: WARNING
+    check: description_field_empty
+    field_label: "Cost center"
+    message: "Cost center is empty in NPI Overview table."
+    fix_hint: "Fill in the cost center to which this NPI run shall be billed."
+
+  - id: missing_requestor_name
+    enabled: true
+    severity: WARNING
+    check: description_field_empty
+    field_label: "Name of Requestor"
+    message: "Name of Requestor is empty in NPI Overview table."
+    fix_hint: "Fill in the name of the person formally requesting the NPI in Jira."
+
+  - id: missing_location
+    enabled: true
+    severity: ERROR
+    check: jira_field_missing
+    field_id: "customfield_13906"
+    field_name: "NPI Location"
+    message: "NPI Location not set."
+    fix_hint: "Set NPI Location during the Request step."
+
+  - id: missing_product_type
+    enabled: true
+    severity: ERROR
+    check: jira_field_missing
+    field_id: "customfield_13904"
+    field_name: "Product Type"
+    message: "Product Type not set."
+    fix_hint: "Set Product Type during the Request step."
+
+  - id: missing_order_type
+    enabled: true
+    severity: ERROR
+    check: jira_field_missing
+    field_id: "customfield_13905"
+    field_name: "Order Type"
+    message: "Order Type not set (DS/QS/PT/PR/DMR)."
+    fix_hint: "Set Order Type during the Request step."
