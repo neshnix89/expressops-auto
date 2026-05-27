@@ -210,6 +210,27 @@ Whitelisted /run paths: `git pull`, `git status`, `git log --oneline`, and `pyth
 - **Always read this file first** at the start of every session.
 - **Read the relevant TASK.md** before modifying any task code.
 - **Never commit credentials** — config.yaml is gitignored.
-- **Ask before writing to live systems** — mock mode is the default for a reason.
 - **If a data source is unknown**, say so and add it to the Discovery section of TASK.md. Do not guess table names or field names.
 - **To deploy to company laptop:** push to GitHub, then use Relay `/run git pull` — do not ask the user to manually pull.
+
+## LIVE WRITE PROTECTION — HARD RULES
+
+These rules are non-negotiable. Violating them causes real damage to production systems.
+
+### STOP and ask for explicit "yes, write to live" confirmation before:
+- Calling any JIRA API with POST, PUT, PATCH, DELETE (creating/updating/deleting issues, comments, fields)
+- Calling any Confluence API that writes or modifies a page
+- Running any task with `--live` flag via Relay
+- Running `ops run <task>` on the company laptop
+- Any database INSERT, UPDATE, or DELETE against M3 or EDM
+
+### Always safe without asking:
+- Running `--mock` mode locally
+- GET/read-only API calls (reading JIRA issues, reading Confluence pages)
+- `git push`, `git pull`, `git status` via Relay
+- Taking screenshots via Relay
+- Writing to local files (logs, outputs, mock_data)
+
+### When asking for confirmation, be explicit:
+State exactly what will be written, to which system, and what the effect is.
+Example: "This will POST a comment to JIRA issue NPI-123. Confirm?" — not just "ready to run?"
