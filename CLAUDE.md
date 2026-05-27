@@ -180,6 +180,31 @@ These predate this framework and run independently. They may be migrated later:
 
 ---
 
+## Deploy & Verify Workflow (using Relay)
+
+The Relay system lets Claude Code remotely control the company laptop without leaving this machine.
+
+**Relay URL:** `https://relay.neshnix.uk` | **Secret:** `$env:RELAY_SECRET`
+
+### After pushing a change:
+
+```powershell
+# 1. Pull on company laptop (run from expressops-auto git root)
+$body = '{"cmd":"git pull"}'
+curl -s -X POST -H "Authorization: Bearer $env:RELAY_SECRET" -H "Content-Type: application/json" -d $body https://relay.neshnix.uk/run
+
+# 2. Run a task on company laptop in live mode
+$body = '{"cmd":"python C:\\Users\\tmoghanan\\Documents\\AI\\expressops-auto\\tasks\\<task_name>\\main.py --live"}'
+curl -s -X POST -H "Authorization: Bearer $env:RELAY_SECRET" -H "Content-Type: application/json" -d $body https://relay.neshnix.uk/run
+
+# 3. Screenshot to verify output
+curl -s -X POST -H "Authorization: Bearer $env:RELAY_SECRET" https://relay.neshnix.uk/screenshot | python -c "import sys,json,base64; d=json.load(sys.stdin); open('shot.png','wb').write(base64.b64decode(d['image']))"
+```
+
+Whitelisted /run paths: `git pull`, `git status`, `git log --oneline`, and `python C:\Users\tmoghanan\Documents\AI\...`
+
+---
+
 ## For Claude Code: Session Rules
 
 - **Always read this file first** at the start of every session.
@@ -187,3 +212,4 @@ These predate this framework and run independently. They may be migrated later:
 - **Never commit credentials** — config.yaml is gitignored.
 - **Ask before writing to live systems** — mock mode is the default for a reason.
 - **If a data source is unknown**, say so and add it to the Discovery section of TASK.md. Do not guess table names or field names.
+- **To deploy to company laptop:** push to GitHub, then use Relay `/run git pull` — do not ask the user to manually pull.
