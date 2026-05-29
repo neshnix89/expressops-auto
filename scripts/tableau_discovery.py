@@ -146,7 +146,8 @@ def run_discovery(s, api, site_id, target):
         proj = wb.get("project", {}).get("name", "?")
         print(
             f"  luid={wb.get('id')}  name={wb.get('name')!r}  "
-            f"project={proj!r}  contentUrl={wb.get('contentUrl')!r}"
+            f"project={proj!r}  contentUrl={wb.get('contentUrl')!r}  "
+            f"webpageUrl={wb.get('webpageUrl')!r}"
         )
     line()
 
@@ -159,10 +160,16 @@ def run_discovery(s, api, site_id, target):
         return
 
     # --- resolve target ---
+    # target may be: a luid, a name substring, or the numeric repository id
+    # from the workbook URL (#/workbooks/<id>/views), which only appears in
+    # webpageUrl, e.g. ".../workbooks/3651".
     tl = target.lower()
+    repo_marker = f"/workbooks/{target}"
     matches = [
         wb for wb in workbooks
-        if wb.get("id") == target or tl in (wb.get("name", "").lower())
+        if wb.get("id") == target
+        or tl in (wb.get("name", "").lower())
+        or (wb.get("webpageUrl", "").rstrip("/").endswith(repo_marker))
     ]
     if not matches:
         print(f"\nNo workbook matched target {target!r}.")
