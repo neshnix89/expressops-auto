@@ -34,6 +34,15 @@ edm:
   # Connection string used by cx_Oracle / oracledb
   connection_string: "YOUR_EDM_CONNECTION_STRING"
 
+# Tableau Server (REST API, PAT auth)
+tableau:
+  base_url: "https://pftableau.pepperl-fuchs.com"
+  api_version: "3.25"
+  pat_name: "Automation"
+  pat_secret: "YOUR_TABLEAU_PAT_SECRET"
+  content_url: ""          # default site
+  verify_ssl: false
+
 # Anthropic API (for AI-powered analysis)
 anthropic:
   api_key: "YOUR_ANTHROPIC_API_KEY"
