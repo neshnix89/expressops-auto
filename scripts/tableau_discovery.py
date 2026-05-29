@@ -218,19 +218,22 @@ def run_discovery(s, api, site_id, target):
         print("  no views to export")
         return
     v0 = views[0]
-    r = s.get(
-        f"{api}/sites/{site_id}/views/{v0['id']}/data",
-        headers={"Accept": "text/csv"},
-        timeout=120,
-    )
-    print(f"  view={v0.get('name')!r} HTTP {r.status_code} "
-          f"content-type={r.headers.get('Content-Type')}")
-    if r.status_code == 200:
-        text = r.text
-        print(f"  CSV bytes={len(text)}  --- first 1500 chars ---")
-        print(text[:1500])
-    else:
-        print(f"  BODY: {r.text[:800]}")
+    csv_url = f"{api}/sites/{site_id}/views/{v0['id']}/data"
+    # The session defaults to JSON content-type/accept; the data endpoint
+    # serves CSV and 406s on a too-specific Accept. Drop Content-Type and
+    # use a permissive Accept (None values are not sent by requests).
+    for accept in ("*/*", "text/csv", None):
+        hdrs = {"Content-Type": None, "Accept": accept}
+        r = s.get(csv_url, headers=hdrs, timeout=120)
+        print(f"  view={v0.get('name')!r}  Accept={accept!r}  HTTP {r.status_code} "
+              f"content-type={r.headers.get('Content-Type')}")
+        if r.status_code == 200:
+            text = r.text
+            print(f"  CSV bytes={len(text)}  --- first 1500 chars ---")
+            print(text[:1500])
+            break
+        else:
+            print(f"  BODY: {r.text[:300]}")
 
 
 if __name__ == "__main__":
