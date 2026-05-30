@@ -19,6 +19,8 @@ is small even across hundreds of views.
 import json
 import re
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -29,6 +31,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+RESULTS_PATH = PROJECT_ROOT / "scripts" / "_perrow_scan_results.json"
+MAX_WORKERS = 15
 
 NAME_KEYWORDS = re.compile(
     r"(npi|kpi|expressops|pcba|smt|"
@@ -135,54 +139,88 @@ def main():
             candidates = candidates[:400]
             print(f"  -> capped to {len(candidates)} to keep scan bounded")
 
-        # --- probe each candidate's CSV header ---
-        print("\n[3] probing CSV headers ...")
+        # --- probe each candidate's CSV header (parallel) ---
+        print(f"\n[3] probing CSV headers with {MAX_WORKERS} parallel workers ...")
         hits: list[dict] = []
         errors = 0
         empties = 0
-        for idx, v in enumerate(candidates, 1):
+        start = time.time()
+
+        token = s.headers["X-Tableau-Auth"]
+        verify_ssl = s.verify
+
+        def probe(v: dict) -> dict | None:
+            """Returns hit-dict on success, "EMPTY"/"ERROR" sentinels, or None on miss."""
             view_luid = v.get("id")
             csv_url = f"{rest}/sites/{site_id}/views/{view_luid}/data"
             try:
-                r = s.get(
+                rr = requests.get(
                     csv_url,
-                    headers={"Content-Type": None, "Accept": "*/*"},
-                    timeout=60,
+                    headers={"X-Tableau-Auth": token, "Accept": "*/*"},
+                    verify=verify_ssl,
+                    timeout=30,
                 )
             except Exception:  # noqa: BLE001
-                errors += 1
-                continue
-            if r.status_code != 200:
-                errors += 1
-                continue
-            text = decode_csv(r.content)
-            header = text.splitlines()[0] if text else ""
+                return {"_marker": "ERROR"}
+            if rr.status_code != 200:
+                return {"_marker": "ERROR", "code": rr.status_code}
+            text = decode_csv(rr.content)
+            lines = text.splitlines()
+            header = lines[0] if lines else ""
             if not header:
-                empties += 1
-                continue
-            if KEY_COL_RE.search(header):
-                wb = (v.get("workbook") or {}).get("name") or ""
-                rows = max(len(text.splitlines()) - 1, 0)
-                hits.append({
-                    "view_luid": view_luid,
-                    "view_name": v.get("name"),
-                    "workbook_name": wb,
-                    "rows": rows,
-                    "bytes": len(r.content),
-                    "header": header,
-                })
-                print(f"  HIT [{idx}/{len(candidates)}] "
-                      f"wb={wb!r} view={v.get('name')!r} rows={rows} "
-                      f"cols={header.count(';')+1}")
-            if idx % 25 == 0:
-                print(f"  ... scanned {idx}/{len(candidates)} so far "
-                      f"(hits={len(hits)}, errors={errors}, empty={empties})")
+                return {"_marker": "EMPTY"}
+            if not KEY_COL_RE.search(header):
+                return None
+            wb = (v.get("workbook") or {}).get("name") or ""
+            return {
+                "view_luid": view_luid,
+                "view_name": v.get("name"),
+                "workbook_name": wb,
+                "rows": max(len(lines) - 1, 0),
+                "bytes": len(rr.content),
+                "header": header,
+            }
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(probe, v): v for v in candidates}
+            done = 0
+            for fut in as_completed(futures):
+                done += 1
+                res = fut.result()
+                if res is None:
+                    continue
+                if res.get("_marker") == "EMPTY":
+                    empties += 1
+                elif res.get("_marker") == "ERROR":
+                    errors += 1
+                else:
+                    hits.append(res)
+                    print(f"  HIT [{done}/{len(candidates)}] "
+                          f"wb={res['workbook_name']!r} view={res['view_name']!r} "
+                          f"rows={res['rows']} cols={res['header'].count(';')+1}")
+                if done % 50 == 0:
+                    print(f"  ... {done}/{len(candidates)} "
+                          f"(hits={len(hits)}, empty={empties}, err={errors}, "
+                          f"elapsed={time.time()-start:.0f}s)")
+        print(f"  done {len(candidates)} in {time.time()-start:.0f}s")
 
         # --- report ---
         print("\n" + "=" * 70)
         print(f"SCAN COMPLETE  candidates={len(candidates)}  "
               f"hits={len(hits)}  errors={errors}  empty={empties}")
         print("=" * 70)
+        # Persist so a Cloudflare timeout doesn't lose the work.
+        RESULTS_PATH.write_text(
+            json.dumps({
+                "scanned": len(candidates),
+                "hits": hits,
+                "errors": errors,
+                "empties": empties,
+            }, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\nResults persisted to {RESULTS_PATH}")
+
         if not hits:
             print("\nNo view exposes a *_issue_key column under the keyword filter.")
             print("Per-row data isn't reachable via existing views with this PAT.")
