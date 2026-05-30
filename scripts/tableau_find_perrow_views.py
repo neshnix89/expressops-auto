@@ -32,7 +32,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 RESULTS_PATH = PROJECT_ROOT / "scripts" / "_perrow_scan_results.json"
-MAX_WORKERS = 15
+MAX_WORKERS = 20
+PER_REQ_TIMEOUT = 10  # seconds
+CANDIDATE_CAP = 200   # keep scan well under the relay's ~95s kill
+SAVE_EVERY = 25       # incremental save every N completed probes
 
 NAME_KEYWORDS = re.compile(
     r"(npi|kpi|expressops|pcba|smt|"
@@ -135,9 +138,9 @@ def main():
             if NAME_KEYWORDS.search(name) or NAME_KEYWORDS.search(wb):
                 candidates.append(v)
         print(f"  candidate views after keyword filter: {len(candidates)}")
-        if len(candidates) > 400:
-            candidates = candidates[:400]
-            print(f"  -> capped to {len(candidates)} to keep scan bounded")
+        if len(candidates) > CANDIDATE_CAP:
+            candidates = candidates[:CANDIDATE_CAP]
+            print(f"  -> capped to {len(candidates)} to fit relay subprocess budget")
 
         # --- probe each candidate's CSV header (parallel) ---
         print(f"\n[3] probing CSV headers with {MAX_WORKERS} parallel workers ...")
@@ -158,7 +161,7 @@ def main():
                     csv_url,
                     headers={"X-Tableau-Auth": token, "Accept": "*/*"},
                     verify=verify_ssl,
-                    timeout=30,
+                    timeout=PER_REQ_TIMEOUT,
                 )
             except Exception:  # noqa: BLE001
                 return {"_marker": "ERROR"}
@@ -181,6 +184,20 @@ def main():
                 "header": header,
             }
 
+        def save_progress(scanned: int, complete: bool):
+            RESULTS_PATH.write_text(
+                json.dumps({
+                    "scanned": scanned,
+                    "total_candidates": len(candidates),
+                    "complete": complete,
+                    "hits": hits,
+                    "errors": errors,
+                    "empties": empties,
+                    "elapsed_s": round(time.time() - start, 1),
+                }, indent=2),
+                encoding="utf-8",
+            )
+
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {pool.submit(probe, v): v for v in candidates}
             done = 0
@@ -188,8 +205,8 @@ def main():
                 done += 1
                 res = fut.result()
                 if res is None:
-                    continue
-                if res.get("_marker") == "EMPTY":
+                    pass
+                elif res.get("_marker") == "EMPTY":
                     empties += 1
                 elif res.get("_marker") == "ERROR":
                     errors += 1
@@ -198,10 +215,12 @@ def main():
                     print(f"  HIT [{done}/{len(candidates)}] "
                           f"wb={res['workbook_name']!r} view={res['view_name']!r} "
                           f"rows={res['rows']} cols={res['header'].count(';')+1}")
-                if done % 50 == 0:
+                if done % SAVE_EVERY == 0:
+                    save_progress(done, complete=False)
                     print(f"  ... {done}/{len(candidates)} "
                           f"(hits={len(hits)}, empty={empties}, err={errors}, "
-                          f"elapsed={time.time()-start:.0f}s)")
+                          f"elapsed={time.time()-start:.0f}s) [saved]")
+            save_progress(done, complete=True)
         print(f"  done {len(candidates)} in {time.time()-start:.0f}s")
 
         # --- report ---
@@ -209,16 +228,6 @@ def main():
         print(f"SCAN COMPLETE  candidates={len(candidates)}  "
               f"hits={len(hits)}  errors={errors}  empty={empties}")
         print("=" * 70)
-        # Persist so a Cloudflare timeout doesn't lose the work.
-        RESULTS_PATH.write_text(
-            json.dumps({
-                "scanned": len(candidates),
-                "hits": hits,
-                "errors": errors,
-                "empties": empties,
-            }, indent=2),
-            encoding="utf-8",
-        )
         print(f"\nResults persisted to {RESULTS_PATH}")
 
         if not hits:
