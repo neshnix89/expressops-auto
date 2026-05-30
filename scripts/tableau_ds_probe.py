@@ -169,6 +169,61 @@ def main():
                 print(f"\n  --> rows={len(rows)}  first 5:")
                 for row in rows[:5]:
                     print(f"      {row}")
+        # --- .tdsx download probe ---
+        # If we have Download permission, we can read the .hyper extract locally
+        # and bypass the VDS API permission entirely.
+        print(f"\n[4] GET datasources/{{luid}}/content (.tdsx download probe) ...")
+        r = s.get(
+            f"{rest_api}/sites/{cr['site']['id']}/datasources/{ds_luid}/content",
+            headers={"Content-Type": None, "Accept": "*/*"},
+            timeout=60,
+            stream=True,
+        )
+        print(f"  HTTP {r.status_code}  content-type={r.headers.get('Content-Type')}  "
+              f"content-length={r.headers.get('Content-Length')}")
+        if r.status_code == 200:
+            head = r.raw.read(8) if hasattr(r, "raw") else r.content[:8]
+            is_zip = head.startswith(b"PK\x03\x04")
+            print(f"  first 8 bytes: {head!r}  zip-magic: {is_zip}")
+            print("  --> Download permission granted. We can pull the .tdsx and "
+                  "read the embedded .hyper extract per row.")
+        else:
+            print(f"  BODY: {r.text[:400]}")
+
+        # --- list datasources (find any with friendlier perms) ---
+        print(f"\n[5] GET sites/{{site}}/datasources (look for per-row friendly DS) ...")
+        names_of_interest = ("fact_pm_npi", "wc_kpi", "wp_kpi", "npi")
+        page = 1
+        all_ds: list[dict] = []
+        while True:
+            r = s.get(
+                f"{rest_api}/sites/{cr['site']['id']}/datasources",
+                params={"pageSize": 1000, "pageNumber": page},
+                timeout=60,
+            )
+            if r.status_code != 200:
+                print(f"  HTTP {r.status_code}: {r.text[:400]}")
+                break
+            body = r.json()
+            batch = body.get("datasources", {}).get("datasource", [])
+            if isinstance(batch, dict):
+                batch = [batch]
+            all_ds.extend(batch)
+            pag = body.get("pagination", {})
+            if len(all_ds) >= int(pag.get("totalAvailable", len(all_ds))) or not batch:
+                break
+            page += 1
+        print(f"  total data sources visible: {len(all_ds)}")
+        # Print ones with names that look like they cover NPI / WC / WP KPIs.
+        matches = [
+            d for d in all_ds
+            if any(s in (d.get("name", "").lower()) for s in names_of_interest)
+        ]
+        print(f"  matching NPI/WC/WP keyword filter: {len(matches)}")
+        for d in matches[:25]:
+            proj = (d.get("project") or {}).get("name")
+            print(f"    luid={d.get('id')}  name={d.get('name')!r}  "
+                  f"project={proj!r}  type={d.get('type')!r}")
     finally:
         try:
             s.post(f"{rest_api}/auth/signout", timeout=15)
