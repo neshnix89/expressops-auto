@@ -56,9 +56,18 @@ Run with `scripts/tableau_discovery.py` (deployed via `scripts/sync_from_github.
   5047 bytes; payload appears UTF-16-encoded (handle encoding in the client).
 
 ### Notes for the client implementation
-- Best data path is likely the 3 published data sources, not per-view CSV. Next:
-  try `GET sites/{site}/datasources/{luid}/data` / download, or the VizQL Data
-  Service / Metadata API, to pull KPI rows directly.
+- **Pull from views, not data sources.** The goal is one source of truth =
+  "the processed numbers shown on the dashboard." Published data sources are
+  the *data layer*; the workbook may add calculated fields / table calcs /
+  filters on top, so data-source rows ≠ displayed values. The endpoint that
+  returns exactly the displayed aggregated values is:
+      GET /api/3.25/sites/{site}/views/{viewLuid}/data    Accept: */*
+  (API equivalent of "Download → Summary Data"). Filter/parameter slices via
+  `?vf_<FieldName>=<value>` / `?vf_Parameters.<Name>=<value>`.
+- Only fall back to querying a published data source directly if the workbook
+  owner confirms `fact_pm_npi_*_kpi` are the final KPIs with no workbook-layer
+  transforms applied.
+- Decode the CSV response as UTF-16 in the client.
 - Deploy is relay-only via `scripts/sync_from_github.py` (no git on the laptop).
 
 ## End Goal
