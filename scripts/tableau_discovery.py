@@ -212,28 +212,49 @@ def run_discovery(s, api, site_id, target):
     else:
         print(f"  BODY: {r.text[:800]}")
 
-    # --- 4. CSV EXPORT of first view ---
-    print("\n[5] GET view/{id}/data (CSV export of first view) ...")
+    # --- 4. CSV EXPORT — sample every view ---
+    print("\n[5] GET view/{id}/data (sample CSV from EVERY view) ...")
     if not views:
         print("  no views to export")
         return
-    v0 = views[0]
-    csv_url = f"{api}/sites/{site_id}/views/{v0['id']}/data"
-    # The session defaults to JSON content-type/accept; the data endpoint
-    # serves CSV and 406s on a too-specific Accept. Drop Content-Type and
-    # use a permissive Accept (None values are not sent by requests).
-    for accept in ("*/*", "text/csv", None):
-        hdrs = {"Content-Type": None, "Accept": accept}
-        r = s.get(csv_url, headers=hdrs, timeout=120)
-        print(f"  view={v0.get('name')!r}  Accept={accept!r}  HTTP {r.status_code} "
-              f"content-type={r.headers.get('Content-Type')}")
-        if r.status_code == 200:
-            text = r.text
-            print(f"  CSV bytes={len(text)}  --- first 1500 chars ---")
-            print(text[:1500])
-            break
-        else:
+    for v in views:
+        csv_url = f"{api}/sites/{site_id}/views/{v['id']}/data"
+        # Drop the JSON content-type that the session would otherwise add,
+        # and use a permissive Accept (a specific text/csv triggers HTTP 406).
+        r = s.get(csv_url, headers={"Content-Type": None, "Accept": "*/*"},
+                  timeout=120)
+        if r.status_code != 200:
+            print(f"\n  --- view {v.get('name')!r} HTTP {r.status_code} "
+                  f"content-type={r.headers.get('Content-Type')} ---")
             print(f"  BODY: {r.text[:300]}")
+            continue
+        text = _decode_csv(r.content)
+        lines = text.splitlines()
+        header = lines[0] if lines else ""
+        ncols = header.count(",") + 1 if header else 0
+        print(f"\n  --- view {v.get('name')!r}  rows={len(lines)-1 if lines else 0} "
+              f"cols={ncols}  bytes={len(r.content)} ---")
+        for ln in lines[:8]:
+            print(f"    {ln}")
+        if len(lines) > 8:
+            print(f"    ... ({len(lines)-8} more rows)")
+
+
+def _decode_csv(content: bytes) -> str:
+    """Tableau view data is sometimes UTF-16 (with BOM), sometimes UTF-8.
+    Decode robustly so the caller sees real text."""
+    if content.startswith(b"\xff\xfe") or content.startswith(b"\xfe\xff"):
+        return content.decode("utf-16")
+    # UTF-16 without BOM: NUL bytes appear in the first ~64 bytes.
+    if b"\x00" in content[:64]:
+        try:
+            return content.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    try:
+        return content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return content.decode("latin-1", errors="replace")
 
 
 if __name__ == "__main__":
