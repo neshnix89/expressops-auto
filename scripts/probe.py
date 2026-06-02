@@ -30,6 +30,12 @@ OUTPUTS = ROOT / "outputs"
 MR_DIR = Path(r"C:\Users\tmoghanan\Documents\AI\MR Status Report")
 MR_PAGE_ID = 560866215
 _SECRETISH = re.compile(r"(config|secret|credential|token|\.env|\.ya?ml|\.ini)", re.I)
+# Mask token-like blobs (PATs, base64 keys) so probe output never leaks secrets.
+_REDACT = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
+
+
+def _redact(s: str) -> str:
+    return _REDACT.sub("***REDACTED***", s)
 
 
 def _norm(text: str) -> list[str]:
@@ -93,7 +99,7 @@ def part_b(conf: ConfluenceClient) -> None:
                 print(f"\n  ----- {f.relative_to(MR_DIR)} -----")
                 txt = f.read_text(encoding="utf-8", errors="replace").split("\n")
                 for ln in txt[:150]:
-                    print(f"  | {ln}")
+                    print(f"  | {_redact(ln)}")
                 if len(txt) > 150:
                     print(f"  | ... ({len(txt) - 150} more lines)")
 
