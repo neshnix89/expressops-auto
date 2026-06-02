@@ -138,7 +138,11 @@ def load_config(mode_override: str | None = None) -> Config:
         raise config_missing(CONFIG_PATH)
 
     try:
-        with open(CONFIG_PATH, "r") as f:
+        # utf-8-sig: read as UTF-8 and transparently strip a BOM if present.
+        # Without an explicit encoding, Python uses the platform default
+        # (cp1252 on Windows), which crashes on any UTF-8 / BOM'd config and
+        # takes every live task down at startup. See scripts/probe.py history.
+        with open(CONFIG_PATH, "r", encoding="utf-8-sig") as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError as exc:
         raise yaml_error(exc, CONFIG_PATH) from exc
