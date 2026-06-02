@@ -1,100 +1,119 @@
 """
 DISCOVERY PROBE — read-only scratchpad.
 
-CURRENT PROBE: two jobs.
-  (1) Pinpoint the non-ASCII byte breaking load_config (which opens config.yaml
-      with the platform default encoding, cp1252, and dies). Reports the
-      offending character's location WITHOUT printing any secret values — only
-      line number, the key name (left of the colon), and the Unicode name.
-  (2) Work around it by loading config as UTF-8, then read the live mo_trigger
-      Confluence page (GET only) and report version/last-updated/Run-time/
-      frozen comment bodies — the original diagnostic.
+PART A — mo_trigger page staleness:
+  Compare each comment body frozen on the Confluence page against the FRESH
+  body the task just generated into outputs/mo_trigger_{KEY}.txt during the
+  last `run`. Same => legitimately unchanged. Different => the page is stale
+  because _merge_preserved_bodies froze that container's body.
 
-All read-only — the guard blocks any write. config.yaml values are never printed.
+PART B — MR Status Report recon (C:\\Users\\tmoghanan\\Documents\\AI\\MR Status Report):
+  List the folder, print the .py source so we can see it (skips config/secret
+  files), and check its Confluence page (560866215) freshness.
+
+All read-only. Guard blocks writes; config secrets are not printed.
 """
 
 from __future__ import annotations
 
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.config_loader import CONFIG_PATH, Config
+from core.config_loader import load_config
 from core.confluence import ConfluenceClient
 
+OUTPUTS = ROOT / "outputs"
+MR_DIR = Path(r"C:\Users\tmoghanan\Documents\AI\MR Status Report")
+MR_PAGE_ID = 560866215
+_SECRETISH = re.compile(r"(config|secret|credential|token|\.env|\.ya?ml|\.ini)", re.I)
 
-def _locate_bad_chars() -> bool:
-    """Report non-ASCII chars in config.yaml without leaking values. Returns
-    True if the file is valid UTF-8."""
-    raw = Path(CONFIG_PATH).read_bytes()
-    print(f"--- config.yaml encoding check ({len(raw)} bytes) ---")
+
+def _norm(text: str) -> list[str]:
+    lines = [ln.rstrip() for ln in (text or "").replace("\r\n", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def _first_diff(a: list[str], b: list[str]) -> str:
+    for i in range(max(len(a), len(b))):
+        av = a[i] if i < len(a) else "<none>"
+        bv = b[i] if i < len(b) else "<none>"
+        if av != bv:
+            return f"line {i+1}:\n      page : {av!r}\n      fresh: {bv!r}"
+    return "(identical)"
+
+
+def part_a(conf: ConfluenceClient, page_id) -> None:
+    print("\n========== PART A: mo_trigger page staleness ==========")
+    page = conf.get_page(page_id)
+    body = ((page.get("body") or {}).get("storage") or {}).get("value", "") or ""
+    blocks = dict(re.findall(
+        r'Show comment for ([\w-]+)\s*</ac:parameter>.*?<!\[CDATA\[(.*?)\]\]>',
+        body, re.DOTALL,
+    ))
+    print(f"page version {(page.get('version') or {}).get('number')}, "
+          f"{len(blocks)} comment block(s)")
+    for key, page_body in blocks.items():
+        fresh_file = OUTPUTS / f"mo_trigger_{key}.txt"
+        if not fresh_file.exists():
+            print(f"  {key:18} NO fresh outputs/ file — can't compare "
+                  f"(not regenerated this run?)")
+            continue
+        fresh = fresh_file.read_text(encoding="utf-8", errors="replace")
+        pa, fr = _norm(page_body), _norm(fresh)
+        if pa == fr:
+            print(f"  {key:18} SAME  — page matches fresh output (not stale)")
+        else:
+            print(f"  {key:18} STALE — page differs from fresh output")
+            print(f"      {_first_diff(pa, fr)}")
+
+
+def part_b(conf: ConfluenceClient) -> None:
+    print("\n========== PART B: MR Status Report recon ==========")
+    print(f"folder: {MR_DIR}")
+    if not MR_DIR.exists():
+        print("  -> folder not found on this machine.")
+    else:
+        files = sorted(MR_DIR.rglob("*"))
+        print(f"  {sum(1 for f in files if f.is_file())} file(s):")
+        for f in files:
+            if f.is_file():
+                rel = f.relative_to(MR_DIR)
+                print(f"    {str(rel):45} {f.stat().st_size:>8} bytes")
+        # print the .py source so we can analyse it next iteration
+        for f in files:
+            if f.is_file() and f.suffix == ".py" and not _SECRETISH.search(f.name):
+                print(f"\n  ----- {f.relative_to(MR_DIR)} -----")
+                txt = f.read_text(encoding="utf-8", errors="replace").split("\n")
+                for ln in txt[:150]:
+                    print(f"  | {ln}")
+                if len(txt) > 150:
+                    print(f"  | ... ({len(txt) - 150} more lines)")
+
+    print(f"\n  Confluence page {MR_PAGE_ID} freshness:")
     try:
-        text = raw.decode("utf-8")
-        print("  decodes as UTF-8: YES")
-    except UnicodeDecodeError as e:
-        print(f"  decodes as UTF-8: NO ({e})")
-        return False
-
-    found = False
-    for lineno, line in enumerate(text.splitlines(), 1):
-        for ch in line:
-            if ord(ch) > 127:
-                found = True
-                stripped = line.lstrip()
-                if stripped.startswith("#"):
-                    where = "<comment line>"
-                elif ":" in line:
-                    where = f"key '{line.split(':', 1)[0].strip()}' (value not shown)"
-                else:
-                    where = "<unknown>"
-                print(f"  line {lineno}: U+{ord(ch):04X} "
-                      f"{unicodedata.name(ch, '?')!r} in {where}")
-                break  # one report per line is plenty
-    if not found:
-        print("  (no non-ASCII characters found)")
-    return True
+        p = conf.get_page(MR_PAGE_ID)
+        v = p.get("version") or {}
+        print(f"    title        : {p.get('title')}")
+        print(f"    version      : {v.get('number')}")
+        print(f"    last updated : {v.get('when')}")
+        print(f"    updated by   : {(v.get('by') or {}).get('displayName')}")
+    except Exception as e:
+        print(f"    could not read page: {type(e).__name__}: {e}")
 
 
 def main() -> None:
-    _locate_bad_chars()
-
-    # Verify the REAL load_config now works (utf-8-sig fix). If this no longer
-    # raises UnicodeDecodeError, every live task can start again.
-    from core.config_loader import load_config
     cfg = load_config(mode_override="live")
-    print("\nload_config(): OK  <-- fix confirmed, tasks can start")
-
-    page_id = cfg.pages.get("mo_trigger_comment")
-    print(f"\nconfigured page id: {page_id!r}")
-    if not page_id:
-        print("  -> no page id configured; stopping.")
-        return
-
     conf = ConfluenceClient(cfg)
-    page = conf.get_page(page_id)
-    ver = page.get("version") or {}
-    print("\n--- live page state ---")
-    print(f"  title        : {page.get('title')}")
-    print(f"  version      : {ver.get('number')}")
-    print(f"  last updated : {ver.get('when')}")
-    print(f"  updated by   : {(ver.get('by') or {}).get('displayName')}")
-
-    body = ((page.get("body") or {}).get("storage") or {}).get("value", "") or ""
-    m = re.search(r"Run time</th>.*?<tr>\s*<td>(.*?)</td>", body, re.DOTALL)
-    print(f"  page 'Run time' : {m.group(1).strip() if m else 'NOT FOUND'}")
-
-    blocks = re.findall(
-        r'Show comment for ([\w-]+)\s*</ac:parameter>.*?<!\[CDATA\[(.*?)\]\]>',
-        body, re.DOTALL,
-    )
-    print(f"  comment blocks  : {len(blocks)}")
-    date_re = re.compile(r"\d{1,2}(?:st|nd|rd|th)?\s+\w+\s+20\d{2}")
-    for key, cbody in blocks[:10]:
-        print(f"    {key:18} dates={date_re.findall(cbody)[:4]}")
+    part_a(conf, cfg.pages.get("mo_trigger_comment"))
+    part_b(conf)
 
 
 if __name__ == "__main__":
