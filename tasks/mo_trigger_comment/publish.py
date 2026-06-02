@@ -22,6 +22,7 @@ config change is the only thing needed to re-point the publisher.
 from __future__ import annotations
 
 import html
+import hashlib
 import re
 from datetime import datetime
 from typing import Any
@@ -64,13 +65,29 @@ def _code_macro(language: str, body: str) -> str:
     )
 
 
-def _expand_macro(title: str, body_html: str) -> str:
+def _expand_macro(title: str, body_html: str, extra_params: str = "") -> str:
     return (
         '<ac:structured-macro ac:name="expand">'
         f'<ac:parameter ac:name="title">{html.escape(title)}</ac:parameter>'
+        f'{extra_params}'
         f'<ac:rich-text-body>{body_html}</ac:rich-text-body>'
         '</ac:structured-macro>'
     )
+
+
+def _norm_body(s: str) -> str:
+    """Whitespace-normalise a comment body so trivial reflow in the Confluence
+    editor doesn't read as a human edit."""
+    lines = [ln.rstrip() for ln in (s or "").replace("\r\n", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _body_hash(s: str) -> str:
+    return hashlib.sha1(_norm_body(s).encode("utf-8")).hexdigest()[:12]
 
 
 def _status_macro(colour: str, title: str) -> str:
@@ -123,9 +140,14 @@ def _render_ready_section(
         articles = ", ".join(r.get("articles") or []) or "-"
 
         body = r.get("body") or ""
+        # Stamp the hash of the body the machine wrote (or the preserved
+        # original hash, threaded in via _mohash) so the next run can tell a
+        # human edit from its own previous output.
+        bhash = r.get("_mohash") or _body_hash(body)
         comment_cell = _expand_macro(
             f"Show comment for {r.get('key', '?')}",
             _code_macro("text", body),
+            extra_params=f'<ac:parameter ac:name="mohash">{bhash}</ac:parameter>',
         )
 
         cells = [
@@ -220,54 +242,69 @@ def _run_instructions_html() -> str:
 # ── Preserving manual edits on re-publish ────────────────────────────
 
 # Matches the per-container expand/code macro that _render_ready_section
-# emits for each ready row:
+# emits for each ready row. Whitespace-tolerant because Confluence may reflow
+# the stored form after a human edit:
 #   <ac:parameter ac:name="title">Show comment for {KEY}</ac:parameter>
+#   <ac:parameter ac:name="mohash">{HASH}</ac:parameter>   (optional; legacy
+#       rows published before this change have no mohash)
 #   ... <ac:plain-text-body><![CDATA[{BODY}]]></ac:plain-text-body>
-# Whitespace-tolerant because Confluence's stored form may reflow after
-# a human edit in the rich-text editor.
 _STAGED_COMMENT_RE = re.compile(
     r'<ac:parameter\s+ac:name="title">\s*'
     r'Show comment for ([\w-]+)\s*'
     r'</ac:parameter>'
+    r'(?:\s*<ac:parameter\s+ac:name="mohash">\s*([0-9a-f]+)\s*</ac:parameter>)?'
     r'.*?<!\[CDATA\[(.*?)\]\]>',
     re.DOTALL,
 )
 
 
-def _parse_staged_bodies(html_body: str) -> dict[str, str]:
+def _parse_staged_bodies(html_body: str) -> dict[str, dict[str, Any]]:
     """
-    Pull ``{container_key: comment_body}`` pairs from the current staging
-    page's storage-format HTML. Each ready container has exactly one
-    "Show comment for KEY" expand/code macro with the body in CDATA.
+    Pull ``{key: {"body": <stored body>, "hash": <machine hash or None>}}``
+    from the staging page's storage-format HTML. ``hash`` is the mohash the
+    machine stamped when it last wrote that body (None for legacy rows).
     """
     if not html_body:
         return {}
-    return {
-        m.group(1): m.group(2).rstrip()
-        for m in _STAGED_COMMENT_RE.finditer(html_body)
-    }
+    out: dict[str, dict[str, Any]] = {}
+    for m in _STAGED_COMMENT_RE.finditer(html_body):
+        out[m.group(1)] = {"body": m.group(3).rstrip(), "hash": m.group(2)}
+    return out
 
 
 def _merge_preserved_bodies(
     results: list[dict[str, Any]],
-    preserved: dict[str, str],
+    staged: dict[str, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], int]:
     """
-    For any ready container whose key already has a comment block on the
-    staging page, swap in the existing body so manual edits survive a
-    re-publish. Row metadata (order type, MO dates, badges, articles) is
-    always refreshed from the current run — only the editable comment
-    body is preserved. Returns (merged, preserved_count).
+    Refresh every body from the current run EXCEPT where a human actually
+    edited the body on the page.
+
+    Each published body carries a ``mohash`` (hash of the body the machine
+    last wrote). On re-publish we hash the body currently on the page:
+      * matches mohash            -> untouched -> use the fresh body
+      * differs                   -> human-edited -> keep their text, and carry
+                                     the ORIGINAL mohash so it stays preserved
+      * no mohash (legacy row)    -> treat as machine-written -> refresh
+
+    The body the renderer should stamp travels back in ``_mohash``. Returns
+    (merged, preserved_count) where preserved_count counts human-edited rows.
     """
-    if not preserved:
+    if not staged:
         return list(results), 0
     merged: list[dict[str, Any]] = []
     preserved_count = 0
     for r in results:
         key = r.get("key")
-        if r.get("ready") and r.get("body") and key in preserved:
-            merged.append({**r, "body": preserved[key]})
-            preserved_count += 1
+        if r.get("ready") and r.get("body") and key in staged:
+            stored_body = staged[key]["body"]
+            stored_hash = staged[key]["hash"]
+            edited = stored_hash is not None and _body_hash(stored_body) != stored_hash
+            if edited:
+                merged.append({**r, "body": stored_body, "_mohash": stored_hash})
+                preserved_count += 1
+            else:
+                merged.append({**r, "_mohash": _body_hash(r["body"])})
         else:
             merged.append(r)
     return merged, preserved_count
