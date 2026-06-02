@@ -60,13 +60,13 @@ def _locate_bad_chars() -> bool:
 
 
 def main() -> None:
-    is_utf8 = _locate_bad_chars()
+    _locate_bad_chars()
 
-    # Workaround load so we can still reach the page in this same run.
-    import yaml
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    cfg = Config(data, mode_override="live")
+    # Verify the REAL load_config now works (utf-8-sig fix). If this no longer
+    # raises UnicodeDecodeError, every live task can start again.
+    from core.config_loader import load_config
+    cfg = load_config(mode_override="live")
+    print("\nload_config(): OK  <-- fix confirmed, tasks can start")
 
     page_id = cfg.pages.get("mo_trigger_comment")
     print(f"\nconfigured page id: {page_id!r}")
