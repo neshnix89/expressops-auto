@@ -98,9 +98,19 @@ class JiraClient:
         return all_issues
 
     def get_children(self, parent_key: str, fields: list[str] | None = None) -> list[dict[str, Any]]:
-        """Fetch child Work Packages of a Work Container using relation() JQL."""
-        jql = f'issue in relation("{parent_key}")'
-        return self.search_all(jql, fields=fields)
+        """
+        Fetch child Work Packages of a Work Container via the "Project Children"
+        relation() JQL. The bare ``relation("KEY")`` form is rejected with HTTP
+        400 on P+F JIRA — it must be fully qualified with the relation name,
+        issue types and level (same form the other SG SMT PCBA tasks use).
+        The parent self-reference is filtered out of the result.
+        """
+        jql = (
+            f'issue in relation("{parent_key}", "Project Children", '
+            "Tasks, Deviations, level1)"
+        )
+        children = self.search_all(jql, fields=fields)
+        return [c for c in children if c.get("key") != parent_key]
 
     def add_comment(self, key: str, body: str) -> dict[str, Any]:
         """Add a comment to a JIRA issue. Live mode only."""
