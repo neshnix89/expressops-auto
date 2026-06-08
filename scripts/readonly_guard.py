@@ -26,18 +26,33 @@ _ALLOWED_HTTP = {"GET", "HEAD", "OPTIONS"}
 _ALLOWED_SQL = {"SELECT", "WITH"}
 
 
+def _is_readonly_post(url: str) -> bool:
+    """
+    JIRA's search API is a READ that happens to use POST
+    (POST /rest/api/2/search, with the JQL in the body). Allow POST only to
+    that endpoint so read-only tasks (e.g. the container audit, which searches
+    and walks relation() children) work under the guard. Every genuine write
+    endpoint — /comment, /transitions, issue PUT, Confluence page writes — has
+    a different path and stays blocked.
+    """
+    from urllib.parse import urlsplit
+
+    path = urlsplit(str(url)).path.rstrip("/")
+    return path.endswith("/search")
+
+
 def _install_requests_guard() -> None:
     import requests
 
     _orig_request = requests.Session.request
 
     def guarded_request(self, method, url, *args, **kwargs):
-        if str(method).upper() not in _ALLOWED_HTTP:
+        m = str(method).upper()
+        if m not in _ALLOWED_HTTP and not (m == "POST" and _is_readonly_post(url)):
             raise PermissionError(
-                f"[readonly_guard] BLOCKED {str(method).upper()} {url}\n"
-                f"  Probes are read-only — writes to JIRA/Confluence are not "
-                f"permitted in the discovery loop. Do writes as a separate, "
-                f"reviewed step."
+                f"[readonly_guard] BLOCKED {m} {url}\n"
+                f"  This loop is read-only — writes to JIRA/Confluence are not "
+                f"permitted here. Do writes as a separate, reviewed step."
             )
         return _orig_request(self, method, url, *args, **kwargs)
 
