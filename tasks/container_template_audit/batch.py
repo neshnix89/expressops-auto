@@ -643,6 +643,7 @@ def run_scan(mode: str, dry_run: bool) -> int:
             "status": status,
             "issues_html": _issues_found_html(problem_findings),
             "draft_html": _draft_to_html(draft_text),
+            "findings": problem_findings,
         })
 
         logger.info("%s: %d issue(s) (%s)", key, len(problem_findings),
@@ -657,9 +658,13 @@ def run_scan(mode: str, dry_run: bool) -> int:
     print(f"  In issues table: {len(issue_rows)}")
 
     if dry_run:
-        print("\n[dry-run] Results (not published):")
+        print("\n[dry-run] Detailed findings (nothing published):")
+        if not issue_rows:
+            print("  (no containers with issues)")
         for row in issue_rows:
-            print(f"  {row['key']}: {row['summary']}")
+            print(f"\n  {row['key']}  [{row['status']}]  {row['summary']}")
+            for f in row["findings"]:
+                print(f"      {f.severity.name:7s}  {f.message}")
         return 0
 
     if config.is_mock:
