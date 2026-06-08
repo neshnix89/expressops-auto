@@ -81,17 +81,11 @@ rules:
     message: "Wrong Product Type: '{value}'. Expected 'SMT PCBA'. This causes the wrong template to be cloned. Container must be recreated."
     fix_hint: "Recreate the container with Product Type 'SMT PCBA' so the correct NPI template is cloned."
 
-  - id: wrong_template_clone
-    enabled: true
-    severity: WARNING
-    check: jira_field_value_expected
-    field_id: "customfield_12401"
-    field_name: "Cloned from Template Issue"
-    expected_value: "ITPL-1027"
-    flag_if_empty: true           # empty might be a manual creation — flag as WARNING
-    message: "Cloned from '{value}' instead of expected ITPL-1027 (SMT PCBA NPI template)"
-    empty_message: "No 'Cloned from Template' value set — expected ITPL-1027 (SMT PCBA NPI template). May be a manual creation; confirm the template is correct."
-    fix_hint: "Confirm the container was cloned from ITPL-1027. If not, recreate from the correct SMT PCBA NPI template."
+  # NOTE: a "wrong template clone" check (customfield_12401 vs a single
+  # expected template) was intentionally dropped — SMT PCBA has several valid
+  # templates (ITPL-1036, 769, 1027, ...), so the template ID is not a reliable
+  # signal. wrong_product_type is the core check: a wrong clone shows up as the
+  # wrong Product Type, which we catch directly above.
 
   - id: unrecognized_wps
     enabled: true

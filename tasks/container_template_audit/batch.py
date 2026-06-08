@@ -51,8 +51,9 @@ MOCK_DIR = TASK_DIR / "mock_data"
 
 # Container fields the audit depends on. get_issue() returns the full issue,
 # so this list documents the contract rather than restricting the fetch.
-# customfield_12401 (Cloned from Template Issue) added 2026-06-08 for the
-# wrong_template_clone rule.
+# customfield_12401 (Cloned from Template Issue) is captured for reference;
+# it is not currently used by a rule (the template-clone check was dropped in
+# favour of the Product Type check — see config/audit_rules.yaml).
 WC_FIELDS = [
     "summary", "status", "resolution", "issuetype", "description",
     "assignee", "reporter", "project", "parent", "components", "labels",
