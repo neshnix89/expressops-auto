@@ -63,3 +63,107 @@ rules:
     field_name: "Order Type"
     message: "Order Type not set (DS/QS/PT/PR/DMR)."
     fix_hint: "Set Order Type during the Request step."
+
+  # -------------------------------------------------------------------------
+  # Container-setup rules added 2026-06-08 (from LiveKPI Overlay findings).
+  # The wp_* checks operate on the container's child Work Packages, fetched
+  # via relation() JQL. See AUDIT_RULES_README.md "Check Types" for details.
+  # -------------------------------------------------------------------------
+
+  - id: wrong_product_type
+    enabled: true
+    severity: ERROR
+    check: jira_field_value_expected
+    field_id: "customfield_13904"
+    field_name: "Product Type"
+    expected_value: "SMT PCBA"
+    flag_if_empty: false          # emptiness is already caught by missing_product_type
+    message: "Wrong Product Type: '{value}'. Expected 'SMT PCBA'. This causes the wrong template to be cloned. Container must be recreated."
+    fix_hint: "Recreate the container with Product Type 'SMT PCBA' so the correct NPI template is cloned."
+
+  - id: wrong_template_clone
+    enabled: true
+    severity: WARNING
+    check: jira_field_value_expected
+    field_id: "customfield_12401"
+    field_name: "Cloned from Template Issue"
+    expected_value: "ITPL-1027"
+    flag_if_empty: true           # empty might be a manual creation — flag as WARNING
+    message: "Cloned from '{value}' instead of expected ITPL-1027 (SMT PCBA NPI template)"
+    empty_message: "No 'Cloned from Template' value set — expected ITPL-1027 (SMT PCBA NPI template). May be a manual creation; confirm the template is correct."
+    fix_hint: "Confirm the container was cloned from ITPL-1027. If not, recreate from the correct SMT PCBA NPI template."
+
+  - id: unrecognized_wps
+    enabled: true
+    severity: WARNING
+    check: wp_unrecognized
+    standard_wps:
+      - "Material"
+      - "PCB"
+      - "Routing - TechnPrep"
+      - "PE - TechnPrep"
+      - "TE - TechnPrep"
+      - "SMT Build"
+      - "QM P+L"
+      - "Logistics"
+      - "Documentation"
+      - "Direct Manufacturing Release"
+    message: "Unrecognized WP: '{wp_key}' summary '{wp_name}'. Not a standard NPI Work Package. May be from wrong template."
+    fix_hint: "Confirm whether this WP belongs here. If it came from the wrong template, unlink or close it."
+
+  - id: duplicate_wps
+    enabled: true
+    severity: WARNING
+    check: wp_duplicate
+    standard_wps:
+      - "Material"
+      - "PCB"
+      - "Routing - TechnPrep"
+      - "PE - TechnPrep"
+      - "TE - TechnPrep"
+      - "SMT Build"
+      - "QM P+L"
+      - "Logistics"
+      - "Documentation"
+      - "Direct Manufacturing Release"
+    message: "Duplicate WP name '{wp_name}': {wp_key_1} (created {date1}) and {wp_key_2} (created {date2}). Usually from layering correct template on wrong one. Close the wrong one as Won't Do."
+    fix_hint: "Keep one WP per standard name. Close the duplicate as Won't Do."
+
+  - id: missing_standard_wps
+    enabled: true
+    severity: WARNING
+    check: wp_missing_standard
+    product_type_field: "customfield_13904"
+    product_type_value: "SMT PCBA"   # only check containers of this product type
+    standard_wps:
+      - "Material"
+      - "PCB"
+      - "Routing - TechnPrep"
+      - "PE - TechnPrep"
+      - "TE - TechnPrep"
+      - "SMT Build"
+      - "QM P+L"
+      - "Logistics"
+      - "Documentation"
+      - "Direct Manufacturing Release"
+    message: "Missing standard WPs: {list}. Template may be incomplete."
+    fix_hint: "Add the missing standard NPI Work Packages, or confirm the template was deployed correctly."
+
+  - id: cross_project_wps
+    enabled: true
+    severity: WARNING
+    check: wp_cross_project
+    message: "Cross-project WP: '{wp_key}' belongs to project '{wp_project}', but container is in '{wc_project}'. Likely carried over from a clone. Should be unlinked."
+    fix_hint: "Unlink the cross-project WP — it was likely carried over from the source container during a clone."
+
+  - id: skipped_wp_anchoring_npi_start
+    enabled: true
+    severity: WARNING
+    check: wp_skipped_anchoring
+    skipped_statuses:
+      - "Won't Do"
+      - "Wont Do"
+      - "Cancelled"
+      - "Canceled"
+    message: "Skipped WP '{wp_key}' (Won't Do, created {date}) is earlier than earliest active WP ({active_date}). This inflates the container KPI. Close or unlink to fix."
+    fix_hint: "Close or unlink the skipped WP so it stops anchoring NPI Start backwards and inflating the KPI."

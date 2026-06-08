@@ -49,6 +49,28 @@ GUARD_MARKER = "#Ref: AuditCheck#"
 RULES_PATH = PROJECT_ROOT / "config" / "audit_rules.yaml"
 MOCK_DIR = TASK_DIR / "mock_data"
 
+# Container fields the audit depends on. get_issue() returns the full issue,
+# so this list documents the contract rather than restricting the fetch.
+# customfield_12401 (Cloned from Template Issue) added 2026-06-08 for the
+# wrong_template_clone rule.
+WC_FIELDS = [
+    "summary", "status", "resolution", "issuetype", "description",
+    "assignee", "reporter", "project", "parent", "components", "labels",
+    "customfield_10014",  # Epic Link / Project Parent
+    "customfield_13300",  # EDM Document Number
+    "customfield_13903",  # Request Type
+    "customfield_13904",  # Product Type
+    "customfield_13905",  # Order Type
+    "customfield_13906",  # NPI Location
+    "customfield_13907",  # PTxx Document
+    "customfield_12401",  # Cloned from Template Issue
+    "customfield_15400",  # NPI WC Status
+    "customfield_15800",  # Issue_parked_log
+]
+
+# Fields fetched for each child Work Package (via relation() JQL).
+WP_FIELDS = ["summary", "created", "status", "resolution"]
+
 ACTIVE_CONTAINERS_JQL = (
     'issuetype = "Work Container" '
     'AND "Product Type" = "SMT PCBA" '
@@ -98,12 +120,46 @@ def _desc_field_empty_html(rendered_html: str, field_label: str) -> bool:
     return False
 
 
+def _field_str(fields: dict, field_id: str) -> str:
+    """Stringify a JIRA custom field value (string / {value|name} / list)."""
+    return (NPIAuditor._cf(fields, field_id) or "").strip()
+
+
+def _fmt_date(ts: str) -> str:
+    """Format a JIRA timestamp as YYYY-MM-DD; fall back to the first 10 chars."""
+    if not ts:
+        return "?"
+    parsed = JiraClient.parse_timestamp(ts)
+    if parsed:
+        return parsed.strftime("%Y-%m-%d")
+    return ts[:10]
+
+
+def _wp_info(child: dict) -> dict:
+    """Normalise a child Work Package issue into the fields the wp_* rules need."""
+    f = child.get("fields") or {}
+    return {
+        "key": child.get("key", "") or "",
+        "summary": (f.get("summary") or "").strip(),
+        "created": f.get("created") or "",
+        "status": ((f.get("status") or {}).get("name") or "").strip(),
+        "resolution": ((f.get("resolution") or {}).get("name") or "").strip(),
+    }
+
+
 def run_yaml_rules(
     fields: dict,
     rendered_description: str,
     rules: list[dict],
+    children: list[dict] | None = None,
+    container_key: str = "",
 ) -> list[Finding]:
     findings: list[Finding] = []
+
+    # Normalise child Work Packages once. None means "could not fetch" → wp_*
+    # rules are skipped so we never raise false positives on missing data.
+    wps = [_wp_info(c) for c in children] if children is not None else None
+
     for rule in rules:
         check = rule.get("check", "")
         sev_str = rule.get("severity", "WARNING").upper()
@@ -132,6 +188,110 @@ def run_yaml_rules(
             val = fields.get(field_id)
             if val is None or (isinstance(val, str) and not val.strip()):
                 findings.append(Finding(severity, "YAML Rule", message, fix_hint))
+
+        elif check == "jira_field_value_expected":
+            # Flag when a field is set to something other than the expected value.
+            # Emptiness is only flagged when flag_if_empty is true.
+            field_id = rule.get("field_id", "")
+            expected = str(rule.get("expected_value", "")).strip()
+            val = _field_str(fields, field_id)
+            if not val:
+                if rule.get("flag_if_empty", False):
+                    empty_msg = rule.get("empty_message") or message.format(value="(empty)")
+                    findings.append(Finding(severity, "YAML Rule", empty_msg, fix_hint))
+            elif expected.lower() not in val.lower():
+                findings.append(Finding(
+                    severity, "YAML Rule", message.format(value=val), fix_hint))
+
+        elif check == "wp_unrecognized" and wps is not None:
+            standard = {s.strip().lower() for s in rule.get("standard_wps", [])}
+            for wp in wps:
+                if wp["summary"] and wp["summary"].lower() not in standard:
+                    findings.append(Finding(
+                        severity, "YAML Rule",
+                        message.format(wp_key=wp["key"], wp_name=wp["summary"]),
+                        fix_hint,
+                    ))
+
+        elif check == "wp_duplicate" and wps is not None:
+            standard = {s.strip().lower() for s in rule.get("standard_wps", [])}
+            grouped: dict[str, list[dict]] = {}
+            for wp in wps:
+                name_l = wp["summary"].lower()
+                if name_l in standard:
+                    grouped.setdefault(name_l, []).append(wp)
+            for group in grouped.values():
+                if len(group) > 1:
+                    a, b = group[0], group[1]
+                    findings.append(Finding(
+                        severity, "YAML Rule",
+                        message.format(
+                            wp_name=a["summary"],
+                            wp_key_1=a["key"], date1=_fmt_date(a["created"]),
+                            wp_key_2=b["key"], date2=_fmt_date(b["created"]),
+                        ),
+                        fix_hint,
+                    ))
+
+        elif check == "wp_missing_standard" and wps is not None:
+            pt_field = rule.get("product_type_field", "customfield_13904")
+            pt_value = str(rule.get("product_type_value", "")).strip().lower()
+            product_type = _field_str(fields, pt_field).lower()
+            # Only check containers of the configured product type.
+            if not pt_value or pt_value in product_type:
+                present = {wp["summary"].lower() for wp in wps}
+                missing = [
+                    s for s in rule.get("standard_wps", [])
+                    if s.strip().lower() not in present
+                ]
+                if missing:
+                    findings.append(Finding(
+                        severity, "YAML Rule",
+                        message.format(list=", ".join(missing)),
+                        fix_hint,
+                    ))
+
+        elif check == "wp_cross_project" and wps is not None:
+            wc_project = container_key.split("-")[0] if container_key else ""
+            for wp in wps:
+                wp_project = wp["key"].split("-")[0] if wp["key"] else ""
+                if wp_project and wc_project and wp_project != wc_project:
+                    findings.append(Finding(
+                        severity, "YAML Rule",
+                        message.format(
+                            wp_key=wp["key"],
+                            wp_project=wp_project,
+                            wc_project=wc_project,
+                        ),
+                        fix_hint,
+                    ))
+
+        elif check == "wp_skipped_anchoring" and wps is not None:
+            skipped_names = {
+                s.strip().lower() for s in rule.get("skipped_statuses", [])
+            }
+
+            def _is_skipped(wp: dict) -> bool:
+                return (
+                    wp["status"].lower() in skipped_names
+                    or wp["resolution"].lower() in skipped_names
+                )
+
+            active = [wp for wp in wps if wp["created"] and not _is_skipped(wp)]
+            skipped = [wp for wp in wps if wp["created"] and _is_skipped(wp)]
+            if active and skipped:
+                earliest_active = min(active, key=lambda w: w["created"])
+                for wp in skipped:
+                    if wp["created"] < earliest_active["created"]:
+                        findings.append(Finding(
+                            severity, "YAML Rule",
+                            message.format(
+                                wp_key=wp["key"],
+                                date=_fmt_date(wp["created"]),
+                                active_date=_fmt_date(earliest_active["created"]),
+                            ),
+                            fix_hint,
+                        ))
 
     return findings
 
@@ -364,6 +524,18 @@ def run_scan(mode: str, dry_run: bool) -> int:
     confluence = ConfluenceClient(config, mock_data_dir=MOCK_DIR)
     rules = load_audit_rules()
     logger.info("Loaded %d YAML rule(s) from %s", len(rules), RULES_PATH)
+    logger.info(
+        "Audit depends on %d container fields (incl. customfield_12401 "
+        "Cloned-from-Template)", len(WC_FIELDS),
+    )
+
+    # Do any enabled rules need child Work Packages? Skip the relation() fetch
+    # entirely when none do.
+    wp_checks = {
+        "wp_unrecognized", "wp_duplicate", "wp_missing_standard",
+        "wp_cross_project", "wp_skipped_anchoring",
+    }
+    need_children = any(r.get("check") in wp_checks for r in rules)
 
     # Read existing page for ignore list and preserved drafts
     existing_html = ""
@@ -422,8 +594,21 @@ def run_scan(mode: str, dry_run: bool) -> int:
             logger.warning("%s: audit error: %s", key, exc)
             continue
 
+        # Fetch child Work Packages for the wp_* rules. On any failure we pass
+        # children=None so those rules skip rather than raise false positives.
+        children: list[dict] | None = None
+        if need_children:
+            try:
+                children = jira.get_children(key, fields=WP_FIELDS)
+            except Exception as exc:
+                logger.warning("%s: could not fetch child WPs: %s", key, exc)
+                children = None
+
         # YAML rule checks on top
-        yaml_findings = run_yaml_rules(fields, rendered_html, rules)
+        yaml_findings = run_yaml_rules(
+            fields, rendered_html, rules,
+            children=children, container_key=key,
+        )
         all_findings = report.findings + yaml_findings
 
         problem_findings = [

@@ -46,6 +46,7 @@ class Config:
     FIELD_NPI_WC_STATUS   = "customfield_15400"   # NPI WC Status    "Red" / "Green"
     FIELD_PARKING_LOG     = "customfield_15800"   # Issue_parked_log
     FIELD_EDM_DOC_NUMBER  = "customfield_13300"   # EDM Document Number
+    FIELD_CLONED_TEMPLATE = "customfield_12401"   # Cloned from Template Issue e.g. "ITPL-1027"
     # NOTE: customfield_13502 (M3 Article No) and customfield_15805 (Component Part No)
     # are ALWAYS EMPTY on containers — do not use for any lookup.
     # Project Number field ID is unconfirmed — uses JIRA project.key as fallback.

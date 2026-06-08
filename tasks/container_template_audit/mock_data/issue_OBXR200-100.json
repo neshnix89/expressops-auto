@@ -1,0 +1,43 @@
+{
+  "key": "OBXR200-100",
+  "fields": {
+    "summary": "PR DDE-5000 PTSG-1234 PCBA #7012345 main board",
+    "issuetype": {
+      "name": "Work Container"
+    },
+    "status": {
+      "name": "In Progress"
+    },
+    "resolution": null,
+    "reporter": {
+      "name": "jdoe",
+      "displayName": "Jane Doe"
+    },
+    "assignee": null,
+    "project": {
+      "key": "OBXR200"
+    },
+    "description": "h2. NPI Overview\nNPI Built Type\nPurpose of the NPI\nFocus Material\nDual Use\nInstructions for the NPI\nDocuments & Routing\nIMR / HIM number: 12345\nCost center: CC100\nName of Requestor: Jane Doe\n",
+    "components": [],
+    "labels": [],
+    "customfield_13903": {
+      "value": "NPI Request"
+    },
+    "customfield_13904": {
+      "value": "SMT PCBA"
+    },
+    "customfield_13905": {
+      "value": "PR \u2013 Pilot Run"
+    },
+    "customfield_13906": {
+      "value": "Singapore"
+    },
+    "customfield_12401": "ITPL-1027",
+    "comment": {
+      "comments": []
+    }
+  },
+  "renderedFields": {
+    "description": "<h2>NPI Overview</h2><table><tr><td>IMR / HIM number</td><td>12345</td></tr><tr><td>Cost center</td><td>CC100</td></tr><tr><td>Name of Requestor</td><td>Jane Doe</td></tr></table>"
+  }
+}
