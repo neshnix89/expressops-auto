@@ -125,6 +125,9 @@ scripts/doctor.py
 scripts/first_time_download.bat
 scripts/fix_config_readonly.py
 scripts/folder_audit.py
+scripts/folder_cleanup.py
+scripts/run_cleanup_apply.bat
+scripts/run_cleanup_preview.bat
 scripts/run_folder_audit.bat
 scripts/ignore_container.bat
 scripts/mo_trigger_publish.bat
