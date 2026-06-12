@@ -153,7 +153,11 @@ except Exception as e:
                 capture_output=True, text=True, timeout=120,
             )
             if result.returncode != 0:
-                raise oracle_error(Exception(result.stderr.strip() or "EDMAdmin subprocess failed"))
+                detail = (result.stderr.strip() or result.stdout.strip()
+                          or f"EDMAdmin exited {result.returncode} with no output "
+                             f"(EDMAdmin.exe likely cannot find python3xx.dll — "
+                             f"place it inside the Python install dir)")
+                raise oracle_error(Exception(detail))
             return json.loads(result.stdout)
         finally:
             Path(script_path).unlink(missing_ok=True)
