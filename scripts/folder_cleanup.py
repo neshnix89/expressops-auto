@@ -50,6 +50,10 @@ ROOT_MOVE_PREFIXES = ("debug_", "phase_b_", "discover_", "result_")
 KEEP_EXACT = {
     "logs/mr_status_report.log",
     ".ops_config",
+    # the cleanup's own log files — never archive (the apply log is also
+    # locked-open during --apply, which would otherwise log a noisy SKIP)
+    "outputs/_cleanup_preview.txt",
+    "outputs/_cleanup_apply.txt",
 }
 
 
