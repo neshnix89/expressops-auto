@@ -72,6 +72,7 @@ CONFLUENCE_URL: str | None = None
 CONFLUENCE_PAT: str | None = None
 CONFLUENCE_PAGE_ID: str | None = None
 CONFLUENCE_SPACE_KEY: str | None = None
+CFG = None  # core.config_loader.Config, loaded in _load_settings (needed for EDM)
 
 TAG_FIELD = "customfield_13905"
 
@@ -83,9 +84,7 @@ JIRA_JQL = (
 )
 
 # --- EDM Oracle DB ---
-EDM_HOST = "sgp01.sg.pepperl-fuchs.com"
-EDM_PORT = 1521
-EDM_SERVICE = "SGP01EDMEWA.WORLD"
+# Connection details + EDMAdmin.exe delegation now live in core/edm.py.
 
 # --- Excel ---
 EXCEL_FILE = ROOT / "outputs" / "Pilot_DMR_Report.xlsx"
@@ -133,9 +132,10 @@ MANUAL_IDX = {
 
 def _load_settings(mode: str) -> None:
     """Populate the module-level connection globals from config.yaml."""
-    global JIRA_BASE_URL, JIRA_PAT_TOKEN
+    global JIRA_BASE_URL, JIRA_PAT_TOKEN, CFG
     global CONFLUENCE_URL, CONFLUENCE_PAT, CONFLUENCE_PAGE_ID, CONFLUENCE_SPACE_KEY
     cfg = load_config(mode)
+    CFG = cfg
     JIRA_BASE_URL = cfg.jira_base_url
     JIRA_PAT_TOKEN = cfg.jira_pat
     CONFLUENCE_URL = cfg.confluence_base_url
@@ -310,59 +310,55 @@ def fetch_all_from_jira(session, ignore_keys):
 # =====================================================================
 # EDM ORACLE DB
 # =====================================================================
-def edm_connect():
-    try:
-        import oracledb
-    except ImportError:
-        print("  ⚠ oracledb not installed — skipping EDM")
-        return None
-    try:
-        oracledb.init_oracle_client()
-    except Exception:
-        pass
-    try:
-        dsn = oracledb.makedsn(EDM_HOST, EDM_PORT, service_name=EDM_SERVICE)
-        return oracledb.connect(dsn=dsn, externalauth=True)
-    except Exception as e:
-        print(f"  ⚠ EDM connection failed: {e}")
-        return None
+def edm_lookup_prsg(pt_numbers):
+    """Look up PRSG document + release status for PT numbers via EDM.
 
+    Uses core.edm.EDMClient, which runs the Oracle query under EDMAdmin.exe
+    (externalauth, THICK mode). Returns (results_map, ok):
+      results_map[PT_UPPER] = {"prsg": <doc>, "status": "Released"/"Not Released"}
+      ok is False if EDM could not be queried at all, so the caller can refuse to
+      publish rather than silently blanking PRSG. RELEASESTATE == 9 => Released.
+    """
+    from core.edm import EDMClient
 
-def edm_lookup_prsg(conn, pt_numbers):
-    if not conn or not pt_numbers:
-        log.info("EDM: Skipped (no connection or no PT numbers)")
-        return {}
-    cur = conn.cursor()
+    unique = sorted({pt for pt in pt_numbers if pt})
+    if not unique:
+        log.info("EDM: no PT numbers to look up.")
+        return {}, True
+
+    client = EDMClient(CFG)
     results = {}
-    unique_pts = list(set(pt for pt in pt_numbers if pt))
-    if not unique_pts:
-        return {}
-    log.info(f"EDM: Looking up {len(unique_pts)} PT numbers...")
-    for i in range(0, len(unique_pts), 500):
-        batch = unique_pts[i:i + 500]
-        ph = ",".join(f":{j+1}" for j in range(len(batch)))
-        try:
-            cur.execute(f"""
-                SELECT r.REF, r.DOCNUMBER, d.RELEASESTATE
-                FROM ADMEDP.EDM_REFERENCES r
-                JOIN ADMEDP.EDM_DOCS d ON d.DOCNUMBER = r.DOCNUMBER
-                WHERE r.REF IN ({ph}) AND r.DOCNUMBER LIKE 'PRSG-%'
-            """, batch)
-            for pt, prsg, rs in cur.fetchall():
-                pu = pt.upper()
-                status = "Released" if rs == 9 else "Not Released"
-                log.info(f"  EDM: PT={pu} → PRSG={prsg} | RELEASESTATE={rs} → {status}")
+    log.info(f"EDM: Looking up {len(unique)} PT numbers via EDMAdmin.exe...")
+    try:
+        for i in range(0, len(unique), 400):
+            batch = unique[i:i + 400]
+            binds = {f"p{j}": pt for j, pt in enumerate(batch)}
+            ph = ",".join(f":p{j}" for j in range(len(batch)))
+            sql = (
+                "SELECT r.REF, r.DOCNUMBER, d.RELEASESTATE "
+                "FROM ADMEDP.EDM_REFERENCES r "
+                "JOIN ADMEDP.EDM_DOCS d ON d.DOCNUMBER = r.DOCNUMBER "
+                f"WHERE r.REF IN ({ph}) AND r.DOCNUMBER LIKE 'PRSG-%'"
+            )
+            for row in client.query(sql, binds):
+                pu = str(row.get("REF", "")).upper()
+                prsg = row.get("DOCNUMBER", "")
+                rs = row.get("RELEASESTATE")
+                status = "Released" if str(rs).strip() == "9" else "Not Released"
                 if pu in results and results[pu]["status"] == "Released":
-                    log.debug(f"  EDM: Skipping {prsg} for {pu} (already have a Released PRSG)")
                     continue
                 results[pu] = {"prsg": prsg, "status": status}
-        except Exception as e:
-            print(f"  ⚠ EDM query error: {e}")
+                log.info(f"  EDM: PT={pu} → PRSG={prsg} | RELEASESTATE={rs} → {status}")
+    except Exception as e:
+        log.error(f"EDM lookup FAILED: {e}")
+        print(f"  ⚠ EDM lookup failed: {e}")
+        return results, False
+
     found = sum(1 for r in results.values() if r["prsg"])
     released = sum(1 for r in results.values() if r["status"] == "Released")
+    log.info(f"EDM: {found} PRSG links ({released} released) across {len(unique)} PTs")
     print(f"  📋 {found} PRSG links ({released} released)")
-    cur.close()
-    return results
+    return results, True
 
 
 # =====================================================================
@@ -880,7 +876,7 @@ def write_excel(active_rows, completed_rows):
 # =====================================================================
 # MAIN
 # =====================================================================
-def run(dry_run=False):
+def run(dry_run=False, allow_no_edm=False):
     log.info("")
     log.info("=" * 70)
     log.info("  NEW RUN: Pilot Run & DMR - MR Tracking Report" + ("  [DRY-RUN]" if dry_run else ""))
@@ -910,12 +906,17 @@ def run(dry_run=False):
             conf_update(csess, html, page_ver, dry_run=dry_run)
         return
 
-    # 3. EDM lookup
+    # 3. EDM lookup (runs the Oracle query under EDMAdmin.exe; see core/edm.py)
     pts = [d["PT_Number"] for d in jira_data.values() if d.get("PT_Number")]
-    edm_conn = edm_connect()
-    prsg_map = edm_lookup_prsg(edm_conn, pts)
-    if edm_conn:
-        edm_conn.close()
+    prsg_map, edm_ok = edm_lookup_prsg(pts)
+    if not edm_ok:
+        log.error("EDM lookup unavailable — PRSG statuses could not be read this run.")
+        print("\n❌ EDM unavailable — PRSG status/number could not be read.")
+        if not dry_run and not allow_no_edm:
+            print("   Refusing to PUBLISH (would blank PRSG and skip PRSG auto-DONE).")
+            print("   Fix EDMAdmin.exe (config edm.python_exe), or pass --allow-no-edm to override.")
+            return
+        print("   Continuing anyway (dry-run or --allow-no-edm).")
 
     for k, d in jira_data.items():
         info = prsg_map.get(d.get("PT_Number", "").upper(), {})
@@ -1033,6 +1034,8 @@ def main():
                    help="connect to live JIRA / EDM / Confluence")
     ap.add_argument("--dry-run", action="store_true",
                     help="read live data and build the page, but do NOT publish to Confluence")
+    ap.add_argument("--allow-no-edm", action="store_true",
+                    help="publish even if EDM is unavailable (PRSG will be blank — use with care)")
     ap.set_defaults(mode="mock")
     args = ap.parse_args()
 
@@ -1044,7 +1047,7 @@ def main():
         return
 
     _load_settings("live")
-    run(dry_run=args.dry_run)
+    run(dry_run=args.dry_run, allow_no_edm=args.allow_no_edm)
 
 
 if __name__ == "__main__":
