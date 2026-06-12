@@ -1,86 +1,97 @@
 """
 DISCOVERY PROBE — read-only scratchpad.
 
-CURRENT PROBE: full inventory of the live "MR Status Report" folder so it can be
-migrated into expressops-auto. Lists every file (path + size), then dumps the
-text of each source file. Token-like blobs are REDACTED, so any hardcoded PATs
-are masked in the output (we want them in config.yaml, not in the dump).
-
-All read-only — local file reads only, no live-system calls.
+CURRENT PROBE: find (a) the existing Windows scheduled task that runs the MR
+report — its name, schedule, and exact command — and (b) where EDMAdmin.exe
+lives, so the migrated task can run with the same EDM access. All read-only
+(schtasks /query + filesystem existence checks; no writes, no live systems).
 """
 
 from __future__ import annotations
 
-import re
+import csv
+import io
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-MR_DIR = Path(r"C:\Users\tmoghanan\Documents\AI\MR Status Report")
+KEYWORDS = ("dmr", "pilot", "mr status", "mr_report", "mr report", "edmadmin",
+            "pilot_dmr")
+FIELDS = ("TaskName", "Status", "Next Run Time", "Schedule Type", "Start Time",
+          "Start Date", "Repeat: Every", "Task To Run", "Start In", "Run As User",
+          "Author")
 
-# Extensions we will dump inline. Anything else is listed but not dumped.
-_TEXT_EXT = {
-    ".py", ".txt", ".yaml", ".yml", ".json", ".bat", ".cfg", ".ini",
-    ".md", ".csv", ".html", ".htm", ".ps1", ".sql",
-}
-# Don't dump giant or binary-ish files.
-_MAX_DUMP_BYTES = 200_000
-_SKIP_DIRS = {"__pycache__", ".git", ".venv", "venv", "node_modules"}
+EDM_CANDIDATES = [
+    r"C:\Users\tmoghanan\EDMAdmin.exe",
+    r"C:\Users\tmoghanan\Documents\AI\EDMAdmin.exe",
+    r"C:\Users\tmoghanan\Documents\AI\MR Status Report\EDMAdmin.exe",
+    r"C:\Users\tmoghanan\Documents\AI\expressops-auto\EDMAdmin.exe",
+]
+EDM_SEARCH_ROOTS = [
+    r"C:\Users\tmoghanan\Documents\AI",
+    r"C:\Users\tmoghanan\AppData\Local\Programs\Python",
+]
 
-_REDACT = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
 
+def dump_scheduled_tasks() -> None:
+    print("=== SCHEDULED TASKS matching MR / DMR / EDMAdmin ===")
+    try:
+        out = subprocess.run(
+            ["schtasks", "/query", "/fo", "CSV", "/v"],
+            capture_output=True, text=True, timeout=60,
+        ).stdout
+    except Exception as e:
+        print(f"  schtasks failed: {e}")
+        return
 
-def _walk(base: Path):
-    for p in sorted(base.rglob("*")):
-        if any(part in _SKIP_DIRS for part in p.parts):
+    reader = csv.DictReader(io.StringIO(out))
+    seen = 0
+    for row in reader:
+        if not row or row.get("TaskName", "").startswith("TaskName"):
+            continue  # repeated header rows
+        blob = " ".join(str(v) for v in row.values()).lower()
+        if not any(k in blob for k in KEYWORDS):
             continue
-        yield p
+        seen += 1
+        print(f"\n  --- match #{seen} ---")
+        for f in FIELDS:
+            if f in row and row[f] not in ("", "N/A"):
+                print(f"    {f:14}: {row[f]}")
+    if not seen:
+        print("  (no scheduled task matched the keywords — it may be named "
+              "differently; re-run with the real name if you know it)")
+
+
+def find_edmadmin() -> None:
+    print("\n=== EDMAdmin.exe location ===")
+    found = []
+    for c in EDM_CANDIDATES:
+        if os.path.isfile(c):
+            print(f"  FOUND (candidate): {c}")
+            found.append(c)
+    for rootdir in EDM_SEARCH_ROOTS:
+        if not os.path.isdir(rootdir):
+            continue
+        for dirpath, _dirs, files in os.walk(rootdir):
+            for fn in files:
+                if fn.lower() == "edmadmin.exe":
+                    p = os.path.join(dirpath, fn)
+                    if p not in found:
+                        print(f"  FOUND (search): {p}")
+                        found.append(p)
+    if not found:
+        print("  EDMAdmin.exe NOT found in the candidate paths / search roots.")
+        print("  (It is a renamed copy of python.exe used to bypass the EDM "
+              "logon trigger — tell me where it is, or how the daily job runs.)")
 
 
 def main() -> None:
-    print(f"=== INVENTORY: {MR_DIR} ===")
-    if not MR_DIR.exists():
-        print("NOT FOUND")
-        return
-
-    files = [p for p in _walk(MR_DIR) if p.is_file()]
-    print(f"({len(files)} files)\n")
-
-    # 1) flat listing with sizes
-    print("--- FILE LIST (relative path | bytes) ---")
-    for p in files:
-        rel = p.relative_to(MR_DIR)
-        try:
-            size = p.stat().st_size
-        except OSError as e:
-            size = f"ERR:{e}"
-        print(f"{size:>12} | {rel}")
-    print()
-
-    # 2) dump each text file (redacted)
-    for p in files:
-        rel = p.relative_to(MR_DIR)
-        if p.suffix.lower() not in _TEXT_EXT:
-            print(f"=== SKIP (binary/other): {rel} ===\n")
-            continue
-        try:
-            size = p.stat().st_size
-        except OSError:
-            size = 0
-        if size > _MAX_DUMP_BYTES:
-            print(f"=== SKIP (too big, {size} bytes): {rel} ===\n")
-            continue
-        print(f"=== FILE: {rel}  ({size} bytes; token-like strings redacted) ===")
-        try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            print(f"  READ ERROR: {e}\n")
-            continue
-        for i, ln in enumerate(text.split("\n"), 1):
-            print(f"{i:4} | {_REDACT.sub('***REDACTED***', ln)}")
-        print()
+    dump_scheduled_tasks()
+    find_edmadmin()
 
 
 if __name__ == "__main__":
