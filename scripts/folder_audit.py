@@ -141,6 +141,7 @@ scripts/set_tokens.bat
 scripts/set_tokens.py
 scripts/setup_edmadmin.py
 scripts/setup_env.bat
+scripts/sync_now.bat
 scripts/show_perrow_scan_results.py
 scripts/show_status.py
 scripts/sync_from_github.py
