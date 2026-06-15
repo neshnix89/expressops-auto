@@ -818,68 +818,110 @@ def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
 # check subcommand — manual one-by-one container audit (read-only)
 # ---------------------------------------------------------------------------
 
+def _audit_one(jira, rules, need_children, key: str, logger) -> list[str]:
+    """Audit a single container and return printable report lines."""
+    lines: list[str] = []
+    try:
+        issue = jira.get_issue(key, expand="renderedFields")
+    except Exception as exc:
+        return [f"\n  {key}: ERROR fetching issue: {exc}"]
+
+    fields = issue.get("fields") or {}
+    rendered_html = (issue.get("renderedFields") or {}).get("description") or ""
+    summary = (fields.get("summary") or "").strip()
+    status = (fields.get("status") or {}).get("name") or "Unknown"
+
+    try:
+        report = NPIAuditor(_CachedJiraClient(issue)).audit(key)
+    except Exception as exc:
+        return [f"\n  {key}: audit error: {exc}"]
+
+    children: list[dict] | None = None
+    wp_note = ""
+    if need_children:
+        try:
+            children = jira.get_children(key, fields=WP_FIELDS)
+        except Exception as exc:
+            logger.warning("%s: could not fetch child WPs: %s", key, exc)
+            wp_note = f"  (could not fetch child WPs: {exc})"
+            children = None
+
+    yaml_findings = run_yaml_rules(
+        fields, rendered_html, rules,
+        children=children, container_key=key, is_manual=True,
+    )
+    problems = [
+        f for f in (report.findings + yaml_findings)
+        if f.severity in (Severity.ERROR, Severity.WARNING)
+    ]
+
+    lines.append(f"\n  {key}  [{status}]  {summary}")
+    if wp_note:
+        lines.append(wp_note)
+    if not problems:
+        lines.append("      OK — no issues found.")
+    for f in problems:
+        lines.append(f"      {f.severity.name:7s}  {f.message}")
+    return lines
+
+
+def _split_keys(raw: str) -> list[str]:
+    """Split pasted input into keys on whitespace/commas; upper-case them."""
+    return [k.strip().upper() for k in re.split(r"[\s,]+", raw) if k.strip()]
+
+
 def run_check(mode: str, keys: list[str]) -> int:
     """
-    Audit one or more specific containers and print the detailed findings.
-    Read-only: never writes to Confluence or JIRA. Runs in manual mode, so
+    Audit specific containers and print the detailed findings. Read-only:
+    never writes to Confluence or JIRA. Runs in manual mode, so
     require_deployed rules audit not-yet-deployed containers too.
+
+    If no keys are given, runs an interactive prompt loop — paste a container
+    key (or several), press Enter; blank line quits. Designed for the
+    double-click check_container.bat workflow.
     """
     logger = get_logger("container_template_audit.batch")
     config = load_config(mode_override=mode)
-    logger.info("check: %s mode (keys=%s)", config.mode, keys)
-
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     rules = load_audit_rules()
     need_children = any(r.get("check") in _WP_CHECKS for r in rules)
+    out_file = PROJECT_ROOT / "outputs" / "_manual_check.txt"
 
-    print(f"\n=== Manual container check ({config.mode}) — {len(keys)} container(s) ===")
+    # Non-interactive: keys supplied on the command line.
+    if keys:
+        logger.info("check: %s mode (keys=%s)", config.mode, keys)
+        print(f"\n=== Manual container check ({config.mode}) — {len(keys)} container(s) ===")
+        for key in keys:
+            print("\n".join(_audit_one(jira, rules, need_children, key, logger)))
+        print()
+        return 0
 
-    for key in keys:
+    # Interactive: prompt loop.
+    print("=" * 60)
+    print("  NPI Container Audit — manual check")
+    print(f"  Mode: {config.mode} (read-only — no writes to JIRA/Confluence)")
+    print("=" * 60)
+    while True:
         try:
-            issue = jira.get_issue(key, expand="renderedFields")
-        except Exception as exc:
-            print(f"\n  {key}: ERROR fetching issue: {exc}")
-            continue
-
-        fields = issue.get("fields") or {}
-        rendered_html = (issue.get("renderedFields") or {}).get("description") or ""
-        summary = (fields.get("summary") or "").strip()
-        status = (fields.get("status") or {}).get("name") or "Unknown"
-
+            raw = input("\nPaste container key(s) and press Enter (blank to quit): ")
+        except (EOFError, KeyboardInterrupt):
+            break
+        keys = _split_keys(raw)
+        if not keys:
+            break
+        report_lines = [f"=== Manual container check ({config.mode}) — {len(keys)} container(s) ==="]
+        for key in keys:
+            report_lines.extend(_audit_one(jira, rules, need_children, key, logger))
+        text = "\n".join(report_lines)
+        print(text)
         try:
-            report = NPIAuditor(_CachedJiraClient(issue)).audit(key)
-        except Exception as exc:
-            print(f"\n  {key}: audit error: {exc}")
-            continue
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(text + "\n", encoding="utf-8")
+            print(f"\n(Saved to {out_file} — open it to copy/paste.)")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("could not write %s: %s", out_file, exc)
 
-        children: list[dict] | None = None
-        wp_note = ""
-        if need_children:
-            try:
-                children = jira.get_children(key, fields=WP_FIELDS)
-            except Exception as exc:
-                logger.warning("%s: could not fetch child WPs: %s", key, exc)
-                wp_note = f"  (could not fetch child WPs: {exc})"
-                children = None
-
-        yaml_findings = run_yaml_rules(
-            fields, rendered_html, rules,
-            children=children, container_key=key, is_manual=True,
-        )
-        problems = [
-            f for f in (report.findings + yaml_findings)
-            if f.severity in (Severity.ERROR, Severity.WARNING)
-        ]
-
-        print(f"\n  {key}  [{status}]  {summary}")
-        if wp_note:
-            print(wp_note)
-        if not problems:
-            print("      OK — no issues found.")
-        for f in problems:
-            print(f"      {f.severity.name:7s}  {f.message}")
-
-    print()
+    print("\nDone.")
     return 0
 
 
@@ -936,8 +978,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     check_p.set_defaults(mode="mock")
     check_p.add_argument(
-        "keys", nargs="+", metavar="KEY",
-        help="Container key(s) to audit, e.g. NPIOTHER-5124 POSX-7007",
+        "keys", nargs="*", metavar="KEY",
+        help="Container key(s) to audit. Omit to get an interactive prompt.",
     )
 
     return parser
