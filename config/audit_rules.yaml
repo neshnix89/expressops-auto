@@ -87,10 +87,20 @@ rules:
   # signal. wrong_product_type is the core check: a wrong clone shows up as the
   # wrong Product Type, which we catch directly above.
 
+  # ---- WP-design rules (tuned 2026-06-08 against live data) ----------------
+  # order_type_field + skip_order_types let a wp_* rule skip whole order types.
+  # DMR containers do NOT follow the standard WP design, so every WP rule
+  # skips them. order_type is read from customfield_13905 (prefix DS/QS/PT/
+  # PR/DMR). "Direct Manufacturing Release" is NOT a standard WP and was
+  # removed from the required set; "QM P+L" is only required for PR.
+
   - id: unrecognized_wps
     enabled: true
     severity: WARNING
     check: wp_unrecognized
+    order_type_field: "customfield_13905"
+    skip_order_types: ["DMR"]
+    # Recognised whitelist — broad, so legitimate WPs are never flagged.
     standard_wps:
       - "Material"
       - "PCB"
@@ -109,6 +119,8 @@ rules:
     enabled: true
     severity: WARNING
     check: wp_duplicate
+    order_type_field: "customfield_13905"
+    skip_order_types: ["DMR"]
     standard_wps:
       - "Material"
       - "PCB"
@@ -129,6 +141,12 @@ rules:
     check: wp_missing_standard
     product_type_field: "customfield_13904"
     product_type_value: "SMT PCBA"   # only check containers of this product type
+    order_type_field: "customfield_13905"
+    skip_order_types: ["DMR"]         # DMR has its own (non-standard) WP design
+    require_deployed: true            # batch: skip not-yet-deployed containers
+                                      # (no child WPs / Backlog). A manual
+                                      # check_container run audits them anyway.
+    # Required for every non-DMR order type.
     standard_wps:
       - "Material"
       - "PCB"
@@ -136,10 +154,12 @@ rules:
       - "PE - TechnPrep"
       - "TE - TechnPrep"
       - "SMT Build"
-      - "QM P+L"
       - "Logistics"
       - "Documentation"
-      - "Direct Manufacturing Release"
+    # Extra WPs required only for specific order types.
+    order_type_wps:
+      PR:
+        - "QM P+L"
     message: "Missing standard WPs: {list}. Template may be incomplete."
     fix_hint: "Add the missing standard NPI Work Packages, or confirm the template was deployed correctly."
 
@@ -147,6 +167,8 @@ rules:
     enabled: true
     severity: WARNING
     check: wp_cross_project
+    order_type_field: "customfield_13905"
+    skip_order_types: ["DMR"]
     message: "Cross-project WP: '{wp_key}' belongs to project '{wp_project}', but container is in '{wc_project}'. Likely carried over from a clone. Should be unlinked."
     fix_hint: "Unlink the cross-project WP — it was likely carried over from the source container during a clone."
 
@@ -154,6 +176,8 @@ rules:
     enabled: true
     severity: WARNING
     check: wp_skipped_anchoring
+    order_type_field: "customfield_13905"
+    skip_order_types: ["DMR"]
     skipped_statuses:
       - "Won't Do"
       - "Wont Do"

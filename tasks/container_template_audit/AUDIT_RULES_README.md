@@ -78,6 +78,55 @@ Use the confirmed field IDs from REF_JIRA.md.
 
 ---
 
+### 4. `jira_field_value_expected`
+Checks a field is set to an expected value; flags when it differs.
+`{value}` in the message is replaced with the actual value.
+
+```yaml
+- id: wrong_product_type
+  enabled: true
+  severity: ERROR
+  check: jira_field_value_expected
+  field_id: "customfield_13904"      # Product Type
+  expected_value: "SMT PCBA"
+  flag_if_empty: false               # true also flags a blank field
+  message: "Wrong Product Type: '{value}'. Expected 'SMT PCBA'."
+  fix_hint: "Recreate the container with the correct Product Type."
+```
+
+---
+
+### 5. `wp_*` — child Work Package checks
+These operate on the container's child Work Packages (fetched via
+relation() JQL). All of them accept two optional scoping keys:
+
+- `order_type_field` (default `customfield_13905`) + `skip_order_types`
+  — skip the rule for whole order types, e.g. `skip_order_types: ["DMR"]`
+  because DMR containers do not use the standard WP design.
+
+The check types:
+
+- `wp_unrecognized` — flags any child WP whose summary is not in
+  `standard_wps` (the recognised whitelist).
+- `wp_duplicate` — flags a `standard_wps` name that appears more than once.
+- `wp_missing_standard` — flags missing required WPs. Extra keys:
+  - `product_type_field` / `product_type_value` — only check this product type.
+  - `standard_wps` — required for every (non-skipped) order type.
+  - `order_type_wps` — extra WPs required only for specific order types,
+    e.g. `PR: ["QM P+L"]`.
+  - `require_deployed: true` — in a batch `scan`, skip containers whose
+    template is not deployed yet (Backlog / no child WPs). A manual
+    `check` run audits them anyway.
+- `wp_cross_project` — flags a child WP whose project key differs from the
+  container's.
+- `wp_skipped_anchoring` — flags a Won't-Do/Cancelled WP (`skipped_statuses`)
+  created before the earliest active WP.
+
+> Run a single container through all rules (incl. wp_*) read-only with:
+> `tasks\container_template_audit\check_container.bat <KEY>`
+
+---
+
 ## How to Add a New Rule
 
 1. Open `config/audit_rules.yaml` in Notepad

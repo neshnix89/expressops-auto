@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -148,18 +149,43 @@ def _wp_info(child: dict) -> dict:
     }
 
 
+# Checks that operate on child Work Packages — eligible for order-type scoping.
+_WP_CHECKS = {
+    "wp_unrecognized", "wp_duplicate", "wp_missing_standard",
+    "wp_cross_project", "wp_skipped_anchoring",
+}
+
+
+def _order_prefix(fields: dict, field_id: str = "customfield_13905") -> str:
+    """Leading order-type code (DS/QS/PT/PR/DMR) from the Order Type field."""
+    val = _field_str(fields, field_id)
+    if not val:
+        return ""
+    m = re.match(r"\s*([A-Za-z]+)", val)
+    return m.group(1).upper() if m else ""
+
+
+def _looks_deployed(fields: dict, wps: list[dict] | None) -> bool:
+    """A container is 'deployed' once its NPI template has produced child WPs.
+    Backlog containers and those with no child WPs have not been deployed yet."""
+    status = ((fields.get("status") or {}).get("name") or "").strip()
+    return bool(wps) and status.lower() != "backlog"
+
+
 def run_yaml_rules(
     fields: dict,
     rendered_description: str,
     rules: list[dict],
     children: list[dict] | None = None,
     container_key: str = "",
+    is_manual: bool = False,
 ) -> list[Finding]:
     findings: list[Finding] = []
 
     # Normalise child Work Packages once. None means "could not fetch" → wp_*
     # rules are skipped so we never raise false positives on missing data.
     wps = [_wp_info(c) for c in children] if children is not None else None
+    order_prefix = _order_prefix(fields)
 
     for rule in rules:
         check = rule.get("check", "")
@@ -167,6 +193,13 @@ def run_yaml_rules(
         severity = Severity.ERROR if sev_str == "ERROR" else Severity.WARNING
         message = rule.get("message", "")
         fix_hint = rule.get("fix_hint", "")
+
+        # Order-type scoping: a wp_* rule can opt out of whole order types
+        # (e.g. DMR, which does not follow the standard WP design).
+        if check in _WP_CHECKS:
+            skip_types = {str(s).strip().upper() for s in rule.get("skip_order_types", [])}
+            if order_prefix and order_prefix in skip_types:
+                continue
 
         if check == "description_count":
             keyword = rule.get("keyword", "")
@@ -238,13 +271,19 @@ def run_yaml_rules(
             pt_field = rule.get("product_type_field", "customfield_13904")
             pt_value = str(rule.get("product_type_value", "")).strip().lower()
             product_type = _field_str(fields, pt_field).lower()
+            # In batch mode, skip containers whose template is not deployed yet
+            # (Backlog / no child WPs). A manual check_container run audits them.
+            deployed_ok = is_manual or not rule.get("require_deployed", False) \
+                or _looks_deployed(fields, wps)
             # Only check containers of the configured product type.
-            if not pt_value or pt_value in product_type:
+            if (not pt_value or pt_value in product_type) and deployed_ok:
+                # Base required set + any order-type-specific extras (e.g. QM P+L
+                # only for PR).
+                required = list(rule.get("standard_wps", []))
+                order_extras = (rule.get("order_type_wps") or {}).get(order_prefix, [])
+                required += list(order_extras)
                 present = {wp["summary"].lower() for wp in wps}
-                missing = [
-                    s for s in rule.get("standard_wps", [])
-                    if s.strip().lower() not in present
-                ]
+                missing = [s for s in required if s.strip().lower() not in present]
                 if missing:
                     findings.append(Finding(
                         severity, "YAML Rule",
@@ -776,6 +815,75 @@ def run_comment(mode: str, keys: list[str], dry_run: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
+# check subcommand — manual one-by-one container audit (read-only)
+# ---------------------------------------------------------------------------
+
+def run_check(mode: str, keys: list[str]) -> int:
+    """
+    Audit one or more specific containers and print the detailed findings.
+    Read-only: never writes to Confluence or JIRA. Runs in manual mode, so
+    require_deployed rules audit not-yet-deployed containers too.
+    """
+    logger = get_logger("container_template_audit.batch")
+    config = load_config(mode_override=mode)
+    logger.info("check: %s mode (keys=%s)", config.mode, keys)
+
+    jira = JiraClient(config, mock_data_dir=MOCK_DIR)
+    rules = load_audit_rules()
+    need_children = any(r.get("check") in _WP_CHECKS for r in rules)
+
+    print(f"\n=== Manual container check ({config.mode}) — {len(keys)} container(s) ===")
+
+    for key in keys:
+        try:
+            issue = jira.get_issue(key, expand="renderedFields")
+        except Exception as exc:
+            print(f"\n  {key}: ERROR fetching issue: {exc}")
+            continue
+
+        fields = issue.get("fields") or {}
+        rendered_html = (issue.get("renderedFields") or {}).get("description") or ""
+        summary = (fields.get("summary") or "").strip()
+        status = (fields.get("status") or {}).get("name") or "Unknown"
+
+        try:
+            report = NPIAuditor(_CachedJiraClient(issue)).audit(key)
+        except Exception as exc:
+            print(f"\n  {key}: audit error: {exc}")
+            continue
+
+        children: list[dict] | None = None
+        wp_note = ""
+        if need_children:
+            try:
+                children = jira.get_children(key, fields=WP_FIELDS)
+            except Exception as exc:
+                logger.warning("%s: could not fetch child WPs: %s", key, exc)
+                wp_note = f"  (could not fetch child WPs: {exc})"
+                children = None
+
+        yaml_findings = run_yaml_rules(
+            fields, rendered_html, rules,
+            children=children, container_key=key, is_manual=True,
+        )
+        problems = [
+            f for f in (report.findings + yaml_findings)
+            if f.severity in (Severity.ERROR, Severity.WARNING)
+        ]
+
+        print(f"\n  {key}  [{status}]  {summary}")
+        if wp_note:
+            print(wp_note)
+        if not problems:
+            print("      OK — no issues found.")
+        for f in problems:
+            print(f"      {f.severity.name:7s}  {f.message}")
+
+    print()
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -813,6 +921,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Container keys to comment on (e.g. --keys NPIOTHER-123 POSX-456)",
     )
 
+    check_p = sub.add_parser(
+        "check",
+        help="Manually audit one or more specific containers (read-only).",
+    )
+    check_group = check_p.add_mutually_exclusive_group()
+    check_group.add_argument(
+        "--mock", action="store_const", const="mock", dest="mode",
+        help="Use mock_data/ (default — safe for VPS)",
+    )
+    check_group.add_argument(
+        "--live", action="store_const", const="live", dest="mode",
+        help="Hit live JIRA, read-only (company laptop)",
+    )
+    check_p.set_defaults(mode="mock")
+    check_p.add_argument(
+        "keys", nargs="+", metavar="KEY",
+        help="Container key(s) to audit, e.g. NPIOTHER-5124 POSX-7007",
+    )
+
     return parser
 
 
@@ -824,6 +951,8 @@ def main() -> int:
         return run_scan(mode=args.mode, dry_run=args.dry_run)
     if args.command == "comment":
         return run_comment(mode=args.mode, keys=args.keys, dry_run=args.dry_run)
+    if args.command == "check":
+        return run_check(mode=args.mode, keys=args.keys)
 
     parser.error(f"unknown command: {args.command}")
     return 2
