@@ -395,6 +395,30 @@ def parse_ticked_containers(html):
     return ticked
 
 
+def recover_ticks_from_history(csess, current_version, lookback=15):
+    """ONE-TIME recovery: find the most recent historical page version that has
+    ticked Status checkboxes and return that set of container keys. Used only
+    when --recover-ticks is passed (e.g. after the old daily job wiped the
+    column); the normal/scheduled run never calls this."""
+    for v in range(current_version, max(current_version - lookback, 0), -1):
+        url = (f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}"
+               f"?status=historical&version={v}&expand=body.storage")
+        try:
+            resp = csess.get(url, timeout=30)
+        except Exception as e:
+            log.warning(f"  history v{v} fetch error: {e}")
+            continue
+        if resp.status_code != 200:
+            continue
+        html = resp.json().get("body", {}).get("storage", {}).get("value", "")
+        tk = parse_ticked_containers(html)
+        if tk:
+            log.info(f"RECOVERED {len(tk)} ticked container(s) from page v{v}: {sorted(tk)}")
+            return tk
+    log.warning("No ticked checkboxes found in page history (nothing to recover).")
+    return set()
+
+
 def conf_read_manual_fields(csess):
     """Read Confluence page, parse tables, return manual fields + completed keys
     + completed rows + ticked-done container keys + version."""
@@ -876,7 +900,7 @@ def write_excel(active_rows, completed_rows):
 # =====================================================================
 # MAIN
 # =====================================================================
-def run(dry_run=False, allow_no_edm=False):
+def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
     log.info("")
     log.info("=" * 70)
     log.info("  NEW RUN: Pilot Run & DMR - MR Tracking Report" + ("  [DRY-RUN]" if dry_run else ""))
@@ -893,6 +917,13 @@ def run(dry_run=False, allow_no_edm=False):
     except Exception as e:
         print(f"  ⚠ Confluence read error: {e}")
         manual, completed_keys, prev_completed_rows, ticked_done, page_ver = {}, set(), [], set(), 0
+
+    # ONE-TIME: restore ticks the old daily job wiped (only when --recover-ticks).
+    if recover_ticks and page_ver:
+        recovered = recover_ticks_from_history(csess, page_ver)
+        if recovered:
+            ticked_done = set(ticked_done) | recovered
+            print(f"  ♻ Recovered {len(recovered)} ticked container(s) from page history.")
 
     # 2. Fetch Jira
     session = make_session()
@@ -1036,6 +1067,9 @@ def main():
                     help="read live data and build the page, but do NOT publish to Confluence")
     ap.add_argument("--allow-no-edm", action="store_true",
                     help="publish even if EDM is unavailable (PRSG will be blank — use with care)")
+    ap.add_argument("--recover-ticks", action="store_true",
+                    help="ONE-TIME: restore ticked Status checkboxes from page history "
+                         "(after the old job wiped the column); not used by the daily run")
     ap.set_defaults(mode="mock")
     args = ap.parse_args()
 
@@ -1047,7 +1081,7 @@ def main():
         return
 
     _load_settings("live")
-    run(dry_run=args.dry_run, allow_no_edm=args.allow_no_edm)
+    run(dry_run=args.dry_run, allow_no_edm=args.allow_no_edm, recover_ticks=args.recover_ticks)
 
 
 if __name__ == "__main__":
