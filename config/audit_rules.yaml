@@ -4,8 +4,14 @@
 
 rules:
 
+  # NOTE: duplicate_template, missing_location, missing_product_type and
+  # missing_order_type are DISABLED — the built-in auditor (tasks/
+  # container_template_audit/main.py) already reports these, so leaving the
+  # YAML copies on produced duplicate findings. Re-enable only if the built-in
+  # checks are removed.
+
   - id: duplicate_template
-    enabled: true
+    enabled: false
     severity: ERROR
     check: description_count
     keyword: "NPI Overview"
@@ -38,7 +44,7 @@ rules:
     fix_hint: "Fill in the name of the person formally requesting the NPI in Jira."
 
   - id: missing_location
-    enabled: true
+    enabled: false
     severity: ERROR
     check: jira_field_missing
     field_id: "customfield_13906"
@@ -47,7 +53,7 @@ rules:
     fix_hint: "Set NPI Location during the Request step."
 
   - id: missing_product_type
-    enabled: true
+    enabled: false
     severity: ERROR
     check: jira_field_missing
     field_id: "customfield_13904"
@@ -56,7 +62,7 @@ rules:
     fix_hint: "Set Product Type during the Request step."
 
   - id: missing_order_type
-    enabled: true
+    enabled: false
     severity: ERROR
     check: jira_field_missing
     field_id: "customfield_13905"
