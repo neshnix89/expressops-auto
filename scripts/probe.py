@@ -1,97 +1,84 @@
 """
 DISCOVERY PROBE — read-only scratchpad.
 
-CURRENT PROBE: find (a) the existing Windows scheduled task that runs the MR
-report — its name, schedule, and exact command — and (b) where EDMAdmin.exe
-lives, so the migrated task can run with the same EDM access. All read-only
-(schtasks /query + filesystem existence checks; no writes, no live systems).
-"""
+CURRENT PROBE: recover ticked Status checkboxes from the MR Confluence page's
+version history. The daily (old) job wiped the Status column; every Confluence
+save is retained, so a recent historical version still holds the ticks. This
+lists, for the last ~15 versions, which containers had a ticked checkbox so we
+know what to restore.
 
+All read-only — GET requests only (safe under scripts/readonly_guard.py).
+"""
 from __future__ import annotations
 
-import csv
-import io
-import os
-import subprocess
+import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-KEYWORDS = ("dmr", "pilot", "mr status", "mr_report", "mr report", "edmadmin",
-            "pilot_dmr")
-FIELDS = ("TaskName", "Status", "Next Run Time", "Schedule Type", "Start Time",
-          "Start Date", "Repeat: Every", "Task To Run", "Start In", "Run As User",
-          "Author")
+import requests  # noqa: E402
+import urllib3  # noqa: E402
 
-EDM_CANDIDATES = [
-    r"C:\Users\tmoghanan\EDMAdmin.exe",
-    r"C:\Users\tmoghanan\Documents\AI\EDMAdmin.exe",
-    r"C:\Users\tmoghanan\Documents\AI\MR Status Report\EDMAdmin.exe",
-    r"C:\Users\tmoghanan\Documents\AI\expressops-auto\EDMAdmin.exe",
-]
-EDM_SEARCH_ROOTS = [
-    r"C:\Users\tmoghanan\Documents\AI",
-    r"C:\Users\tmoghanan\AppData\Local\Programs\Python",
-]
+urllib3.disable_warnings()
+
+from core.config_loader import load_config  # noqa: E402
+
+TASK_COMPLETE = re.compile(r'<ac:task-status>\s*complete\s*</ac:task-status>', re.IGNORECASE)
+TR = re.compile(r'<tr\b.*?</tr>', re.DOTALL | re.IGNORECASE)
+KEY = re.compile(r'/browse/([A-Za-z][A-Za-z0-9]*-\d+)')
 
 
-def dump_scheduled_tasks() -> None:
-    print("=== SCHEDULED TASKS matching MR / DMR / EDMAdmin ===")
-    try:
-        out = subprocess.run(
-            ["schtasks", "/query", "/fo", "CSV", "/v"],
-            capture_output=True, text=True, timeout=60,
-        ).stdout
-    except Exception as e:
-        print(f"  schtasks failed: {e}")
-        return
-
-    reader = csv.DictReader(io.StringIO(out))
-    seen = 0
-    for row in reader:
-        if not row or row.get("TaskName", "").startswith("TaskName"):
-            continue  # repeated header rows
-        blob = " ".join(str(v) for v in row.values()).lower()
-        if not any(k in blob for k in KEYWORDS):
-            continue
-        seen += 1
-        print(f"\n  --- match #{seen} ---")
-        for f in FIELDS:
-            if f in row and row[f] not in ("", "N/A"):
-                print(f"    {f:14}: {row[f]}")
-    if not seen:
-        print("  (no scheduled task matched the keywords — it may be named "
-              "differently; re-run with the real name if you know it)")
-
-
-def find_edmadmin() -> None:
-    print("\n=== EDMAdmin.exe location ===")
-    found = []
-    for c in EDM_CANDIDATES:
-        if os.path.isfile(c):
-            print(f"  FOUND (candidate): {c}")
-            found.append(c)
-    for rootdir in EDM_SEARCH_ROOTS:
-        if not os.path.isdir(rootdir):
-            continue
-        for dirpath, _dirs, files in os.walk(rootdir):
-            for fn in files:
-                if fn.lower() == "edmadmin.exe":
-                    p = os.path.join(dirpath, fn)
-                    if p not in found:
-                        print(f"  FOUND (search): {p}")
-                        found.append(p)
-    if not found:
-        print("  EDMAdmin.exe NOT found in the candidate paths / search roots.")
-        print("  (It is a renamed copy of python.exe used to bypass the EDM "
-              "logon trigger — tell me where it is, or how the daily job runs.)")
+def ticked(html: str) -> set[str]:
+    out: set[str] = set()
+    for chunk in TR.findall(html or ""):
+        if TASK_COMPLETE.search(chunk):
+            m = KEY.search(chunk)
+            if m:
+                out.add(m.group(1).strip())
+    return out
 
 
 def main() -> None:
-    dump_scheduled_tasks()
-    find_edmadmin()
+    cfg = load_config("live")
+    base = cfg.confluence_base_url
+    pid = str(cfg.pages.get("mr_status_report") or 560866215)
+    s = requests.Session()
+    s.headers.update({"Authorization": f"Bearer {cfg.confluence_pat}", "Accept": "application/json"})
+    s.verify = False
+
+    r = s.get(f"{base}/rest/api/content/{pid}?expand=version", timeout=15)
+    if r.status_code != 200:
+        print(f"Confluence read failed: HTTP {r.status_code}")
+        return
+    cur = r.json()["version"]["number"]
+    print(f"MR page {pid}: current version v{cur}")
+    print("Scanning recent versions for ticked Status checkboxes...\n")
+
+    found_any = False
+    for v in range(cur, max(cur - 15, 0), -1):
+        url = (f"{base}/rest/api/content/{pid}"
+               f"?status=historical&version={v}&expand=body.storage,version")
+        rr = s.get(url, timeout=30)
+        if rr.status_code != 200:
+            print(f"  v{v}: HTTP {rr.status_code} (skip)")
+            continue
+        j = rr.json()
+        html = j.get("body", {}).get("storage", {}).get("value", "")
+        when = j.get("version", {}).get("when", "")
+        who = j.get("version", {}).get("by", {}).get("displayName", "")
+        has_col = "ac:task-list" in html
+        tk = sorted(ticked(html))
+        flag = "   <<< HAS TICKS" if tk else ""
+        print(f"  v{v} | {when} | {who} | checkbox_col={'yes' if has_col else 'no'} | ticked={tk}{flag}")
+        if tk:
+            found_any = True
+
+    if not found_any:
+        print("\nNo ticked checkboxes found in the last 15 versions.")
+    else:
+        print("\n^ Tell Claude which version's 'ticked=[...]' list to restore.")
 
 
 if __name__ == "__main__":
