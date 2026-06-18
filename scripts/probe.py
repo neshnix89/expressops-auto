@@ -1,19 +1,22 @@
 """
 DISCOVERY PROBE — read-only scratchpad.
 
-CURRENT PROBE: dump the PE and TE "handover workflow" Confluence pages so we can
-work out how to read each item's PT Number and its pending/approved workflow
-state. We do NOT yet know the structure (single status per page, a table of PT
-numbers, or one child page per PT), so this dumps, for each parent page:
+PASS 2: look INSIDE the PE/TE handover child pages to find where the PT/Project
+number and the pending/approved workflow state are encoded.
 
-  * title + current version
-  * full STORAGE-format HTML (raw macros — shows how the workflow is encoded)
-  * RENDERED view HTML (shows the actual "Pending"/"Approved" text a human sees)
-  * the list of child pages (id + title) in case the status lives per-child
+Structure learned in pass 1:
+  * PE parent (572625450) = template table; real data lives in WEEKLY child
+    pages, each holding a table with a "Project Number" column (one row per PT).
+  * TE parent (572625454) = empty; one child page PER PT number, PT in the title
+    (e.g. "Wk24/26: PTDE-AZ15 (DMR) PCBA TE to MX Handover").
 
-Paste the output (outputs\\_probe_latest.txt) back and we'll write the parser.
+So here we dump a few sample children (storage + rendered view) to see:
+  - where the PT number sits, and
+  - how "pending"/"approved" is rendered (status macro? Comala workflow? a
+    task/cell?). The rendered VIEW is most likely to show the human-visible
+    state text.
 
-All read-only — GET requests only (safe under scripts/readonly_guard.py).
+Paste outputs\\_probe_latest.txt back. All read-only (GET only).
 """
 from __future__ import annotations
 
@@ -30,16 +33,19 @@ urllib3.disable_warnings()
 
 from core.config_loader import load_config  # noqa: E402
 
-# PE / TE handover workflow pages to inspect.
+# Sample child pages to inspect (id -> label).
 PAGES = {
-    "PE (Handover PE)": "572625450",
-    "TE (Handover TE)": "572625454",
+    # PE weekly child pages (table with Project Number rows)
+    "572629336": "PE WK18/2026 IE PE to MX (weekly table)",
+    "595417305": "PE WK25/2026 IE PE to MX (weekly table)",
+    # TE per-PT child pages (PT in title, page-level workflow)
+    "572171106": "TE Template: PTDE-xxxx PCBA TE to MX Handover",
+    "595875590": "TE Wk24/26 PTDE-AZ15 (DMR) PCBA TE to MX Handover",
+    "595863161": "TE Wk23/26 PTDE-AY55 PCBA TE to MX Handover",
 }
 
-# Cap each HTML block so notepad stays usable; storage is usually the smaller of
-# the two. Bump these if a block is clearly truncated mid-structure.
-STORAGE_CAP = 60000
-VIEW_CAP = 40000
+STORAGE_CAP = 30000
+VIEW_CAP = 22000
 
 
 def _dump_block(label: str, html: str, cap: int) -> None:
@@ -57,13 +63,13 @@ def main() -> None:
     s.headers.update({"Authorization": f"Bearer {cfg.confluence_pat}", "Accept": "application/json"})
     s.verify = False
 
-    for name, pid in PAGES.items():
+    for pid, name in PAGES.items():
         print("\n" + "=" * 78)
         print(f"PAGE: {name}  (id {pid})")
         print("=" * 78)
 
         url = (f"{base}/rest/api/content/{pid}"
-               f"?expand=body.storage,body.view,version,children.page")
+               f"?expand=body.storage,body.view,version,metadata.labels")
         try:
             r = s.get(url, timeout=30)
         except Exception as e:
@@ -75,20 +81,14 @@ def main() -> None:
             continue
 
         j = r.json()
-        ver = j.get("version", {}).get("number")
-        title = j.get("title", "")
-        print(f"  title : {title}")
-        print(f"  version: v{ver}")
+        print(f"  title : {j.get('title','')}")
+        print(f"  version: v{j.get('version', {}).get('number')}")
+        labels = [l.get("name") for l in j.get("metadata", {}).get("labels", {}).get("results", [])]
+        print(f"  labels: {labels}")
 
         body = j.get("body", {})
         _dump_block("STORAGE HTML", body.get("storage", {}).get("value", ""), STORAGE_CAP)
         _dump_block("RENDERED VIEW HTML", body.get("view", {}).get("value", ""), VIEW_CAP)
-
-        # Child pages (one-per-PT layouts live here).
-        children = j.get("children", {}).get("page", {}).get("results", [])
-        print(f"\n----- CHILD PAGES ({len(children)}) -----")
-        for c in children:
-            print(f"  - id {c.get('id')} | {c.get('title')}")
 
 
 if __name__ == "__main__":
