@@ -44,6 +44,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.config_loader import load_config  # noqa: E402
+from tasks.mr_status_report.handover import (  # noqa: E402
+    fetch_handover_states, handover_status,
+)
 
 urllib3.disable_warnings()
 warnings.filterwarnings('ignore')
@@ -101,6 +104,11 @@ MR_WEEK_PATTERN = re.compile(r'^\s*MR\s*Week\s*(\d+)\s*$', re.IGNORECASE)
 BROWSE_KEY_PATTERN = re.compile(r'/browse/([A-Za-z][A-Za-z0-9]*-\d+)')
 TASK_COMPLETE_PATTERN = re.compile(
     r'<ac:task-status>\s*complete\s*</ac:task-status>', re.IGNORECASE
+)
+# Captures each checkbox's state in document order within a row. With two
+# checkbox columns the order is [MR in progress, Close container without MR].
+TASK_STATUS_PATTERN = re.compile(
+    r'<ac:task-status>\s*(complete|incomplete)\s*</ac:task-status>', re.IGNORECASE
 )
 TR_PATTERN = re.compile(r'<tr\b.*?</tr>', re.DOTALL | re.IGNORECASE)
 
@@ -381,7 +389,7 @@ def parse_ticked_containers(html):
     Independent of column position: for each <tr> that contains a completed
     task checkbox, grab the container key from its /browse/<KEY> link. Matching
     on the exact <ac:task-status>complete</ac:task-status> tag avoids the
-    'incomplete' substring trap.
+    'incomplete' substring trap. Used only by the one-time --recover-ticks path.
     """
     ticked = set()
     if not html:
@@ -393,6 +401,43 @@ def parse_ticked_containers(html):
         if m:
             ticked.add(m.group(1).strip())
     return ticked
+
+
+def parse_checkbox_columns(html):
+    """Column-aware read of the two tick-box columns from raw storage HTML.
+
+    Each active row ends with two checkbox cells rendered in this order:
+        [MR in progress]  [Close container without MR]
+    The only <ac:task-status> tags in a generated row are those two checkboxes,
+    so their order in the row maps 1:1 to the columns. Returns
+    (mr_progress_keys, close_keys). Containers can appear in both the MR Week and
+    Active tables, so a tick in either row counts (sets union naturally).
+
+    Back-compat: a row with a single checkbox (the old "Status" column) is read
+    as the Close column, preserving the existing settle-to-done behaviour on the
+    first run after this column is added.
+    """
+    mr_progress, close = set(), set()
+    if not html:
+        return mr_progress, close
+    for chunk in TR_PATTERN.findall(html):
+        km = BROWSE_KEY_PATTERN.search(chunk)
+        if not km:
+            continue
+        key = km.group(1).strip()
+        states = [s.lower() for s in TASK_STATUS_PATTERN.findall(chunk)]
+        if not states:
+            continue
+        if len(states) >= 2:
+            if states[0] == "complete":
+                mr_progress.add(key)
+            if states[1] == "complete":
+                close.add(key)
+        else:
+            # Legacy single-column page: that checkbox is the Close column.
+            if states[0] == "complete":
+                close.add(key)
+    return mr_progress, close
 
 
 def recover_ticks_from_history(csess, current_version, lookback=15):
@@ -421,12 +466,12 @@ def recover_ticks_from_history(csess, current_version, lookback=15):
 
 def conf_read_manual_fields(csess):
     """Read Confluence page, parse tables, return manual fields + completed keys
-    + completed rows + ticked-done container keys + version."""
+    + completed rows + ticked sets (mr_progress, close) + version."""
     url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}?expand=body.storage,version"
     resp = csess.get(url, timeout=15)
     if resp.status_code != 200:
         log.warning(f"Confluence read failed: {resp.status_code}")
-        return {}, set(), [], set(), 0
+        return {}, set(), [], set(), set(), 0
 
     page = resp.json()
     version = page["version"]["number"]
@@ -434,14 +479,17 @@ def conf_read_manual_fields(csess):
     manual = {}
     completed = set()
 
-    # NEW: which containers have a ticked Status box (parsed from raw html,
-    # before macro/tag stripping mangles the task tags).
-    ticked_done = parse_ticked_containers(html)
+    # Which containers have each tick-box ticked (parsed from raw html, before
+    # macro/tag stripping mangles the task tags). mr_progress -> include in the
+    # MR Week table; ticked_done -> "Close container without MR" settle to done.
+    mr_progress, ticked_done = parse_checkbox_columns(html)
     if ticked_done:
-        log.info(f"  Status checkbox ticked for: {sorted(ticked_done)}")
+        log.info(f"  'Close container without MR' ticked for: {sorted(ticked_done)}")
+    if mr_progress:
+        log.info(f"  'MR in progress' ticked for: {sorted(mr_progress)}")
 
     if not html or "<table" not in html:
-        return manual, completed, [], ticked_done, version
+        return manual, completed, [], ticked_done, mr_progress, version
 
     # Smart macro handling: extract title text from status macros instead of deleting
     # Turns <ac:structured-macro ac:name="status">...<ac:parameter ac:name="title">DONE</ac:parameter>...</ac:structured-macro>
@@ -577,22 +625,32 @@ def conf_read_manual_fields(csess):
                 log.debug(f"  [{key}] Completed row parsed ({n} cells): Ageing={cr['Ageing']}, Remarks={cr['Remarks']}, Date={cr['Completion_Date']}")
                 completed_rows.append(cr)
 
-    return manual, completed, completed_rows, ticked_done, version
+    return manual, completed, completed_rows, ticked_done, mr_progress, version
 
 
-def build_html(active_rows, completed_rows):
-    """Build Confluence storage format HTML with MR Week priority table."""
+def build_html(active_rows, completed_rows, mr_progress=None):
+    """Build Confluence storage format HTML with MR Week priority table.
+
+    mr_progress: set of container keys whose "MR in progress" box is ticked. That
+    box is STATEFUL — it is re-rendered as complete so it persists across runs
+    (the container stays active and keeps showing in the MR Week table) until it
+    is unticked or the MR is done. The "Close container without MR" box is
+    momentary (always rendered incomplete): ticking it settles the container to
+    COMPLETED on the next run, after which it leaves the active set.
+    """
     from html import escape as html_escape
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    mr_progress = mr_progress or set()
 
-    # Unique task-id source for the Status checkboxes (ids must be unique per page).
+    # Unique task-id source for the checkboxes (ids must be unique per page).
     task_seq = [0]
 
-    def checkbox_cell():
+    def checkbox_cell(checked=False):
         task_seq[0] += 1
+        status = "complete" if checked else "incomplete"
         return (f'<td {cen}><ac:task-list>'
                 f'<ac:task><ac:task-id>{task_seq[0]}</ac:task-id>'
-                f'<ac:task-status>incomplete</ac:task-status>'
+                f'<ac:task-status>{status}</ac:task-status>'
                 f'<ac:task-body></ac:task-body></ac:task>'
                 f'</ac:task-list></td>\n')
 
@@ -621,10 +679,17 @@ def build_html(active_rows, completed_rows):
         return str(s)
 
     def ho_badge(s):
-        """Render Handover cell: badge for standard values, plain text for free-form."""
+        """Render Handover cell from the PE/TE workflow lookup.
+
+        Values are 'Approved' / 'Pending' / 'No handover' (see handover.py).
+        Legacy DONE/IN PROGRESS still render as badges; anything else is plain.
+        """
         if not s:
             return ""
         su = str(s).strip().upper()
+        if su == "APPROVED": return status_macro("Approved", "Green")
+        if su == "PENDING": return status_macro("Pending", "Yellow")
+        if su == "NO HANDOVER": return status_macro("No handover", "Grey")
         if su == "DONE": return status_macro("DONE", "Green")
         if su == "IN PROGRESS": return status_macro("IN PROGRESS", "Yellow")
         # Free text — preserve as-is with escaping
@@ -653,15 +718,15 @@ def build_html(active_rows, completed_rows):
     hdr_style_mr = 'style="background-color:#8E44AD;color:white;text-align:center;padding:8px;font-weight:bold"'
     cen = 'style="text-align:center"'
 
-    # Active table headers (exclude Completion Date); a "Status" tick-box column
-    # is appended at the end (handled when rendering each table).
+    # Active table headers (exclude Completion Date); two tick-box columns are
+    # appended at the end of every active table.
     active_headers = HEADERS[:-1]
+    CHECKBOX_HEADERS = ["MR in progress", "Close container without MR"]
 
-    def render_active_row(r):
-        """Render one active row (shared between MR Week table and Active table)."""
+    def render_data_cells(r):
+        """The data <td> cells of an active row (no <tr>, no checkbox cells)."""
         tc = "#D6EAF8" if r["Type"] == "Pilot Run" else "#D5F5E3" if r["Type"] == "DMR Request" else "white"
-        h = '<tr>\n'
-        h += f'<td {cen}>{link(r["Container"])}</td>\n'
+        h = f'<td {cen}>{link(r["Container"])}</td>\n'
         h += f'<td style="background-color:{tc};text-align:center">{esc(r["Type"])}</td>\n'
         h += f'<td {cen}>{esc(r.get("PT_Number",""))}</td>\n'
         h += f'<td {cen}>{esc(r.get("PRSG_Number",""))}</td>\n'
@@ -676,58 +741,66 @@ def build_html(active_rows, completed_rows):
         h += age_td(r.get("Ageing", "")) + '\n'
         h += f'<td {cen}>{mr_badge(r.get("MR_Status",""))}</td>\n'
         h += f'<td>{esc(r.get("Remarks",""))}</td>\n'
-        h += checkbox_cell()
-        h += '</tr>\n'
         return h
 
-    # --- MR Week Priority Table ---
-    mr_week_rows = []
-    for r in active_rows:
-        remarks = str(r.get("Remarks", ""))
-        match = MR_WEEK_PATTERN.search(remarks)
-        if match:
-            week_num = int(match.group(1))
-            mr_week_rows.append((week_num, r))
+    def checkbox_cells(r):
+        """The two trailing tick-box cells in column order: 'MR in progress'
+        (stateful — persists while ticked) then 'Close container without MR'
+        (momentary — settles the container to done on the next run)."""
+        return (checkbox_cell(checked=r["Container"] in mr_progress)
+                + checkbox_cell(checked=False))
 
+    def checkbox_header_cells(style):
+        return "".join(f'<th {style}>{hd}</th>\n' for hd in CHECKBOX_HEADERS)
+
+    def render_active_row(r):
+        """Render one active row for the Active MR table."""
+        return '<tr>\n' + render_data_cells(r) + checkbox_cells(r) + '</tr>\n'
+
+    # --- MR Week Priority Table ---
+    # A container is listed here when EITHER its Remarks carry "MR Week XX" OR its
+    # "MR in progress" box is ticked (coexist). Numbered weeks sort first
+    # (ascending); ticked-only rows (no week number) follow, labelled "In Progress".
+    mr_week_rows = []  # (sort_key, label, row)
+    seen = set()
+    for r in active_rows:
+        m = MR_WEEK_PATTERN.search(str(r.get("Remarks", "")))
+        if m:
+            wk = int(m.group(1))
+            mr_week_rows.append((wk, f"Week {wk}", r))
+            seen.add(r["Container"])
+    for r in active_rows:
+        key = r["Container"]
+        if key in seen:
+            continue
+        if key in mr_progress:
+            mr_week_rows.append((10_000, "In Progress", r))
+            seen.add(key)
     mr_week_rows.sort(key=lambda x: x[0])
 
     # Info bar
     h = f'<p><strong>Last Updated:</strong> {now} &nbsp;|&nbsp; '
     h += f'<strong>Active:</strong> {len(active_rows)} &nbsp;|&nbsp; '
-    h += f'<strong>MR Week Tagged:</strong> {len(mr_week_rows)} &nbsp;|&nbsp; '
+    h += f'<strong>MR Week / In Progress:</strong> {len(mr_week_rows)} &nbsp;|&nbsp; '
     h += f'<strong>Completed:</strong> {len(completed_rows)}</p>\n'
 
-    # MR Week table (only shown if there are tagged rows)
+    # MR Week table (only shown if there are rows)
     if mr_week_rows:
         h += '<h2>MR Week Schedule</h2>\n'
-        h += '<p><em>Containers tagged with "MR Week XX" in Remarks, sorted by week number. '
+        h += '<p><em>Containers tagged with "MR Week XX" in Remarks, or with the '
+        h += '"MR in progress" box ticked. Numbered weeks first, then in-progress. '
         h += 'Automatically removed when MR Status is DONE.</em></p>\n'
         h += '<table><thead><tr>\n'
         h += f'<th {hdr_style_mr}>MR Week</th>\n'
         for hd in active_headers:
             h += f'<th {hdr_style_mr}>{hd}</th>\n'
-        h += f'<th {hdr_style_mr}>Status</th>\n'
+        h += checkbox_header_cells(hdr_style_mr)
         h += '</tr></thead>\n<tbody>\n'
-        for week_num, r in mr_week_rows:
-            h += f'<tr>\n<td style="text-align:center;font-weight:bold;background-color:#F5EEF8">Week {week_num}</td>\n'
-            # Render the row without the outer <tr> tags
-            tc = "#D6EAF8" if r["Type"] == "Pilot Run" else "#D5F5E3" if r["Type"] == "DMR Request" else "white"
-            h += f'<td {cen}>{link(r["Container"])}</td>\n'
-            h += f'<td style="background-color:{tc};text-align:center">{esc(r["Type"])}</td>\n'
-            h += f'<td {cen}>{esc(r.get("PT_Number",""))}</td>\n'
-            h += f'<td {cen}>{esc(r.get("PRSG_Number",""))}</td>\n'
-            h += f'<td {cen}>{prsg_badge(r.get("PRSG_Status",""))}</td>\n'
-            h += f'<td {cen}>{esc(r.get("SMT_Closure",""))}</td>\n'
-            h += f'<td {cen}>{esc(r.get("Doc_Closure",""))}</td>\n'
-            h += f'<td {cen}>{esc(r.get("Close_Date",""))}</td>\n'
-            h += f'<td>{esc(r.get("PE_Reports",""))}</td>\n'
-            h += f'<td>{esc(r.get("TE_Reports",""))}</td>\n'
-            h += f'<td {cen}>{ho_badge(r.get("Handover_PE",""))}</td>\n'
-            h += f'<td {cen}>{ho_badge(r.get("Handover_TE",""))}</td>\n'
-            h += age_td(r.get("Ageing", "")) + '\n'
-            h += f'<td {cen}>{mr_badge(r.get("MR_Status",""))}</td>\n'
-            h += f'<td>{esc(r.get("Remarks",""))}</td>\n'
-            h += checkbox_cell()
+        for _sort, label, r in mr_week_rows:
+            h += ('<tr>\n<td style="text-align:center;font-weight:bold;'
+                  f'background-color:#F5EEF8">{label}</td>\n')
+            h += render_data_cells(r)
+            h += checkbox_cells(r)
             h += '</tr>\n'
         h += '</tbody></table>\n'
 
@@ -735,7 +808,7 @@ def build_html(active_rows, completed_rows):
     h += '<h2>Active MR</h2>\n<table><thead><tr>\n'
     for hd in active_headers:
         h += f'<th {hdr_style}>{hd}</th>\n'
-    h += f'<th {hdr_style}>Status</th>\n'
+    h += checkbox_header_cells(hdr_style)
     h += '</tr></thead>\n<tbody>\n'
     for r in active_rows:
         h += render_active_row(r)
@@ -877,6 +950,16 @@ def write_excel(active_rows, completed_rows):
             pc.fill = PatternFill(start_color="E74C3C", end_color="E74C3C", fill_type="solid")
             pc.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
 
+        # Handover PE/TE color (Approved=green, Pending=yellow)
+        for hk in ("Handover_PE", "Handover_TE"):
+            hc = main_ws.cell(row=r, column=COL[hk])
+            hv = str(hc.value or "").strip().lower()
+            if hv == "approved":
+                hc.fill = PatternFill(start_color="27AE60", end_color="27AE60", fill_type="solid")
+                hc.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+            elif hv == "pending":
+                hc.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
     for idx, row in enumerate(completed_rows):
         r = idx + 2
         for k, cn in COL.items():
@@ -911,12 +994,12 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
     log.info("Reading Confluence page...")
     csess = conf_session()
     try:
-        manual, completed_keys, prev_completed_rows, ticked_done, page_ver = conf_read_manual_fields(csess)
+        manual, completed_keys, prev_completed_rows, ticked_done, mr_progress, page_ver = conf_read_manual_fields(csess)
         log.info(f"  Confluence: {len(manual)} active rows | {len(completed_keys)} completed | "
-                 f"{len(ticked_done)} ticked | page v{page_ver}")
+                 f"{len(ticked_done)} close-ticked | {len(mr_progress)} mr-in-progress | page v{page_ver}")
     except Exception as e:
         print(f"  ⚠ Confluence read error: {e}")
-        manual, completed_keys, prev_completed_rows, ticked_done, page_ver = {}, set(), [], set(), 0
+        manual, completed_keys, prev_completed_rows, ticked_done, mr_progress, page_ver = {}, set(), [], set(), set(), 0
 
     # ONE-TIME: restore ticks the old daily job wiped (only when --recover-ticks).
     if recover_ticks and page_ver:
@@ -958,6 +1041,18 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
         else:
             log.warning(f"[{k}] No PT number extracted from summary — PRSG lookup skipped")
 
+    # 3b. Handover PE/TE — pull Approved/Pending from the Confluence workflow
+    # pages (Comala) by PT number. Resilient: on failure the maps stay empty and
+    # every Handover cell reads "No handover" (logged), never blocking publish.
+    log.info("Fetching PE/TE handover workflow states from Confluence...")
+    try:
+        pe_map, te_map = fetch_handover_states(csess, CONFLUENCE_URL)
+        print(f"  🤝 Handover: PE {len(pe_map)} PTs | TE {len(te_map)} PTs")
+    except Exception as e:
+        log.error(f"Handover lookup FAILED: {e}")
+        print(f"  ⚠ Handover lookup failed: {e} — cells will read 'No handover'")
+        pe_map, te_map = {}, {}
+
     # 4. Merge with manual fields
     log.info("=" * 50)
     log.info("MERGE: Combining Jira/EDM data with manual fields")
@@ -975,8 +1070,10 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
             "Close_Date": d.get("Close_Date", ""),
             "PE_Reports": d.get("PE_Reports", ""),
             "TE_Reports": d.get("TE_Reports", ""),
-            "Handover_PE": m.get("Handover_PE", ""),
-            "Handover_TE": m.get("Handover_TE", ""),
+            # Handover columns now auto-pulled from the Comala workflow pages by
+            # PT number (always overwrites any old manual value).
+            "Handover_PE": handover_status(d.get("PT_Number", ""), pe_map),
+            "Handover_TE": handover_status(d.get("PT_Number", ""), te_map),
             "Ageing": d.get("Ageing", ""),
             "MR_Status": m.get("MR_Status", "WAITING"),
             "Remarks": m.get("Remarks", ""),
@@ -1000,12 +1097,12 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
         elif not prsg_status:
             log.debug(f"[{k}] No PRSG found → no auto-DONE")
 
-        # NEW: manual settle — Status checkbox ticked on the page moves it to DONE,
-        # even with no PRSG (projects that don't need to go for MR).
+        # Manual settle — "Close container without MR" checkbox ticked on the
+        # page moves it to DONE, even with no PRSG (projects that don't need MR).
         if k in ticked_done and str(row["MR_Status"]).strip().upper() != "DONE":
             row["MR_Status"] = "DONE"
             manual_ticked += 1
-            log.info(f"[{k}] ☑ TICKED-DONE: Status checkbox ticked → moving to COMPLETED MR")
+            log.info(f"[{k}] ☑ CLOSE-TICKED: 'Close container without MR' ticked → moving to COMPLETED MR")
 
         # Route to active or completed
         final_mr = str(row["MR_Status"]).strip().upper()
@@ -1028,7 +1125,7 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
 
     # 5. Publish Confluence
     print("\n📝 Publishing to Confluence..." + ("  (DRY-RUN)" if dry_run else ""))
-    html = build_html(active, all_completed)
+    html = build_html(active, all_completed, mr_progress=mr_progress)
     conf_update(csess, html, page_ver, dry_run=dry_run)
 
     # 6. Excel backup
