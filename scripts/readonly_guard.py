@@ -28,17 +28,30 @@ _ALLOWED_SQL = {"SELECT", "WITH"}
 
 def _is_readonly_post(url: str) -> bool:
     """
-    JIRA's search API is a READ that happens to use POST
-    (POST /rest/api/2/search, with the JQL in the body). Allow POST only to
-    that endpoint so read-only tasks (e.g. the container audit, which searches
-    and walks relation() children) work under the guard. Every genuine write
-    endpoint — /comment, /transitions, issue PUT, Confluence page writes — has
-    a different path and stays blocked.
+    A handful of READ operations use POST verbs. Allow only those; every genuine
+    write endpoint stays blocked.
+
+    - JIRA search: POST /rest/api/2/search carries the JQL in the body
+      (used by the container audit, which searches + walks relation() children).
+    - Tableau session: POST .../auth/signin and .../auth/signout establish and
+      tear down a short-lived REST session token. No business content is mutated.
+    - Tableau VizQL Data Service: POST .../vizql-data-service/... (a.k.a. /vds/)
+      read-metadata and query-datasource are pure reads of published data.
+
+    Every real write — JIRA /comment, /transitions, issue PUT, Confluence page
+    writes, Tableau workbook/datasource publish — has a different path and stays
+    blocked.
     """
     from urllib.parse import urlsplit
 
     path = urlsplit(str(url)).path.rstrip("/")
-    return path.endswith("/search")
+    if path.endswith("/search"):
+        return True
+    if path.endswith("/auth/signin") or path.endswith("/auth/signout"):
+        return True
+    if "/vizql-data-service/" in path or "/vds/" in path:
+        return True
+    return False
 
 
 def _install_requests_guard() -> None:

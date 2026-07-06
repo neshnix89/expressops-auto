@@ -1,16 +1,29 @@
 """
-DISCOVERY PROBE — read-only scratchpad.
+PROBE — KPI parity + overlay-sufficiency check (READ-ONLY, runs on company laptop).
 
-PASS 4: crawl the FULL PE and TE handover page trees and, for every descendant
-page, print its depth, id, title, and Comala workflow state
-(/rest/cw/1/content/{id}/status -> state.name). This confirms where the per-PT
-pages live and whether their TITLES carry the PT number (so we can match a
-container's PT -> the right page -> Approved/Pending).
+Two questions this probe answers:
 
-PE parent 572625450, TE parent 572625454. All read-only (GET only).
+  GOAL 1 (parity): dump the numbers from BOTH sources so we can compare them —
+    (a) the Confluence "2026 KPI Dashboard" page (550637258) that the user
+        maintains by hand, and
+    (b) the Tableau "ExpressOps KPIs" workbook (#3651) views.
+    We print both fully; the actual number-matching is done back on the VPS.
+
+  GOAL 2 (single source of truth): for every Tableau view, report whether it
+    exposes PER-ROW identity — a wc_issue_key / wp_issue_key column carrying
+    real JIRA keys (not the aggregated "*") next to the target-hit verdict.
+    If yes, the KPI overlay can read red/green straight from Tableau instead of
+    computing it from JIRA itself.
+
+All calls are GET, plus Tableau auth/signin+signout and an optional VDS
+read-metadata (all read-only; permitted by scripts/readonly_guard.py).
+Nothing is written to any live system.
 """
 from __future__ import annotations
 
+import csv
+import io
+import json
 import re
 import sys
 from pathlib import Path
@@ -21,73 +34,348 @@ sys.path.insert(0, str(ROOT))
 import requests  # noqa: E402
 import urllib3  # noqa: E402
 
-urllib3.disable_warnings()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-from core.config_loader import load_config  # noqa: E402
+try:
+    import yaml  # noqa: E402
+except ImportError:
+    print("ERROR: pyyaml not installed")
+    raise
 
-PARENTS = {"PE": "572625450", "TE": "572625454"}
-PT_RE = re.compile(r'PT[A-Z]{2}-[A-Z0-9]+', re.IGNORECASE)
-MAX_DEPTH = 4
+CONFIG_PATH = ROOT / "config" / "config.yaml"
 
+# --- targets -------------------------------------------------------------
+KPI_PAGE_ID = "550637258"          # Confluence "2026 KPI Dashboard" (space EUDEMHTM0815)
+WORKBOOK_REPO_ID = "3651"          # Tableau "ExpressOps KPIs"
+WC_KPI_DS_LUID = "2c72b33f-dca7-4f80-85b3-41220c5bc355"  # fact_pm_npi_wc_kpi
+MAX_ROWS_PER_VIEW = 150
 
-def get_state(s, base, cid):
-    try:
-        r = s.get(f"{base}/rest/cw/1/content/{cid}/status", timeout=20)
-    except Exception as e:
-        return f"ERR({e})"
-    if r.status_code != 200:
-        return f"no-wf(HTTP {r.status_code})"
-    try:
-        return r.json().get("state", {}).get("name", "?")
-    except Exception:
-        return "?"
+ISSUE_KEY_RE = re.compile(r"issue[_\s]?key", re.IGNORECASE)
+TARGET_HIT_RE = re.compile(r"target[_\s]?hit", re.IGNORECASE)
 
 
-def children(s, base, cid):
-    out = []
-    start = 0
-    while True:
-        url = f"{base}/rest/api/content/{cid}/child/page?limit=100&start={start}"
-        try:
-            r = s.get(url, timeout=25)
-        except Exception:
-            break
-        if r.status_code != 200:
-            break
-        j = r.json()
-        out.extend(j.get("results", []))
-        if len(j.get("results", [])) < 100:
-            break
-        start += 100
-    return out
+def hr(char="=", n=78):
+    print(char * n)
 
 
-def walk(s, base, cid, depth):
-    if depth > MAX_DEPTH:
+def load_cfg() -> dict:
+    if not CONFIG_PATH.exists():
+        print(f"ERROR: config.yaml not found at {CONFIG_PATH}")
+        sys.exit(1)
+    return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+
+
+# ======================================================================
+#  GOAL 1a — Confluence "2026 KPI Dashboard"
+# ======================================================================
+def dump_confluence(cfg: dict) -> None:
+    hr()
+    print("GOAL 1a — CONFLUENCE '2026 KPI Dashboard'  page", KPI_PAGE_ID)
+    hr()
+
+    ccfg = cfg.get("confluence") or {}
+    base = (ccfg.get("base_url") or "").rstrip("/")
+    pat = ccfg.get("pat") or ccfg.get("token")
+    if not base or not pat:
+        print("  ERROR: confluence.base_url / confluence.pat missing in config.yaml")
         return
-    for c in children(s, base, cid):
-        kid = c.get("id")
-        title = c.get("title", "")
-        pt = PT_RE.search(title)
-        state = get_state(s, base, kid)
-        pad = "  " * depth
-        flag = f"  <PT={pt.group(0).upper()}>" if pt else ""
-        print(f"{pad}- d{depth} id={kid} | state={state}{flag} | {title}")
-        walk(s, base, kid, depth + 1)
+
+    s = requests.Session()
+    s.verify = bool(ccfg.get("verify_ssl", False))
+    s.headers.update({"Authorization": f"Bearer {pat}", "Accept": "application/json"})
+
+    url = f"{base}/rest/api/content/{KPI_PAGE_ID}"
+    try:
+        r = s.get(url, params={"expand": "body.storage,version,space,history.lastUpdated"}, timeout=40)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  CONNECTION ERROR: {exc!r}")
+        return
+    print(f"  HTTP {r.status_code}")
+    if r.status_code != 200:
+        print(f"  BODY: {r.text[:600]}")
+        return
+
+    j = r.json()
+    space = (j.get("space") or {}).get("key", "?")
+    title = j.get("title", "?")
+    ver = (j.get("version") or {}).get("number", "?")
+    when = (j.get("version") or {}).get("when", "?")
+    print(f"  space={space}  title={title!r}  version={ver}  last_updated={when}")
+
+    html = (((j.get("body") or {}).get("storage") or {}).get("value")) or ""
+    print(f"  storage bytes: {len(html)}")
+    print()
+    _dump_html_tables(html)
+
+
+def _dump_html_tables(html: str) -> None:
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        print("  (bs4 not installed — raw table cells via regex fallback)")
+        _dump_html_tables_regex(html)
+        return
+
+    soup = BeautifulSoup(html, "html.parser")
+    tables = soup.find_all("table")
+    if not tables:
+        print("  No <table> found. First 1500 chars of storage body:")
+        print("  " + soup.get_text(" ", strip=True)[:1500])
+        return
+
+    print(f"  {len(tables)} table(s) found.\n")
+    for ti, tbl in enumerate(tables, 1):
+        print(f"  --- TABLE {ti} ---")
+        for tr in tbl.find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            row = [c.get_text(" ", strip=True) for c in cells]
+            if any(row):
+                print("    " + " | ".join(row))
+        print()
+
+
+def _dump_html_tables_regex(html: str) -> None:
+    tables = re.findall(r"<table.*?</table>", html, re.IGNORECASE | re.DOTALL)
+    print(f"  {len(tables)} table(s) found (regex).\n")
+    for ti, tbl in enumerate(tables, 1):
+        print(f"  --- TABLE {ti} ---")
+        for tr in re.findall(r"<tr.*?</tr>", tbl, re.IGNORECASE | re.DOTALL):
+            cells = re.findall(r"<t[hd].*?</t[hd]>", tr, re.IGNORECASE | re.DOTALL)
+            row = [re.sub(r"<[^>]+>", "", c).replace("&nbsp;", " ").strip() for c in cells]
+            if any(row):
+                print("    " + " | ".join(row))
+        print()
+
+
+# ======================================================================
+#  GOAL 1b + GOAL 2 — Tableau "ExpressOps KPIs" (#3651)
+# ======================================================================
+def decode_csv(content: bytes) -> str:
+    if content.startswith(b"\xff\xfe") or content.startswith(b"\xfe\xff"):
+        return content.decode("utf-16")
+    if b"\x00" in content[:64]:
+        try:
+            return content.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    try:
+        return content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return content.decode("latin-1", errors="replace")
+
+
+def dump_tableau(cfg: dict) -> None:
+    hr()
+    print("GOAL 1b + GOAL 2 — TABLEAU 'ExpressOps KPIs'  workbook", WORKBOOK_REPO_ID)
+    hr()
+
+    tcfg = cfg.get("tableau") or {}
+    base = (tcfg.get("base_url") or "").rstrip("/")
+    api_v = str(tcfg.get("api_version", "3.25"))
+    pat_name = tcfg.get("pat_name") or tcfg.get("token_name")
+    pat_secret = tcfg.get("pat_secret") or tcfg.get("token_secret")
+    content_url = tcfg.get("content_url", "")
+    if not base or not pat_secret:
+        print("  ERROR: tableau.base_url / tableau.pat_secret missing in config.yaml")
+        return
+    rest = f"{base}/api/{api_v}"
+
+    s = requests.Session()
+    s.verify = bool(tcfg.get("verify_ssl", False))
+    s.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
+
+    print(f"  base={base}  api=v{api_v}  token={pat_name}")
+    print("\n[1] auth/signin ...")
+    r = s.post(f"{rest}/auth/signin", data=json.dumps({"credentials": {
+        "personalAccessTokenName": pat_name,
+        "personalAccessTokenSecret": pat_secret,
+        "site": {"contentUrl": content_url},
+    }}), timeout=30)
+    print(f"  HTTP {r.status_code}")
+    if r.status_code != 200:
+        print(f"  BODY: {r.text[:500]}")
+        return
+    cr = r.json()["credentials"]
+    s.headers["X-Tableau-Auth"] = cr["token"]
+    site_id = cr["site"]["id"]
+    print(f"  OK site_id={site_id}")
+
+    summary_rows = []
+    try:
+        wb_luid = _resolve_workbook(s, rest, site_id)
+        if not wb_luid:
+            return
+
+        print("\n[3] workbook connections (data sources) ...")
+        r = s.get(f"{rest}/sites/{site_id}/workbooks/{wb_luid}/connections", timeout=60)
+        if r.status_code == 200:
+            conns = r.json().get("connections", {}).get("connection", [])
+            if isinstance(conns, dict):
+                conns = [conns]
+            for c in conns:
+                ds = c.get("datasource", {})
+                print(f"  datasource={ds.get('name')!r} luid={ds.get('id')}")
+        else:
+            print(f"  HTTP {r.status_code}: {r.text[:300]}")
+
+        print("\n[4] views ...")
+        r = s.get(f"{rest}/sites/{site_id}/workbooks/{wb_luid}/views", timeout=60)
+        views = []
+        if r.status_code == 200:
+            views = r.json().get("views", {}).get("view", [])
+            if isinstance(views, dict):
+                views = [views]
+        else:
+            print(f"  HTTP {r.status_code}: {r.text[:300]}")
+        print(f"  {len(views)} view(s)")
+
+        print("\n[5] per-view CSV export + per-row-identity analysis ...")
+        for v in views:
+            row = _dump_view(s, rest, site_id, v)
+            if row:
+                summary_rows.append(row)
+
+        _vds_recheck(s, base)
+    finally:
+        try:
+            s.post(f"{rest}/auth/signout", timeout=15)
+            print("\n[signout] OK")
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n[signout] failed: {exc!r}")
+
+    # --- GOAL 2 verdict table ---
+    hr()
+    print("GOAL 2 SUMMARY — can the overlay read per-container status from Tableau?")
+    hr()
+    print(f"  {'view':32} {'issue_key col':14} {'real keys':10} {'target_hit':11} verdict")
+    for row in summary_rows:
+        verdict = "PER-ROW OK" if (row["real_keys"] > 0 and row["has_target_hit"]) else "-"
+        print(f"  {row['name'][:32]:32} {('yes' if row['has_key'] else 'no'):14} "
+              f"{row['real_keys']:<10} {('yes' if row['has_target_hit'] else 'no'):11} {verdict}")
+    print()
+    if any(r["real_keys"] > 0 and r["has_target_hit"] for r in summary_rows):
+        print("  => At least one view exposes per-container identity + verdict.")
+        print("     Single source of truth for the overlay is REACHABLE from Tableau.")
+    else:
+        print("  => No view exposes real per-container keys next to a target-hit verdict.")
+        print("     Overlay still needs either a detail sheet added to the workbook,")
+        print("     or datasource (VDS) access — see GOAL-2 memo.")
+
+
+def _resolve_workbook(s, rest, site_id):
+    print("\n[2] locate workbook #{} ...".format(WORKBOOK_REPO_ID))
+    workbooks = []
+    page = 1
+    while True:
+        r = s.get(f"{rest}/sites/{site_id}/workbooks",
+                  params={"pageSize": 1000, "pageNumber": page}, timeout=60)
+        if r.status_code != 200:
+            print(f"  HTTP {r.status_code}: {r.text[:300]}")
+            return None
+        body = r.json()
+        batch = body.get("workbooks", {}).get("workbook", [])
+        if isinstance(batch, dict):
+            batch = [batch]
+        workbooks.extend(batch)
+        pag = body.get("pagination", {})
+        if len(workbooks) >= int(pag.get("totalAvailable", len(workbooks))) or not batch:
+            break
+        page += 1
+
+    marker = f"/workbooks/{WORKBOOK_REPO_ID}"
+    for wb in workbooks:
+        if (wb.get("webpageUrl", "").rstrip("/").endswith(marker)
+                or "expressops kpis" in wb.get("name", "").lower()):
+            print(f"  FOUND luid={wb['id']} name={wb.get('name')!r} "
+                  f"project={(wb.get('project') or {}).get('name')!r} "
+                  f"updated={wb.get('updatedAt')}")
+            return wb["id"]
+    print(f"  workbook #{WORKBOOK_REPO_ID} not found among {len(workbooks)} visible workbooks")
+    return None
+
+
+def _dump_view(s, rest, site_id, v) -> dict | None:
+    name = v.get("name", "?")
+    luid = v.get("id")
+    r = s.get(f"{rest}/sites/{site_id}/views/{luid}/data",
+              headers={"Content-Type": None, "Accept": "*/*"}, timeout=120)
+    if r.status_code != 200:
+        print(f"\n  --- view {name!r}  HTTP {r.status_code} ---")
+        print(f"      {r.text[:200]}")
+        return {"name": name, "has_key": False, "real_keys": 0, "has_target_hit": False}
+
+    text = decode_csv(r.content)
+    lines = text.splitlines()
+    if not lines:
+        print(f"\n  --- view {name!r}  (empty) ---")
+        return {"name": name, "has_key": False, "real_keys": 0, "has_target_hit": False}
+
+    header = lines[0]
+    delim = ";" if header.count(";") >= header.count(",") else ","
+    rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+    cols = rows[0] if rows else []
+    data = rows[1:]
+
+    key_idxs = [i for i, c in enumerate(cols) if ISSUE_KEY_RE.search(c)]
+    hit_idxs = [i for i, c in enumerate(cols) if TARGET_HIT_RE.search(c)]
+
+    real_keys = set()
+    star = 0
+    for drow in data:
+        for ki in key_idxs:
+            if ki < len(drow):
+                val = (drow[ki] or "").strip()
+                if val == "*":
+                    star += 1
+                elif val:
+                    real_keys.add(val)
+
+    print(f"\n  --- view {name!r}  rows={len(data)}  cols={len(cols)}  "
+          f"delim={delim!r}  bytes={len(r.content)} ---")
+    print(f"      cols: {cols}")
+    for drow in data[:MAX_ROWS_PER_VIEW]:
+        print("      " + delim.join(drow))
+    if len(data) > MAX_ROWS_PER_VIEW:
+        print(f"      ... ({len(data) - MAX_ROWS_PER_VIEW} more rows)")
+    if key_idxs:
+        print(f"      >> issue_key column(s): {[cols[i] for i in key_idxs]}  "
+              f"real_keys={len(real_keys)}  star_rows={star}")
+    if hit_idxs:
+        print(f"      >> target_hit column(s): {[cols[i] for i in hit_idxs]}")
+
+    return {
+        "name": name,
+        "has_key": bool(key_idxs),
+        "real_keys": len(real_keys),
+        "has_target_hit": bool(hit_idxs),
+    }
+
+
+def _vds_recheck(s, base) -> None:
+    """Best-effort: has the PAT's VDS access to fact_pm_npi_wc_kpi changed since 403?"""
+    print("\n[6] VDS read-metadata re-check on fact_pm_npi_wc_kpi ...")
+    endpoints = [
+        f"{base}/api/v1/vizql-data-service/read-metadata",
+        f"{base}/vizql-data-service/api/v1/read-metadata",
+    ]
+    payload = json.dumps({"datasource": {"datasourceLuid": WC_KPI_DS_LUID}})
+    for ep in endpoints:
+        try:
+            r = s.post(ep, data=payload, timeout=25)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {ep} -> ERROR {exc!r}")
+            continue
+        print(f"  {ep} -> HTTP {r.status_code}  {r.text[:180]}")
+        if r.status_code == 200:
+            print("  >> VDS ACCESS NOW OPEN — raw-row datasource query is possible.")
+            return
 
 
 def main() -> None:
-    cfg = load_config("live")
-    base = cfg.confluence_base_url
-    s = requests.Session()
-    s.headers.update({"Authorization": f"Bearer {cfg.confluence_pat}", "Accept": "application/json"})
-    s.verify = False
-
-    for label, pid in PARENTS.items():
-        print("\n" + "=" * 78)
-        print(f"{label} TREE (parent {pid})  state={get_state(s, base, pid)}")
-        print("=" * 78)
-        walk(s, base, pid, 0)
+    cfg = load_cfg()
+    dump_confluence(cfg)
+    print()
+    dump_tableau(cfg)
 
 
 if __name__ == "__main__":
