@@ -47,11 +47,16 @@ CONFIG_PATH = ROOT / "config" / "config.yaml"
 # --- targets -------------------------------------------------------------
 KPI_PAGE_ID = "550637258"          # Confluence "2026 KPI Dashboard" (space EUDEMHTM0815)
 WORKBOOK_REPO_ID = "3651"          # Tableau "ExpressOps KPIs"
-WC_KPI_DS_LUID = "2c72b33f-dca7-4f80-85b3-41220c5bc355"  # fact_pm_npi_wc_kpi
 MAX_ROWS_PER_VIEW = 150
 
 ISSUE_KEY_RE = re.compile(r"issue[_\s]?key", re.IGNORECASE)
 TARGET_HIT_RE = re.compile(r"target[_\s]?hit", re.IGNORECASE)
+# A column is an aggregated MEASURE (a number), not the raw key dimension, when
+# its caption carries an aggregation word. "Distinct count of wc_issue_key" is a
+# count — NOT the JIRA key. Only a bare dimension (e.g. "wc_issue_key") is real
+# per-row identity the overlay can join on.
+AGG_RE = re.compile(r"(count|%|\bavg\b|average|\bmin\b|\bmax\b|\bsum\b|median|attr|\bof\b)",
+                    re.IGNORECASE)
 
 
 def hr(char="=", n=78):
@@ -207,6 +212,7 @@ def dump_tableau(cfg: dict) -> None:
             return
 
         print("\n[3] workbook connections (data sources) ...")
+        datasources = []  # (name, luid) discovered live — LUIDs change on republish
         r = s.get(f"{rest}/sites/{site_id}/workbooks/{wb_luid}/connections", timeout=60)
         if r.status_code == 200:
             conns = r.json().get("connections", {}).get("connection", [])
@@ -215,6 +221,8 @@ def dump_tableau(cfg: dict) -> None:
             for c in conns:
                 ds = c.get("datasource", {})
                 print(f"  datasource={ds.get('name')!r} luid={ds.get('id')}")
+                if ds.get("id"):
+                    datasources.append((ds.get("name"), ds.get("id")))
         else:
             print(f"  HTTP {r.status_code}: {r.text[:300]}")
 
@@ -235,7 +243,7 @@ def dump_tableau(cfg: dict) -> None:
             if row:
                 summary_rows.append(row)
 
-        _vds_recheck(s, base)
+        _vds_recheck(s, base, datasources)
     finally:
         try:
             s.post(f"{rest}/auth/signout", timeout=15)
@@ -316,8 +324,12 @@ def _dump_view(s, rest, site_id, v) -> dict | None:
     cols = rows[0] if rows else []
     data = rows[1:]
 
-    key_idxs = [i for i, c in enumerate(cols) if ISSUE_KEY_RE.search(c)]
-    hit_idxs = [i for i, c in enumerate(cols) if TARGET_HIT_RE.search(c)]
+    # real identity = an issue_key column that is NOT an aggregation/measure.
+    key_idxs = [i for i, c in enumerate(cols)
+                if ISSUE_KEY_RE.search(c) and not AGG_RE.search(c)]
+    agg_key_cols = [c for c in cols if ISSUE_KEY_RE.search(c) and AGG_RE.search(c)]
+    hit_idxs = [i for i, c in enumerate(cols)
+                if TARGET_HIT_RE.search(c) and not AGG_RE.search(c)]
 
     real_keys = set()
     star = 0
@@ -338,8 +350,10 @@ def _dump_view(s, rest, site_id, v) -> dict | None:
     if len(data) > MAX_ROWS_PER_VIEW:
         print(f"      ... ({len(data) - MAX_ROWS_PER_VIEW} more rows)")
     if key_idxs:
-        print(f"      >> issue_key column(s): {[cols[i] for i in key_idxs]}  "
+        print(f"      >> RAW issue_key dimension(s): {[cols[i] for i in key_idxs]}  "
               f"real_keys={len(real_keys)}  star_rows={star}")
+    if agg_key_cols:
+        print(f"      >> (aggregated only — NOT per-row identity: {agg_key_cols})")
     if hit_idxs:
         print(f"      >> target_hit column(s): {[cols[i] for i in hit_idxs]}")
 
@@ -351,24 +365,35 @@ def _dump_view(s, rest, site_id, v) -> dict | None:
     }
 
 
-def _vds_recheck(s, base) -> None:
-    """Best-effort: has the PAT's VDS access to fact_pm_npi_wc_kpi changed since 403?"""
-    print("\n[6] VDS read-metadata re-check on fact_pm_npi_wc_kpi ...")
-    endpoints = [
-        f"{base}/api/v1/vizql-data-service/read-metadata",
-        f"{base}/vizql-data-service/api/v1/read-metadata",
-    ]
-    payload = json.dumps({"datasource": {"datasourceLuid": WC_KPI_DS_LUID}})
-    for ep in endpoints:
+def _vds_recheck(s, base, datasources) -> None:
+    """Can we read RAW per-row data from the published datasources via VizQL Data
+    Service? Tests the CURRENT LUIDs discovered from the workbook connections
+    (they change whenever a datasource is republished, so hardcoding is wrong).
+    A 200 on read-metadata means per-row access is open — true single source of
+    truth for the overlay, no workbook-owner detail sheet needed."""
+    print("\n[6] VDS read-metadata on CURRENT datasource LUIDs ...")
+    if not datasources:
+        print("  (no datasource LUIDs discovered — skipping)")
+        return
+    ep = f"{base}/api/v1/vizql-data-service/read-metadata"
+    any_open = False
+    for name, luid in datasources:
+        payload = json.dumps({"datasource": {"datasourceLuid": luid}})
         try:
             r = s.post(ep, data=payload, timeout=25)
         except Exception as exc:  # noqa: BLE001
-            print(f"  {ep} -> ERROR {exc!r}")
+            print(f"  {name} ({luid}) -> ERROR {exc!r}")
             continue
-        print(f"  {ep} -> HTTP {r.status_code}  {r.text[:180]}")
+        print(f"  {name} ({luid}) -> HTTP {r.status_code}  {r.text[:220]}")
         if r.status_code == 200:
-            print("  >> VDS ACCESS NOW OPEN — raw-row datasource query is possible.")
-            return
+            any_open = True
+    if any_open:
+        print("  >> VDS ACCESS IS OPEN — raw per-row rows are queryable. The overlay")
+        print("     can read wc_issue_key + per-phase verdicts straight from Tableau.")
+    else:
+        print("  >> VDS still not queryable (403=no permission / 400=bad request).")
+        print("     Per-row identity would need an unaggregated detail sheet in the")
+        print("     workbook, or datasource API-access granted by the owner.")
 
 
 def main() -> None:
