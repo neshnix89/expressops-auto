@@ -1,0 +1,39 @@
+{
+  "total": 2,
+  "issues": [
+    {
+      "key": "USRE-1001",
+      "fields": {
+        "summary": "SG SMT PCBA Pilot Run - Demo Container",
+        "status": {"name": "In Progress"},
+        "resolution": null,
+        "resolutiondate": null,
+        "created": "2026-06-01T08:00:00.000+0800",
+        "assignee": {"displayName": "Nesh (Demo)"},
+        "customfield_13905": {"value": "Pilot Run"},
+        "customfield_13906": {"value": "Singapore"},
+        "customfield_13904": {"value": "SMT PCBA"},
+        "customfield_13903": {"value": "NPI Request"},
+        "customfield_15800": null,
+        "customfield_13907": "PTSG-AAM4"
+      }
+    },
+    {
+      "key": "POSX-2002",
+      "fields": {
+        "summary": "Trutnov SMT PCBA Pilot Run - Demo Container",
+        "status": {"name": "In Progress"},
+        "resolution": null,
+        "resolutiondate": null,
+        "created": "2026-06-01T08:00:00.000+0200",
+        "assignee": {"displayName": "Trutnov PIC (Demo)"},
+        "customfield_13905": {"value": "Pilot Run"},
+        "customfield_13906": {"value": "Trutnov"},
+        "customfield_13904": {"value": "SMT PCBA"},
+        "customfield_13903": {"value": "NPI Request"},
+        "customfield_15800": null,
+        "customfield_13907": "PTCZ-BB12"
+      }
+    }
+  ]
+}

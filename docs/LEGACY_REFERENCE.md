@@ -165,9 +165,17 @@ them when Phase B of `to_status_check` or a KPI task is built:
 | T_TE_TechnPrep | 5 |
 | T_SMT_Build | 5 |
 | T_QM_P+L | 0 (folded into SMT window) |
-| T_Logistics | 4 (Singapore) / 4 (Trutnov) |
-| T_Documentation | 4 (Singapore) / 1 (Trutnov) — a comment in `live_kpi.py` flags `TARGETS_V5` as having `1` for both, i.e. a suspected bug |
-| T_DMR | 24 |
+| T_Logistics | 4 (Singapore) / **1 (Trutnov)** — legacy `TARGETS_V5` had 4 for both; Trutnov confirmed as 1 during the overlay migration (see below) |
+| T_Documentation | 4 (Singapore) / 1 (Trutnov) — legacy `TARGETS_V5` had `1` for both (the suspected bug); Singapore restored to 4 |
+| T_DMR | 24 (Singapore) / 21 (Trutnov) — DMR uses the container T_NPI |
+
+**Resolved in migration (`core/kpi_core.py` + `tasks/kpi_overlay`):** the live
+overlay now selects targets and holiday calendars per container by NPI Location.
+Singapore = Overall 24 / Logistics 4 / Documentation 4; Trutnov = Overall 21 /
+Logistics 1 / Documentation 1. The legacy standalone `live_kpi.py` was
+Singapore-only and hardcoded Documentation = 4 in its own `WP_CONFIG` (masking
+the `TARGETS_V5` bug); the migrated code sources every WP target from
+`TARGETS_V5` so the tables are the single source of truth.
 
 ## Regex patterns worth reusing
 

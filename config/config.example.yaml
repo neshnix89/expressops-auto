@@ -59,6 +59,9 @@ pages:
   kpi_dashboard: 560871424
   to_status_check: 572178513
   bom_scanner: 572180443
+  # KPI overlay cache: live_kpi writes kpi_cache.json as an attachment here;
+  # the Tampermonkey "JIRA KPI Overlay" userscript downloads it to draw pills.
+  kpi_overlay_cache: 572629046
   # Create a Confluence page for the MO-trigger staging table and put its
   # ID here so `--publish` knows where to write.
   mo_trigger_comment: 0
