@@ -51,9 +51,19 @@ def candidate_roots() -> list[Path]:
 
     # 4) Any extra roots passed on the command line.
     for arg in sys.argv[1:]:
+        if arg.startswith("--out"):
+            continue
         roots.append(Path(arg))
 
     return roots
+
+
+def _out_path() -> Path:
+    """Where to write the UTF-8 dump. `--out=PATH` overrides the default."""
+    for arg in sys.argv[1:]:
+        if arg.startswith("--out="):
+            return Path(arg.split("=", 1)[1])
+    return Path.cwd() / "dump_source_output.txt"
 
 
 # --- secret masking ------------------------------------------------------
@@ -185,26 +195,32 @@ def find_targets(roots: list[Path]) -> list[Path]:
 
 def main() -> int:
     roots = candidate_roots()
-    print("=" * 72)
-    print("DUMP_SOURCE — read-only legacy KPI source dumper")
-    print("Secrets are masked as ***MASKED*** before printing.")
-    print("=" * 72)
-    print("Roots searched:")
+    out_path = _out_path()
+
+    # The masked dump is written to a UTF-8 file (source files contain chars the
+    # Windows console cp1252 codec can't encode). The console gets an ASCII-only
+    # summary so it never raises UnicodeEncodeError under PowerShell redirection.
+    lines: list[str] = []  # full dump, written to out_path as UTF-8
+    lines.append("=" * 72)
+    lines.append("DUMP_SOURCE - read-only legacy KPI source dumper")
+    lines.append("Secrets are masked as ***MASKED*** before printing.")
+    lines.append("=" * 72)
+    lines.append("Roots searched:")
     for r in roots:
         try:
             exists = r.exists()
         except OSError:
             exists = False
-        print(f"  [{'x' if exists else ' '}] {r}")
-    print()
+        lines.append(f"  [{'x' if exists else ' '}] {r}")
+    lines.append("")
 
     targets = find_targets(roots)
     if not targets:
-        print("!! No live_kpi.py or kpi_core*.py found under any root above.")
-        print("!! Re-run with the correct folder, e.g.:")
-        print('     python dump_source.py "C:\\path\\to\\legacy\\scripts"')
-        # Discovery aid: list any *.py whose name mentions kpi.
-        print("\n-- Any *.py mentioning 'kpi' under the searched roots --")
+        lines.append("!! No live_kpi.py or kpi_core*.py found under any root above.")
+        lines.append("!! Re-run with the correct folder, e.g.:")
+        lines.append('     python dump_source.py "C:\\path\\to\\legacy\\scripts"')
+        lines.append("")
+        lines.append("-- Any *.py mentioning 'kpi' under the searched roots --")
         seen: set[Path] = set()
         for r in roots:
             try:
@@ -216,31 +232,55 @@ def main() -> int:
                 rp = p.resolve()
                 if rp not in seen:
                     seen.add(rp)
-                    print(f"  {p}")
+                    lines.append(f"  {p}")
+        _write_out(out_path, lines)
+        print("No live_kpi.py or kpi_core*.py found.")
+        print(f"See {out_path} for where it looked and any *kpi*.py it saw.")
         return 1
 
-    print(f"Found {len(targets)} file(s):")
+    lines.append(f"Found {len(targets)} file(s):")
     for p in targets:
-        print(f"  {p}")
-    print()
+        lines.append(f"  {p}")
+    lines.append("")
 
     for p in targets:
         try:
             raw = p.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
-            print(f"!! Could not read {p}: {e}")
+            lines.append(f"!! Could not read {p}: {e}")
             continue
         masked = mask_text(raw)
-        print()
-        print("#" * 72)
-        print(f"# FILE: {p}")
-        print(f"# ({len(raw.splitlines())} lines)")
-        print("#" * 72)
-        print(masked)
-        print(f"# END FILE: {p}")
-        print("#" * 72)
+        lines.append("")
+        lines.append("#" * 72)
+        lines.append(f"# FILE: {p}")
+        lines.append(f"# ({len(raw.splitlines())} lines)")
+        lines.append("#" * 72)
+        lines.append(masked.rstrip("\n"))
+        lines.append(f"# END FILE: {p}")
+        lines.append("#" * 72)
 
+    _write_out(out_path, lines)
+
+    # ASCII-only console summary.
+    print("=" * 60)
+    print("DUMP_SOURCE complete.")
+    print(f"Found {len(targets)} file(s):")
+    for p in targets:
+        print(f"  {p}")
+    print("")
+    print(f"Full masked dump written (UTF-8) to:")
+    print(f"  {out_path}")
+    print("")
+    print("Open that file and paste its contents back. e.g.:")
+    print(f"  notepad \"{out_path}\"")
     return 0
+
+
+def _write_out(out_path: Path, lines: list[str]) -> None:
+    try:
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as e:
+        print(f"!! Could not write {out_path}: {e}")
 
 
 if __name__ == "__main__":
