@@ -46,12 +46,19 @@ from tasks.costing_hs_code_trigger.logic import (
     ACTION_REMIND,
     ACTION_TRIGGER,
     Decision,
+    apply_baseline,
     build_people,
     decide,
 )
 
 TASK_NAME = "costing_hs_code_trigger"
 MOCK_DIR = TASK_DIR / "mock_data"
+
+# Go-live baseline: keys of containers that were ALREADY ready when the
+# automation was first switched on. They are skipped forever so the operator
+# never retroactively nags an existing backlog. Lives under the gitignored
+# outputs/ dir so it persists across `sync_now.bat` pulls (which keep outputs).
+BASELINE_PATH = PROJECT_ROOT / "outputs" / f"{TASK_NAME}_baseline.json"
 
 # Same scope the other SG SMT PCBA tasks use — a single source of truth for
 # "which containers are in play".
@@ -148,6 +155,28 @@ def resolve_container(
 # ── Orchestration ────────────────────────────────────────────────────
 
 
+def load_baseline(logger) -> set[str]:
+    """Read the go-live baseline key set (empty when the file is absent)."""
+    if not BASELINE_PATH.exists():
+        return set()
+    try:
+        with open(BASELINE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("could not read baseline %s: %s", BASELINE_PATH, exc)
+        return set()
+    keys = data.get("keys", []) if isinstance(data, dict) else data
+    return {str(k) for k in keys if k}
+
+
+def save_baseline(keys: set[str], logger) -> None:
+    """Persist the baseline key set to the gitignored outputs/ dir."""
+    BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(BASELINE_PATH, "w", encoding="utf-8") as f:
+        json.dump({"keys": sorted(keys)}, f, indent=2)
+    logger.info("baseline saved: %d key(s) -> %s", len(keys), BASELINE_PATH)
+
+
 def _parse_today(value: str | None) -> date:
     if not value:
         return date.today()
@@ -192,13 +221,20 @@ def _post(
     return True
 
 
-def run(mode: str, dry_run: bool, today_str: str | None, only: str | None) -> int:
+def run(
+    mode: str,
+    dry_run: bool,
+    today_str: str | None,
+    only: str | None,
+    seed_baseline: bool = False,
+) -> int:
     logger = get_logger(TASK_NAME)
     config = load_config(mode_override=mode)
     today = _parse_today(today_str)
     logger.info(
-        "run: %s mode (dry_run=%s, today=%s%s)",
-        config.mode, dry_run, today, f", only={only}" if only else "",
+        "run: %s mode (dry_run=%s, today=%s, seed_baseline=%s%s)",
+        config.mode, dry_run, today, seed_baseline,
+        f", only={only}" if only else "",
     )
 
     task_config = config.get(TASK_NAME) or {}
@@ -214,7 +250,13 @@ def run(mode: str, dry_run: bool, today_str: str | None, only: str | None) -> in
     reminder_marker = str(task_config.get("reminder_marker") or "").strip()
 
     people = build_people(task_config)
-    _warn_blank_usernames(people, logger)
+    if not seed_baseline:
+        _warn_blank_usernames(people, logger)
+
+    # Normal runs honour the go-live baseline; seeding builds it.
+    baseline = set() if seed_baseline else load_baseline(logger)
+    if not seed_baseline:
+        logger.info("baseline: %d container(s) will be skipped", len(baseline))
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
 
@@ -224,7 +266,13 @@ def run(mode: str, dry_run: bool, today_str: str | None, only: str | None) -> in
         if not keys:
             logger.warning("--only %s not present in scanned containers", only)
 
-    counts = {"trigger": 0, "remind": 0, "waiting": 0, "complete": 0, "not_ready": 0}
+    if seed_baseline:
+        return _run_seed(
+            jira, keys, people, task_config, today, logger,
+        )
+
+    counts = {"trigger": 0, "remind": 0, "waiting": 0,
+              "complete": 0, "not_ready": 0}
     rows: list[tuple[str, Decision, bool]] = []
 
     for key in keys:
@@ -237,6 +285,8 @@ def run(mode: str, dry_run: bool, today_str: str | None, only: str | None) -> in
             issue=issue, wps=wps, people=people,
             task_config=task_config, today=today,
         )
+        # Suppress the initial trigger for pre-existing backlog containers.
+        decision = apply_baseline(decision, baseline)
         counts[decision.state] = counts.get(decision.state, 0) + 1
 
         posted = False
@@ -247,6 +297,48 @@ def run(mode: str, dry_run: bool, today_str: str | None, only: str | None) -> in
         rows.append((key, decision, posted))
 
     _print_summary(rows, counts, dry_run, today)
+    return 0
+
+
+def _run_seed(
+    jira: JiraClient,
+    keys: list[str],
+    people,
+    task_config: dict[str, Any],
+    today: date,
+    logger,
+) -> int:
+    """
+    Seed the go-live baseline: record every container that WOULD trigger right
+    now (so it is never nagged) and post nothing. Unions with any existing
+    baseline so re-running is safe. This is the one-time switch-on step.
+    """
+    existing = load_baseline(logger)
+    would_trigger: set[str] = set()
+
+    for key in keys:
+        issue = resolve_container(jira, key, logger)
+        if issue is None:
+            continue
+        wps = fetch_child_wps(jira, key, logger)
+        decision = decide(
+            issue=issue, wps=wps, people=people,
+            task_config=task_config, today=today,
+        )
+        if decision.action == ACTION_TRIGGER:
+            would_trigger.add(key)
+
+    merged = existing | would_trigger
+    save_baseline(merged, logger)
+
+    new_count = len(would_trigger - existing)
+    print("=" * 78)
+    print(f"Baseline seeded — {len(would_trigger)} container(s) currently ready "
+          f"marked as backlog (skip forever).")
+    print(f"  new this run: {new_count}   total in baseline: {len(merged)}")
+    print(f"  file: {BASELINE_PATH}")
+    print("These containers will NOT be triggered. Only containers that become "
+          "ready from now on will be.")
     return 0
 
 
@@ -305,6 +397,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--only", metavar="KEY", default=None,
         help="Evaluate a single container key only.",
     )
+    parser.add_argument(
+        "--seed-baseline", action="store_true",
+        help="One-time switch-on: record every currently-ready container as "
+             "backlog to be skipped forever, and post nothing. Run this once "
+             "(with --live) so pre-existing containers are never retroactively "
+             "nagged; afterwards only newly-ready containers trigger.",
+    )
     return parser
 
 
@@ -316,6 +415,7 @@ def main() -> int:
             dry_run=args.dry_run,
             today_str=args.today,
             only=args.only,
+            seed_baseline=args.seed_baseline,
         )
     except FriendlyError as exc:
         return handle_friendly(exc)
