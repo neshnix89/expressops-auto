@@ -1,0 +1,10 @@
+{
+  "issues": [
+    { "key": "NPIOTHER-9001" },
+    { "key": "USRE-9002" },
+    { "key": "USRE-9003" },
+    { "key": "POSX-9004" },
+    { "key": "POSX-9005" },
+    { "key": "SILED2-9006" }
+  ]
+}

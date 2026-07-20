@@ -1,0 +1,9 @@
+{
+  "issues": [
+    { "key": "USRE-9003-1", "fields": { "summary": "Material", "status": { "name": "Closed" }, "resolution": { "name": "Done" } } },
+    { "key": "USRE-9003-2", "fields": { "summary": "PCB", "status": { "name": "In Progress" }, "resolution": null } },
+    { "key": "USRE-9003-3", "fields": { "summary": "Routing - TechnPrep", "status": { "name": "Closed" }, "resolution": { "name": "Done" } } },
+    { "key": "USRE-9003-4", "fields": { "summary": "PE - TechnPrep", "status": { "name": "Closed" }, "resolution": { "name": "Done" } } },
+    { "key": "USRE-9003-5", "fields": { "summary": "TE - TechnPrep", "status": { "name": "Closed" }, "resolution": { "name": "Won't Do" } } }
+  ]
+}

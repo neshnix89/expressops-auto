@@ -1,0 +1,16 @@
+{
+  "key": "POSX-9004",
+  "fields": {
+    "summary": "Triggered Fri — reminder not yet due (< 2 working days)",
+    "customfield_13905": { "value": "DMR - Direct manufacturing release" },
+    "comment": {
+      "comments": [
+        {
+          "author": { "name": "svc.automation", "displayName": "ExpressOPS Automation" },
+          "created": "2026-07-17T09:05:00.000+0800",
+          "body": "[~kloo], [~yuhuang] Please update costing for all the PNs in the container, including the PN that is not running.\n[~fpangilina] Please update HS code.\n\nKindly reply on this ticket once the update is done.\n\n#Ref: CostHS-Trigger#"
+        }
+      ]
+    }
+  }
+}

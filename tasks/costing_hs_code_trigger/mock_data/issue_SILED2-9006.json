@@ -1,0 +1,31 @@
+{
+  "key": "SILED2-9006",
+  "fields": {
+    "summary": "Triggered Wed — all three replied Done; complete, no action",
+    "customfield_13905": { "value": "DMR - Direct manufacturing release" },
+    "comment": {
+      "comments": [
+        {
+          "author": { "name": "svc.automation", "displayName": "ExpressOPS Automation" },
+          "created": "2026-07-15T09:05:00.000+0800",
+          "body": "[~kloo], [~yuhuang] Please update costing for all the PNs in the container, including the PN that is not running.\n[~fpangilina] Please update HS code.\n\nKindly reply on this ticket once the update is done.\n\n#Ref: CostHS-Trigger#"
+        },
+        {
+          "author": { "name": "kloo", "displayName": "Loo King Lun" },
+          "created": "2026-07-16T10:00:00.000+0800",
+          "body": "The product costing is updated. Thank you."
+        },
+        {
+          "author": { "name": "yuhuang", "displayName": "Yu Huang" },
+          "created": "2026-07-17T11:30:00.000+0800",
+          "body": "Costing updated for all PNs."
+        },
+        {
+          "author": { "name": "fpangilina", "displayName": "F. Pangilina" },
+          "created": "2026-07-17T16:45:00.000+0800",
+          "body": "HS code has been updated in the system."
+        }
+      ]
+    }
+  }
+}
