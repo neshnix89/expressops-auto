@@ -32,32 +32,35 @@ if exist "%DEV%\scripts\sync_dev_from_github.py" (
     goto done
 )
 
-echo [first run / py not present - using PowerShell fallback]
+echo [first run - download via Python urllib (proxy-aware), unzip via PowerShell]
+set "TMPD=%TEMP%\eo_syncdev"
+if exist "%TMPD%" rmdir /s /q "%TMPD%"
+mkdir "%TMPD%"
+echo [1/3] downloading branch zip...
+"%PY%" -c "import urllib.request; urllib.request.urlretrieve('%ZIPURL%', r'%TMPD%\branch.zip')"
+if errorlevel 1 goto fail
+echo [2/3] extracting + [3/3] copying over dev dir (no deletes)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference='Stop';" ^
-  "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
-  "$wc=New-Object System.Net.WebClient;" ^
-  "$wc.Proxy=[System.Net.WebRequest]::GetSystemWebProxy();" ^
-  "$wc.Proxy.Credentials=[System.Net.CredentialCache]::DefaultNetworkCredentials;" ^
-  "$tmp=Join-Path $env:TEMP ('eo_syncdev_'+[guid]::NewGuid().ToString('N'));" ^
-  "New-Item -ItemType Directory -Path $tmp | Out-Null;" ^
-  "$zip=Join-Path $tmp 'branch.zip';" ^
-  "Write-Host '[1/3] downloading...';" ^
-  "$wc.DownloadFile('%ZIPURL%',$zip);" ^
-  "Write-Host '[2/3] extracting...';" ^
-  "Expand-Archive -Path $zip -DestinationPath $tmp -Force;" ^
-  "$src=(Get-ChildItem -Path $tmp -Directory | Select-Object -First 1).FullName;" ^
-  "Write-Host '[3/3] copying over dev dir (no deletes)...';" ^
+  "Expand-Archive -Path '%TMPD%\branch.zip' -DestinationPath '%TMPD%' -Force;" ^
+  "$src=(Get-ChildItem -Path '%TMPD%' -Directory | Select-Object -First 1).FullName;" ^
   "New-Item -ItemType Directory -Path '%DEV%' -Force | Out-Null;" ^
   "Copy-Item -Path (Join-Path $src '*') -Destination '%DEV%' -Recurse -Force;" ^
-  "Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue;" ^
   "Write-Host 'SYNC DEV OK - config.yaml and other local-only files left untouched.'"
+if errorlevel 1 goto fail
+rmdir /s /q "%TMPD%"
+goto done
+
+:fail
+echo.
+echo [ERROR] Dev sync failed - check network / proxy and try again.
+goto end
 
 :done
-if errorlevel 1 (
-    echo.
-    echo [ERROR] Dev sync failed - check network / proxy and try again.
-)
+echo.
+echo Done.
+
+:end
 echo.
 pause
 endlocal
