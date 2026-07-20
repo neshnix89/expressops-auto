@@ -1,0 +1,26 @@
+{
+  "key": "POSX-9005",
+  "fields": {
+    "summary": "Triggered Wed — reminder due; 1 costing done, others outstanding",
+    "customfield_13905": { "value": "DMR - Direct manufacturing release" },
+    "comment": {
+      "comments": [
+        {
+          "author": { "name": "svc.automation", "displayName": "ExpressOPS Automation" },
+          "created": "2026-07-15T09:05:00.000+0800",
+          "body": "[~kloo], [~yuhuang] Please update costing for all the PNs in the container, including the PN that is not running.\n[~fpangilina] Please update HS code.\n\nKindly reply on this ticket once the update is done.\n\n#Ref: CostHS-Trigger#"
+        },
+        {
+          "author": { "name": "kloo", "displayName": "Loo King Lun" },
+          "created": "2026-07-16T14:20:00.000+0800",
+          "body": "Hi Wei Siang,\n\nThe product costing is updated.\n\nThank you.\n\nBest regards,\nLoo King Lun"
+        },
+        {
+          "author": { "name": "yuhuang", "displayName": "Yu Huang" },
+          "created": "2026-07-16T15:00:00.000+0800",
+          "body": "Not done yet, waiting on supplier quote for the non-running PN."
+        }
+      ]
+    }
+  }
+}

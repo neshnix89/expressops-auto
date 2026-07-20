@@ -87,3 +87,39 @@ mo_trigger_comment:
     - username: ""
       display: "Ng Ker Cheng Hazel"
   duplicate_marker: "#Ref: MO-Trigger#"
+
+# Costing + HS Code trigger/reminder loop (tasks/costing_hs_code_trigger)
+# Scheduled task: posts one comment tagging the 2 costing people + the HS Code
+# person when a container is ready (DMR → immediately; others → 5 prerequisite
+# WPs Done/Won't Do), then re-tags whoever is still outstanding every N working
+# days until each replies with a done-keyword. Usernames are the JIRA logins
+# used for [~username] mentions AND for detecting each person's "Done" reply —
+# they MUST be filled in for the reminder loop to converge.
+costing_hs_code_trigger:
+  costing_people:
+    - username: "kloo"                        # JIRA login (used for [~kloo] mention + done detection)
+      display: "Loo King Lun"
+    - username: "yuhuang"                      # JIRA login
+      display: "Yu Huang"                      # display is cosmetic/log fallback — correct if wrong
+  hs_code_person:
+    username: "fpangilina"                     # JIRA login
+    display: "F. Pangilina"                    # correct if wrong
+  ready_resolutions: ["Done", "Acknowledged", "Won't Do"]  # prerequisite-WP resolutions that count as ready (matches mo_trigger_comment)
+  # A person's track auto-closes when they reply with one of these keywords
+  # (e.g. "The product costing is updated." matches "updated").
+  done_keywords: ["done", "updated", "completed"]
+  negation_guards: ["not done", "no update", "pending"]
+  reminder_interval_working_days: 2
+  trigger_marker: "#Ref: CostHS-Trigger#"    # hidden footer on the initial comment
+  reminder_marker: "#Ref: CostHS-Reminder#"  # hidden footer on reminders
+  messages:
+    trigger: |
+      {costing_mentions} Please update costing for all the PNs in the container, including the PN that is not running.
+      {hs_mention} Please update HS code.
+
+      Kindly reply on this ticket once the update is done.
+    reminder: |
+      Reminder — the following updates are still pending:
+      {outstanding_lines}
+
+      Kindly update and reply on this ticket once done.

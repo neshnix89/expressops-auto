@@ -1,0 +1,8 @@
+{
+  "key": "NPIOTHER-9001",
+  "fields": {
+    "summary": "DMR container — direct manufacturing release, no WPs",
+    "customfield_13905": { "value": "DMR - Direct manufacturing release" },
+    "comment": { "comments": [] }
+  }
+}
