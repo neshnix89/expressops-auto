@@ -1,0 +1,11 @@
+{
+  "issues": [
+    {
+      "key": "USRE-1234",
+      "fields": {
+        "summary": "PCBA S M30 15-UR NPI Container"
+      }
+    }
+  ],
+  "total": 1
+}

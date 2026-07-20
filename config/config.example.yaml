@@ -50,6 +50,22 @@ webex:
   # Add the bot to each target space, then run discover_webex_rooms.py to get roomIds.
   bot_token: "YOUR_WEBEX_BOT_TOKEN"
 
+# MO Ref-order-no monitor (tasks/mo_ref_order_monitor)
+# Polls M3 MWOHED_AP.VHRORN per active MO and maintains the container's
+# MO BUILD STATUS table + working-hours dwell summary; notifies Webex on change.
+mo_ref_order_monitor:
+  username: "ExpressOPS MO Monitor"        # stamped on the status table footer
+  # Container universe (inherited from the Excel->Jira tool it replaces).
+  jql: 'issue in relation("filter=25423", "Project Parent", Tasks, Deviations, level1) AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore" ORDER BY created ASC'
+  # How MO numbers are recognised inside container comments (M3 MO = 10 digits, 70xxxxxxxx).
+  mo_number_regex: '\b(70\d{8})\b'
+  # Per-MO state/history lives here (survives sync; keep out of the zip sync path).
+  state_dir: "outputs/mo_ref_order_monitor_state"
+  webex:
+    enabled: false                         # flip to true once bot + rooms exist
+    default_room_id: ""                    # fallback room when a marker isn't mapped
+    routing: {}                            # VHRORN value -> Webex roomId, e.g. { QM: "ROOMID" }
+
 # Anthropic API (for AI-powered analysis)
 anthropic:
   api_key: "YOUR_ANTHROPIC_API_KEY"

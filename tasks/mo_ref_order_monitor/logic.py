@@ -274,7 +274,7 @@ def render_dwell(state: dict) -> str:
     lines = [
         f"{DWELL_PREFIX}{mo}",
         "_Working hours only (08:00-17:00, Mon-Fri, excl. SG public holidays). "
-        "'2d 4h' = 2 working days, 4 working hours total._",
+        "'2d, 4h' = 2 working days, 4 working hours total._",
         "||Stage||From||To||Days||Daily working hrs||Total||",
     ]
     grand_by_day: dict[str, float] = {}
@@ -286,10 +286,10 @@ def render_dwell(state: dict) -> str:
                            for day, sec in sorted(by_day.items())) or "—"
         days = len(by_day)
         lines.append(f"|{r['marker']}|{fmt(r['start'])}|{fmt(r['end'])}|"
-                     f"{days}|{daily}|{days}d {fmt_hours(r['work_seconds'])}|")
+                     f"{days}|{daily}|{days}d, {fmt_hours(r['work_seconds'])}|")
     g_days = len(grand_by_day)
     g_secs = sum(grand_by_day.values())
-    lines.append(f"|*Total*| | |*{g_days}*| |*{g_days}d {fmt_hours(g_secs)}*|")
+    lines.append(f"|*Total*| | |*{g_days}*| |*{g_days}d, {fmt_hours(g_secs)}*|")
     return "\n".join(lines) + "\n"
 
 
