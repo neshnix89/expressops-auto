@@ -88,12 +88,17 @@ MO `7003904788` from the screenshot.
 - [ ] **ODBC vs H5 decision** — if Ref order no is NOT in the MO-header table, fall
       back to H5 PMS100 discovery (reuse `m3_h5_client.py` session→generic.do→XML pattern).
 
-Open questions for the user (not code-discoverable):
-- [ ] **Webex routing rules** — which Ref-order-no value → which Webex group?
-      Need the group list + API (Webex bot token / incoming-webhook URLs).
-- [ ] **How does an MO enter the watch list?** All MOs mentioned in open SG SMT PCBA
-      container comments? A dedicated field? A schedule file? (Excel→Jira got MOs from
-      the daily sheet; this tool needs a live source of "which MOs are active".)
+Decisions made:
+- [x] **MO watch list = scan container comments** (option 1a). MOs are discovered by
+      scanning open SG SMT PCBA container comments for MO numbers (reuses the existing
+      MO→container bridge; no new input source). An MO is watched continuously — even
+      after status hits 80/90 — and only dropped when its JIRA container is closed.
+- [x] **Webex = bot token** (single credential, route to any space by `roomId`). Run
+      `discover_webex_rooms.py` to enumerate the bot's spaces → build the value→roomId map.
+
+Still open:
+- [ ] **Webex routing rules** — which Ref-order-no value → which `roomId`? Needs the bot
+      token + the room list from discovery + the value→group mapping from the user.
 - [ ] **`Day` column semantics** with 15-min polling — keep one row per calendar day
       (upsert, current behaviour) or one row per Ref-order-no change? (Affects table shape.)
 

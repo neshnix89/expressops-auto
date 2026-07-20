@@ -43,6 +43,13 @@ tableau:
   content_url: ""          # default site
   verify_ssl: false
 
+# Webex (Cisco public cloud — webexapis.com, independent of corp network)
+# Used by mo_ref_order_monitor to notify build-progress groups.
+webex:
+  # Bot access token from developer.webex.com -> My Apps -> Create Bot.
+  # Add the bot to each target space, then run discover_webex_rooms.py to get roomIds.
+  bot_token: "YOUR_WEBEX_BOT_TOKEN"
+
 # Anthropic API (for AI-powered analysis)
 anthropic:
   api_key: "YOUR_ANTHROPIC_API_KEY"
