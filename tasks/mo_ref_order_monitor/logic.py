@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from core.calendar import SG_HOLIDAYS, business_seconds, format_working
+from core.calendar import SG_HOLIDAYS, business_hours_by_day, fmt_hours
 
 # MO status >= this counts as "closed" for publishing (80 or 90). Below it the
 # MO is active; a drop back below it is a re-open.
@@ -105,18 +105,20 @@ def _touch_day(state: dict, day_iso: str, seed_marker: str | None) -> dict:
 
 def _close_stage(state: dict, end: datetime,
                  holidays: set | None = None) -> None:
-    """Move the open stage into history with its working-hours dwell."""
+    """Move the open stage into history with its per-working-day dwell."""
     marker = state.get("current_marker")
     start_iso = state.get("current_marker_since")
     if not marker or not start_iso:
         return
     start = datetime.fromisoformat(start_iso)
-    ws = business_seconds(start, end, holidays if holidays is not None else SG_HOLIDAYS)
+    by_day = business_hours_by_day(
+        start, end, holidays if holidays is not None else SG_HOLIDAYS)
     state.setdefault("history", []).append({
         "marker": marker,
         "start": start_iso,
         "end": end.isoformat(),
-        "work_seconds": ws,
+        "by_day": by_day,                        # {'YYYY-MM-DD': seconds}
+        "work_seconds": sum(by_day.values()),    # total working seconds
     })
 
 
@@ -256,7 +258,11 @@ def render_status_table(state: dict, username: str, timestamp: str) -> str:
 
 
 def render_dwell(state: dict) -> str:
-    """Working-hours dwell per stage, from state['history']."""
+    """
+    Per-stage dwell from state['history']: distinct working days, the daily
+    working-hours breakdown, and the stage total ("{days}d {hours}h" = that
+    many working days and that many total working hours).
+    """
     rows = list(state.get("history", []))
     if not rows:
         return ""
@@ -267,15 +273,23 @@ def render_dwell(state: dict) -> str:
 
     lines = [
         f"{DWELL_PREFIX}{mo}",
-        "_Working hours 08:00-17:00, Mon-Fri, excl. SG public holidays. 1d = 9 wh._",
-        "||Stage||From||To||Working time||",
+        "_Working hours only (08:00-17:00, Mon-Fri, excl. SG public holidays). "
+        "'2d 4h' = 2 working days, 4 working hours total._",
+        "||Stage||From||To||Days||Daily working hrs||Total||",
     ]
-    total = 0.0
+    grand_by_day: dict[str, float] = {}
     for r in rows:
-        total += r["work_seconds"]
+        by_day = r.get("by_day", {})
+        for k, v in by_day.items():
+            grand_by_day[k] = grand_by_day.get(k, 0.0) + v
+        daily = " · ".join(f"{_day_disp(day)} {fmt_hours(sec)}"
+                           for day, sec in sorted(by_day.items())) or "—"
+        days = len(by_day)
         lines.append(f"|{r['marker']}|{fmt(r['start'])}|{fmt(r['end'])}|"
-                     f"{format_working(r['work_seconds'])}|")
-    lines.append(f"|*Total*| | |*{format_working(total)}*|")
+                     f"{days}|{daily}|{days}d {fmt_hours(r['work_seconds'])}|")
+    g_days = len(grand_by_day)
+    g_secs = sum(grand_by_day.values())
+    lines.append(f"|*Total*| | |*{g_days}*| |*{g_days}d {fmt_hours(g_secs)}*|")
     return "\n".join(lines) + "\n"
 
 

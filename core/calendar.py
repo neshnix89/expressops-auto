@@ -78,20 +78,39 @@ def business_seconds(start: datetime, end: datetime,
     return total
 
 
-def format_working(seconds: float) -> str:
+def business_hours_by_day(start: datetime, end: datetime,
+                          holidays: set[date] | None = None,
+                          day_start: time = WORK_DAY_START,
+                          day_end: time = WORK_DAY_END) -> dict[str, float]:
     """
-    Working-hours duration as days+hours, where 1 day = 9 working hours.
-    e.g. 4h -> '4h', 10 working hours -> '1d 1h', 24 -> '2d 6h'.
+    Break the working-hours overlap of [start, end] into a per-working-day map
+    {'YYYY-MM-DD': seconds}, including only days that actually accrue > 0
+    seconds inside the window. Time outside the window / on weekends /
+    holidays is excluded (so a stage that only ran after 17:00 yields {}).
+
+    This is the basis for the dwell metric: number of distinct days = len(map),
+    total working hours = sum(values).
     """
-    wh = max(0.0, seconds) / 3600.0
-    wd = int(wh // WORK_HOURS_PER_DAY)
-    rem = wh - wd * WORK_HOURS_PER_DAY
+    out: dict[str, float] = {}
+    if end <= start:
+        return out
+    d = start.date()
+    last = end.date()
+    while d <= last:
+        if is_working_day(d, holidays):
+            ws = datetime.combine(d, day_start)
+            we = datetime.combine(d, day_end)
+            lo = max(start, ws)
+            hi = min(end, we)
+            if hi > lo:
+                out[d.isoformat()] = (hi - lo).total_seconds()
+        d += timedelta(days=1)
+    return out
 
-    def _h(x: float) -> str:
-        return f"{x:.1f}h".replace(".0h", "h")
 
-    if wd and rem >= 0.05:
-        return f"{wd}d {_h(rem)}"
-    if wd:
-        return f"{wd}d"
-    return _h(rem)
+def fmt_hours(seconds: float) -> str:
+    """Compact hours label: 3600 -> '1h', 12600 -> '3.5h'."""
+    h = max(0.0, seconds) / 3600.0
+    if abs(h - round(h)) < 0.05:
+        return f"{int(round(h))}h"
+    return f"{h:.1f}h"

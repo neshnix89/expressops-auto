@@ -112,9 +112,12 @@ Confirmed with user:
       stage, how many times VHRORN changed that day, and the ordered stages seen.
       One row per working/calendar day; first poll of a new day writes a heartbeat row.
       Table is regenerated from authoritative poller state each write (no row parsing).
-- [x] **Dwell = WORKING HOURS** — 08:00-17:00, Mon-Fri, excl. SG public holidays
-      (`core/calendar.py`). 1 working day = 9 working hours. Time outside the window /
-      on weekends / holidays does not accrue.
+- [x] **Dwell = WORKING HOURS, tracked per day** — 08:00-17:00, Mon-Fri, excl. SG
+      public holidays (`core/calendar.py`). Each stage reports **distinct working
+      days touched** + **total working hours**, with the daily hour breakdown shown
+      (e.g. AOI = "2d 4h": 13-Jul 3h · 14-Jul 1h). Time outside 08:00-17:00, on
+      weekends, or on holidays does not accrue — even when production works after
+      hours. "Nd Mh" = N working days, M total working hours (NOT a 9h conversion).
 
 Still open (minor):
 - [ ] **PIC column source** — Excel supplied PIC per row; M3 has no direct equivalent.
