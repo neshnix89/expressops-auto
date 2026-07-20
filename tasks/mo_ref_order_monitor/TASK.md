@@ -107,10 +107,14 @@ Confirmed with user:
 - [x] **Tracked process marker = `VHRORN` only** (the "QM" text). `VHRORL`/`VHRORC`
       are ignored. `VHRORN` is the change-detection value, the dwell "stage" identity,
       and the Webex routing key.
-- [x] **Table shape = per-day row** (same as Excel→Jira `MO BUILD STATUS` format):
-      one row per calendar day, overwritten intraday with the latest stage; first run
-      of each day writes a heartbeat row even if unchanged. Fine granularity lives in
-      Webex-on-change + the dwell summary, not in the table shape.
+- [x] **Table shape = per-day summary row** with new columns:
+      `||Day||Ref Order No||# Chg||Stages that day||` — each day shows the end-of-day
+      stage, how many times VHRORN changed that day, and the ordered stages seen.
+      One row per working/calendar day; first poll of a new day writes a heartbeat row.
+      Table is regenerated from authoritative poller state each write (no row parsing).
+- [x] **Dwell = WORKING HOURS** — 08:00-17:00, Mon-Fri, excl. SG public holidays
+      (`core/calendar.py`). 1 working day = 9 working hours. Time outside the window /
+      on weekends / holidays does not accrue.
 
 Still open (minor):
 - [ ] **PIC column source** — Excel supplied PIC per row; M3 has no direct equivalent.
