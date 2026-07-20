@@ -103,11 +103,18 @@ Key consequences:
 - **Re-open detection:** `VHWHST` is the live status; `VHWHHS` holds the highest ever.
   If `VHWHST` drops below 80 while `VHWHHS` >= 80, the MO was re-opened → resume publishing.
 
-Still to confirm with the user (not code-discoverable):
-- [ ] **Which Ref-order-no sub-field(s) are the tracked process marker?** The value the
-      production team edits each time a process completes — is it `VHRORN` (the "QM" text)
-      alone, `VHRORN`+`VHRORL` together ("QM 2902"), or the full `VHRORC/VHRORN/VHRORL`?
-      This defines change-detection, the dwell "stage" identity, and Webex routing keys.
+Confirmed with user:
+- [x] **Tracked process marker = `VHRORN` only** (the "QM" text). `VHRORL`/`VHRORC`
+      are ignored. `VHRORN` is the change-detection value, the dwell "stage" identity,
+      and the Webex routing key.
+- [x] **Table shape = per-day row** (same as Excel→Jira `MO BUILD STATUS` format):
+      one row per calendar day, overwritten intraday with the latest stage; first run
+      of each day writes a heartbeat row even if unchanged. Fine granularity lives in
+      Webex-on-change + the dwell summary, not in the table shape.
+
+Still open (minor):
+- [ ] **PIC column source** — Excel supplied PIC per row; M3 has no direct equivalent.
+      Default to `VHRESP` (responsible, e.g. "MP-3459") for now; confirm/replace later.
 
 Decisions made:
 - [x] **MO watch list = scan container comments** (option 1a). MOs are discovered by
