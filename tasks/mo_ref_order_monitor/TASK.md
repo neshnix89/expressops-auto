@@ -72,21 +72,42 @@ Keep these identical so existing containers stay consistent:
 
 ---
 
-## Discovery Notes — resolve BEFORE coding the M3 read
+## Discovery Notes — M3 CONFIRMED (discover_mo_header.py, MO 7003904788, 2026-07)
 
-Run `discover_mo_header.py` (read-only) on the company laptop via Relay. It targets
-MO `7003904788` from the screenshot.
+**Decision: ODBC path confirmed. No H5 scraping needed.** Table
+`PFODS.MWOHED_AP` (123 cols; `MWOHED` also exists with 131) holds everything.
 
-- [ ] **M3 MO-header table** — confirm which of `MWOHED_AP` / `MWOHED` / other exists
-      in `PFODS`.
-- [ ] **Ref order no columns** — screenshot shows three sub-fields `0 | QM | 2902`.
-      Standard M3 reference-order structure is category / number / line
-      (`VHRORC` / `VHRORN` / `VHRORL`?). Confirm exact columns + which sub-field
-      production actually updates as the process marker.
-- [ ] **MO status column** — the "90" in the header (`VHWHST`? `VHWMST`?). Confirm.
-- [ ] **MO-number column** — for the per-MO lookup (`VHMFNO`?). Confirm + trimming/padding.
-- [ ] **ODBC vs H5 decision** — if Ref order no is NOT in the MO-header table, fall
-      back to H5 PMS100 discovery (reuse `m3_h5_client.py` session→generic.do→XML pattern).
+Confirmed columns (VH-prefixed, verified against the P1 screenshot):
+
+| Column | Meaning | Sample |
+|--------|---------|--------|
+| `VHMFNO` | MO number (lookup key) | `7003904788` |
+| `VHPRNO` | Product number | `70209808` |
+| `VHWHST` | **MO status — the 80/90 gate** | `90` |
+| `VHWHHS` | Highest status ever reached (→ positive re-open detection) | `90` |
+| `VHWMST` | Material status (NOT the gate) | `99` |
+| `VHRORC` | Ref order **category** (box 1) | `0` |
+| `VHRORN` | Ref order **number** (box 2 — the highlighted process marker) | `QM` |
+| `VHRORL` | Ref order **line** (box 3) | `2902` |
+| `VHORTY` | Order type | `SPI` |
+| `VHFACI` | Facility | `MF1` |
+| `VHRESP` | Responsible | `MP-3459` |
+| `VHTXT2` | Order text (free) | `Thinesh PR NEXPERIA … (#021357)` |
+| `VHLMDT` / `VHCHNO` / `VHCHID` | Last-modified date / change# / changed-by | `2026-07-17` / `9` / `PECKCHOO` |
+
+Key consequences:
+- **No per-field change history in M3.** `VHLMDT`/`VHCHNO` only flag that the header
+  changed at all — not that Ref order no specifically advanced. → The poller MUST build
+  its own history (record value+timestamp, close prior stage on change). Dwell time is
+  ours to compute.
+- **Re-open detection:** `VHWHST` is the live status; `VHWHHS` holds the highest ever.
+  If `VHWHST` drops below 80 while `VHWHHS` >= 80, the MO was re-opened → resume publishing.
+
+Still to confirm with the user (not code-discoverable):
+- [ ] **Which Ref-order-no sub-field(s) are the tracked process marker?** The value the
+      production team edits each time a process completes — is it `VHRORN` (the "QM" text)
+      alone, `VHRORN`+`VHRORL` together ("QM 2902"), or the full `VHRORC/VHRORN/VHRORL`?
+      This defines change-detection, the dwell "stage" identity, and Webex routing keys.
 
 Decisions made:
 - [x] **MO watch list = scan container comments** (option 1a). MOs are discovered by
@@ -112,10 +133,10 @@ Still open:
 | resolution | (system) | Container closed → abandon MO |
 | description | (system) | Write target (MO BUILD STATUS table) |
 
-### M3 Tables
+### M3 Tables (CONFIRMED)
 | Table | Key Columns | Purpose |
 |-------|-------------|---------|
-| MWOHED(_AP)? | VHMFNO?, VHRORC/VHRORN/VHRORL?, VHWHST? | **TBD by discovery** — MO#, Ref order no, MO status |
+| `PFODS.MWOHED_AP` | `VHMFNO` (MO#), `VHWHST` (status), `VHWHHS` (highest status), `VHRORC`/`VHRORN`/`VHRORL` (Ref order no), `VHORTY`, `VHFACI`, `VHTXT2` | MO header — poll per MO for Ref order no + status |
 
 ## Edge Cases
 - MO number not found in any container comment → log + skip (can't resolve container).
