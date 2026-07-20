@@ -23,6 +23,9 @@ from tasks.costing_hs_code_trigger.logic import (
     ACTION_NOOP,
     ACTION_REMIND,
     ACTION_TRIGGER,
+    STATE_BASELINE_SKIP,
+    Decision,
+    apply_baseline,
     build_people,
     check_trigger_ready,
     decide,
@@ -256,11 +259,24 @@ def test_never_retrigger() -> None:
     check("triggered container never re-triggers", d.action != ACTION_TRIGGER, d.state)
 
 
+def test_apply_baseline() -> None:
+    trig = Decision(key="X-1", action=ACTION_TRIGGER, state="trigger", body="hi")
+    out = apply_baseline(trig, {"X-1"})
+    check("baseline suppresses trigger",
+          out.action == ACTION_NOOP and out.state == STATE_BASELINE_SKIP)
+    check("non-baseline trigger passes through",
+          apply_baseline(trig, {"OTHER"}).action == ACTION_TRIGGER)
+    rem = Decision(key="X-1", action=ACTION_REMIND, state="remind", body="hi")
+    check("baseline never suppresses a reminder",
+          apply_baseline(rem, {"X-1"}).action == ACTION_REMIND)
+
+
 def main() -> int:
     for fn in (
         test_is_dmr, test_trigger_gate, test_person_done, test_working_days,
         test_decide_trigger_dmr, test_decide_trigger_wp, test_decide_waiting,
         test_decide_remind, test_decide_complete, test_never_retrigger,
+        test_apply_baseline,
     ):
         print(f"\n{fn.__name__}")
         fn()

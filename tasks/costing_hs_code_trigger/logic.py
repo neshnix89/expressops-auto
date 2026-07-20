@@ -334,6 +334,10 @@ ACTION_TRIGGER = "trigger"
 ACTION_REMIND = "remind"
 ACTION_NOOP = "noop"
 
+# State label for a container skipped because it was part of the go-live
+# baseline (already-ready backlog we deliberately never trigger).
+STATE_BASELINE_SKIP = "baseline_skip"
+
 
 @dataclass
 class Decision:
@@ -432,3 +436,23 @@ def decide(
         reason=f"{elapsed} working day(s) since last nudge (>= {interval})",
         is_dmr=dmr, outstanding=outstanding_labels,
     )
+
+
+def apply_baseline(decision: Decision, baseline_keys: set[str]) -> Decision:
+    """
+    Suppress the INITIAL trigger for containers in the go-live baseline — the
+    pre-existing backlog that was already ready when the automation was first
+    switched on and that we deliberately never nag.
+
+    Only an ``ACTION_TRIGGER`` decision is converted to a no-op; every other
+    state passes through unchanged. Baseline containers are never triggered, so
+    they never reach the reminder path — this keeps the safeguard to exactly
+    "don't send the first comment on old backlog", nothing more.
+    """
+    if decision.action == ACTION_TRIGGER and decision.key in baseline_keys:
+        return Decision(
+            key=decision.key, action=ACTION_NOOP, state=STATE_BASELINE_SKIP,
+            reason="in go-live baseline (pre-existing backlog — skipped)",
+            is_dmr=decision.is_dmr,
+        )
+    return decision

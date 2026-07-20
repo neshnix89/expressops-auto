@@ -88,11 +88,35 @@ three are done, the container needs no further action.
 python -m tasks.costing_hs_code_trigger.main --mock             # default (VPS)
 python -m tasks.costing_hs_code_trigger.main --live             # laptop, posts
 python -m tasks.costing_hs_code_trigger.main --live --dry-run   # decide, no post
+python -m tasks.costing_hs_code_trigger.main --live --seed-baseline  # one-time switch-on
 python -m tasks.costing_hs_code_trigger.main --mock --today 2026-07-20  # test date
 python -m tasks.costing_hs_code_trigger.main --mock --only NPIOTHER-4566
 ```
 Prints a per-container decision table and a summary
-(triggered / reminded / waiting / complete / skipped).
+(triggered / reminded / waiting / complete / not_ready / baseline_skip).
+
+---
+
+## Go-live Baseline (skip pre-existing backlog)
+
+When the automation is first switched on, many containers may already be ready
+(e.g. 20 of them) — some with costing/HS Code already handled manually.
+Triggering all of them at once would spam old tickets. The **baseline**
+safeguard prevents that:
+
+1. **Once**, run with `--live --seed-baseline`. This records every container
+   that *would* trigger right now into
+   `outputs/costing_hs_code_trigger_baseline.json` and **posts nothing**.
+2. On every normal run afterwards, any container in that baseline is reported
+   as `baseline_skip` and never triggered. Only containers that become ready
+   **after** the seed get triggered.
+
+The baseline lives under gitignored `outputs/`, so it survives `sync_now.bat`
+pulls (which keep `outputs/`). Re-running `--seed-baseline` unions with the
+existing file (safe). The baseline only suppresses the *initial* trigger;
+containers already triggered before seeding keep their reminder loop.
+`apply_baseline()` in `logic.py` is the pure filter; the seed flow is
+`_run_seed()` in `main.py`.
 
 ---
 
@@ -179,6 +203,8 @@ loop to converge.
 6. Reminder not yet due (< interval working days) → waiting, no post.
 7. All three done → complete, no action.
 8. `--dry-run` → prints the comment(s) that would post, posts nothing.
+9. Container in the go-live baseline → `baseline_skip`, never triggered
+   (reminders for already-triggered containers still run normally).
 
 ## Acceptance Criteria
 - [ ] Non-DMR container triggers only when all 5 WPs are Done/Won't Do
@@ -189,3 +215,4 @@ loop to converge.
 - [ ] Reminder fires only after >= 2 working days since the last nudge
 - [ ] Duplicate trigger marker prevents re-triggering
 - [ ] All-done container produces no further comments
+- [ ] `--seed-baseline` records current backlog; those containers never trigger
