@@ -484,44 +484,41 @@ def conf_read_manual_fields(csess):
     return manual, completed, completed_rows, ticked_done, mr_progress, version
 
 
-def parse_page_html(html):
-    """Parse MR-report storage HTML -> (manual, completed_keys, completed_rows,
-    ticked_done, mr_progress).
+def _clean_page_html(html):
+    """Strip Confluence macros / ac: tags, keeping status-macro title text.
 
-    Split out from conf_read_manual_fields so the same logic can be applied to a
-    historical page version (see scripts/mr_page_diff.py) without re-fetching or
-    duplicating the parse.
+    <ac:structured-macro ac:name="status">...<ac:parameter ac:name="title">DONE
+    </ac:parameter>...</ac:structured-macro>  ->  "DONE"
     """
-    manual = {}
-    completed = set()
-
-    # Which containers have each tick-box ticked (parsed from raw html, before
-    # macro/tag stripping mangles the task tags). mr_progress -> include in the
-    # MR Week table; ticked_done -> "Close container without MR" settle to done.
-    mr_progress, ticked_done = parse_checkbox_columns(html)
-    if ticked_done:
-        log.info(f"  'Close container without MR' ticked for: {sorted(ticked_done)}")
-    if mr_progress:
-        log.info(f"  'MR in progress' ticked for: {sorted(mr_progress)}")
-
-    if not html or "<table" not in html:
-        return manual, completed, [], ticked_done, mr_progress
-
-    # Smart macro handling: extract title text from status macros instead of deleting
-    # Turns <ac:structured-macro ac:name="status">...<ac:parameter ac:name="title">DONE</ac:parameter>...</ac:structured-macro>
-    # into just "DONE"
     def replace_status_macro(match):
         title_match = re.search(r'ac:name="title"[^>]*>([^<]*)<', match.group(0))
         return title_match.group(1) if title_match else ""
 
-    clean_html = re.sub(
+    clean = re.sub(
         r'<ac:structured-macro[^>]*ac:name="status"[^>]*>.*?</ac:structured-macro>',
         replace_status_macro, html, flags=re.DOTALL
     )
     # Strip any other non-status ac: macros and remaining ac: tags
-    clean_html = re.sub(r'<ac:structured-macro[^>]*>.*?</ac:structured-macro>', '', clean_html, flags=re.DOTALL)
-    clean_html = re.sub(r'</?ac:[^>]*>', '', clean_html)
+    clean = re.sub(r'<ac:structured-macro[^>]*>.*?</ac:structured-macro>', '', clean, flags=re.DOTALL)
+    return re.sub(r'</?ac:[^>]*>', '', clean)
 
+
+def _split_page_sections(clean_html):
+    """(active_section, completed_section|None) — the MR Week table is excluded.
+
+    Page structure: [MR Week section] <h2>Active MR</h2> [active table]
+    <h2>COMPLETED MR</h2> [completed table].
+    """
+    active_split = re.split(r'<h2[^>]*>.*?Active MR.*?</h2>', clean_html,
+                            flags=re.IGNORECASE | re.DOTALL)
+    active_html = active_split[-1] if len(active_split) > 1 else clean_html
+    parts = re.split(r'<h2[^>]*>.*?COMPLETED MR.*?</h2>', active_html,
+                     flags=re.IGNORECASE | re.DOTALL)
+    return parts[0], (parts[1] if len(parts) > 1 else None)
+
+
+def _table_rows(section_html):
+    """Every <tr> in a section as a list of stripped cell strings."""
     from html.parser import HTMLParser
 
     class TParser(HTMLParser):
@@ -559,46 +556,93 @@ def parse_page_html(html):
             if self.in_td:
                 self.cell_text += data
 
-    # Split HTML: skip MR Week table, parse Active MR and Completed MR
-    # Structure: [MR Week section] <h2>Active MR</h2> [active table] <h2>COMPLETED MR</h2> [completed table]
-    active_split = re.split(r'<h2[^>]*>.*?Active MR.*?</h2>', clean_html, flags=re.IGNORECASE | re.DOTALL)
-    active_html = active_split[-1] if len(active_split) > 1 else clean_html
+    p = TParser()
+    p.feed(section_html or "")
+    return p.rows
 
-    parts = re.split(r'<h2[^>]*>.*?COMPLETED MR.*?</h2>', active_html, flags=re.IGNORECASE | re.DOTALL)
+
+def parse_active_rows(html):
+    """Full Active-MR rows as report dicts, straight from the page.
+
+    The active table carries the first 15 COL_KEYS (everything except
+    Completion_Date) followed by the two tick-box cells. This lets a page be
+    rebuilt from itself — no Jira/EDM round trip — which is what
+    scripts/mr_restore_completed.py needs to move rows without re-deriving them.
+    """
+    if not html or "<table" not in html:
+        return []
+    active_section, _ = _split_page_sections(_clean_page_html(html))
+    keys = COL_KEYS[:-1]  # 15 data columns; Completion_Date is not in this table
+    rows = []
+    for cells in _table_rows(active_section)[1:]:  # skip header
+        if not cells or len(cells) < 10 or not cells[0]:
+            continue
+        r = {k: (cells[i] if i < len(cells) else "") for i, k in enumerate(keys)}
+        r["Container"] = r["Container"].strip()
+        r["Completion_Date"] = ""
+        try:
+            r["Ageing"] = int(str(r["Ageing"]).strip())
+        except (TypeError, ValueError):
+            r["Ageing"] = ""      # "-" or blank renders as "-" again
+        rows.append(r)
+    return rows
+
+
+def parse_page_html(html):
+    """Parse MR-report storage HTML -> (manual, completed_keys, completed_rows,
+    ticked_done, mr_progress).
+
+    Split out from conf_read_manual_fields so the same logic can be applied to a
+    historical page version (see scripts/mr_page_diff.py) without re-fetching or
+    duplicating the parse.
+    """
+    manual = {}
+    completed = set()
+
+    # Which containers have each tick-box ticked (parsed from raw html, before
+    # macro/tag stripping mangles the task tags). mr_progress -> include in the
+    # MR Week table; ticked_done -> "Close container without MR" settle to done.
+    mr_progress, ticked_done = parse_checkbox_columns(html)
+    if ticked_done:
+        log.info(f"  'Close container without MR' ticked for: {sorted(ticked_done)}")
+    if mr_progress:
+        log.info(f"  'MR in progress' ticked for: {sorted(mr_progress)}")
+
+    if not html or "<table" not in html:
+        return manual, completed, [], ticked_done, mr_progress
+
+    active_section, completed_section = _split_page_sections(_clean_page_html(html))
 
     # Parse active table (first part after Active MR heading)
-    if parts:
-        p = TParser()
-        p.feed(parts[0])
-        if p.rows:
-            log.debug(f"  Active table: {len(p.rows)} rows, first row has {len(p.rows[0])} cells")
-            if len(p.rows) > 1:
-                log.debug(f"  Sample data row: {len(p.rows[1])} cells → {p.rows[1][:3]}...{p.rows[1][-3:] if len(p.rows[1]) > 3 else ''}")
-        for row in p.rows[1:]:  # skip header
-            if row and len(row) >= 10 and row[0]:
-                key = row[0].strip()
-                num_cells = len(row)
-                m = {
-                    "Handover_PE": row[MANUAL_IDX["Handover_PE"]] if num_cells > MANUAL_IDX["Handover_PE"] else "",
-                    "Handover_TE": row[MANUAL_IDX["Handover_TE"]] if num_cells > MANUAL_IDX["Handover_TE"] else "",
-                    "MR_Status": row[MANUAL_IDX["MR_Status"]] if num_cells > MANUAL_IDX["MR_Status"] else "WAITING",
-                    "Remarks": row[MANUAL_IDX["Remarks"]] if num_cells > MANUAL_IDX["Remarks"] else "",
-                }
-                manual[key] = m
-                # Log non-empty manual fields
-                non_empty = {k: v for k, v in m.items() if v}
-                if non_empty:
-                    log.info(f"  [{key}] Manual fields preserved: {non_empty}")
-                else:
-                    log.debug(f"  [{key}] Parsed ({num_cells} cells) — no manual edits")
+    active_cells = _table_rows(active_section)
+    if active_cells:
+        log.debug(f"  Active table: {len(active_cells)} rows, first row has {len(active_cells[0])} cells")
+        if len(active_cells) > 1:
+            log.debug(f"  Sample data row: {len(active_cells[1])} cells → {active_cells[1][:3]}...{active_cells[1][-3:] if len(active_cells[1]) > 3 else ''}")
+    for row in active_cells[1:]:  # skip header
+        if row and len(row) >= 10 and row[0]:
+            key = row[0].strip()
+            num_cells = len(row)
+            m = {
+                "Handover_PE": row[MANUAL_IDX["Handover_PE"]] if num_cells > MANUAL_IDX["Handover_PE"] else "",
+                "Handover_TE": row[MANUAL_IDX["Handover_TE"]] if num_cells > MANUAL_IDX["Handover_TE"] else "",
+                "MR_Status": row[MANUAL_IDX["MR_Status"]] if num_cells > MANUAL_IDX["MR_Status"] else "WAITING",
+                "Remarks": row[MANUAL_IDX["Remarks"]] if num_cells > MANUAL_IDX["Remarks"] else "",
+            }
+            manual[key] = m
+            # Log non-empty manual fields
+            non_empty = {k: v for k, v in m.items() if v}
+            if non_empty:
+                log.info(f"  [{key}] Manual fields preserved: {non_empty}")
+            else:
+                log.debug(f"  [{key}] Parsed ({num_cells} cells) — no manual edits")
 
     # Parse completed table (second part) — preserve full row data
     completed_rows = []
-    if len(parts) > 1:
-        p2 = TParser()
-        p2.feed(parts[1])
-        log.debug(f"  Completed table: {len(p2.rows)} rows")
-        for row in p2.rows[1:]:
+    if completed_section is not None:
+        completed_cells = _table_rows(completed_section)
+        log.debug(f"  Completed table: {len(completed_cells)} rows")
+        for row in completed_cells[1:]:
             if row and row[0]:
                 key = row[0].strip()
                 completed.add(key)
