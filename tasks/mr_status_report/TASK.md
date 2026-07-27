@@ -65,11 +65,20 @@ The Active MR and MR Week tables each end with two checkbox columns:
    on the next run. **Momentary**: always re-rendered un-ticked, because a
    ticked container moves out of the active set anyway.
 
-`parse_checkbox_columns` re-reads the raw page HTML. The two checkboxes are the
-only `<ac:task-status>` tags in a row, so their document order maps to the
-columns: `[MR in progress, Close]`. A row with a single checkbox (the old
-"Status" column, on the first run after this change) is read as the Close column.
-Works whether ticked in the Active or MR Week table (sets union).
+`parse_checkbox_columns` re-reads the raw page HTML (before macro stripping,
+which would destroy the `<ac:task-list>` tags). The two boxes are read from
+deliberately **different scopes**:
+
+- **MR in progress** — read from the **Active MR table only**, which holds the
+  single interactive copy. In the MR Week table the column is a **read-only
+  badge** ("Ticked" / "—"). It has to be that way: the box is stateful, and when
+  a real checkbox was rendered in both tables the two were unioned, so unticking
+  in one table left the other set and the box could never be cleared.
+- **Close container without MR** — read from the **whole page**, and rendered as
+  a real checkbox in both tables. It is momentary (always re-rendered unticked),
+  so there is no state to lose and a tick anywhere is unambiguous. It is always
+  the LAST checkbox in a row: two in an Active row, one in an MR Week row, one on
+  a legacy single-column page.
 
 ## Handover PE/TE (auto-pulled from Comala workflow pages)
 The **Handover PE** and **Handover TE** columns are no longer manual. Each

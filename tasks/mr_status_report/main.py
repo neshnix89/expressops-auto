@@ -473,40 +473,60 @@ def parse_ticked_containers(html):
     return ticked
 
 
+def _raw_active_section(html):
+    """Raw storage HTML of the Active MR region only.
+
+    Must split the RAW html, not the cleaned html: the tick-boxes are
+    <ac:task-list> elements and _clean_page_html strips them.
+    """
+    parts = re.split(r'<h2[^>]*>.*?Active MR.*?</h2>', html, flags=re.IGNORECASE | re.DOTALL)
+    if len(parts) < 2:
+        return html  # no heading (legacy page) — treat the whole page as active
+    return re.split(r'<h2[^>]*>.*?COMPLETED MR.*?</h2>', parts[-1],
+                    flags=re.IGNORECASE | re.DOTALL)[0]
+
+
 def parse_checkbox_columns(html):
-    """Column-aware read of the two tick-box columns from raw storage HTML.
+    """Read the two tick-box columns from raw storage HTML.
 
-    Each active row ends with two checkbox cells rendered in this order:
-        [MR in progress]  [Close container without MR]
-    The only <ac:task-status> tags in a generated row are those two checkboxes,
-    so their order in the row maps 1:1 to the columns. Returns
-    (mr_progress_keys, close_keys). Containers can appear in both the MR Week and
-    Active tables, so a tick in either row counts (sets union naturally).
+    The two boxes are read from deliberately different scopes:
 
-    Back-compat: a row with a single checkbox (the old "Status" column) is read
-    as the Close column, preserving the existing settle-to-done behaviour on the
-    first run after this column is added.
+    **MR in progress** — from the **Active MR table only**. It is stateful
+    (re-rendered ticked so it survives the next run), so it must have exactly ONE
+    interactive copy. A container can also appear in the MR Week table, and when
+    the same tick was rendered as a real checkbox in both, the two were unioned:
+    unticking in one table left the other still ticked and the box could never be
+    cleared. The MR Week table now shows it as a read-only badge instead.
+
+    **Close container without MR** — from the **whole page**. It is momentary
+    (always re-rendered unticked), so there is no untick to lose and a tick in
+    either table is unambiguous. It is always the LAST checkbox in a row: two in
+    an Active row, one in an MR Week row, one on a legacy single-column page.
+
+    Returns (mr_progress_keys, close_keys).
     """
     mr_progress, close = set(), set()
     if not html:
         return mr_progress, close
+
     for chunk in TR_PATTERN.findall(html):
         km = BROWSE_KEY_PATTERN.search(chunk)
         if not km:
             continue
-        key = km.group(1).strip()
         states = [s.lower() for s in TASK_STATUS_PATTERN.findall(chunk)]
-        if not states:
+        if states and states[-1] == "complete":
+            close.add(km.group(1).strip())
+
+    for chunk in TR_PATTERN.findall(_raw_active_section(html)):
+        km = BROWSE_KEY_PATTERN.search(chunk)
+        if not km:
             continue
-        if len(states) >= 2:
-            if states[0] == "complete":
-                mr_progress.add(key)
-            if states[1] == "complete":
-                close.add(key)
-        else:
-            # Legacy single-column page: that checkbox is the Close column.
-            if states[0] == "complete":
-                close.add(key)
+        states = [s.lower() for s in TASK_STATUS_PATTERN.findall(chunk)]
+        # Two boxes => [MR in progress, Close]. One box on a legacy page is the
+        # old "Status"/Close column, never MR in progress.
+        if len(states) >= 2 and states[0] == "complete":
+            mr_progress.add(km.group(1).strip())
+
     return mr_progress, close
 
 
@@ -896,11 +916,25 @@ def build_html(active_rows, completed_rows, mr_progress=None, report_states=None
         return h
 
     def checkbox_cells(r):
-        """The two trailing tick-box cells in column order: 'MR in progress'
-        (stateful — persists while ticked) then 'Close container without MR'
-        (momentary — settles the container to done on the next run)."""
+        """Active MR trailing cells: 'MR in progress' (stateful — persists while
+        ticked) then 'Close container without MR' (momentary — settles the
+        container to done on the next run). This is the ONLY interactive copy of
+        the MR-in-progress box."""
         return (checkbox_cell(checked=r["Container"] in mr_progress)
                 + checkbox_cell(checked=False))
+
+    def week_checkbox_cells(r):
+        """MR Week trailing cells: a READ-ONLY mirror of 'MR in progress', then a
+        real 'Close container without MR' box.
+
+        The mirror is deliberately not a checkbox. Rendering a second real box
+        here made the tick impossible to clear — the two copies were unioned, so
+        unticking one left the other set. Close stays a real box because it is
+        momentary: a tick anywhere settles the container and there is no state to
+        lose."""
+        badge = (status_macro("Ticked", "Green") if r["Container"] in mr_progress
+                 else '<span style="color:#999">—</span>')
+        return f'<td {cen}>{badge}</td>\n' + checkbox_cell(checked=False)
 
     def checkbox_header_cells(style):
         return "".join(f'<th {style}>{hd}</th>\n' for hd in CHECKBOX_HEADERS)
@@ -954,7 +988,9 @@ def build_html(active_rows, completed_rows, mr_progress=None, report_states=None
         h += '<p><em>Containers tagged with "MR Week XX" in Remarks, with the '
         h += '"MR in progress" box ticked, or whose SMT Build has closed. '
         h += 'Numbered weeks first, then in-progress, then SMT-closed. '
-        h += 'Automatically removed when MR Status is DONE.</em></p>\n'
+        h += 'Automatically removed when MR Status is DONE. '
+        h += '<strong>Tick "MR in progress" in the Active MR table below</strong> — '
+        h += 'the column here is a read-only mirror.</em></p>\n'
         h += '<table><thead><tr>\n'
         h += f'<th {hdr_style_mr}>MR Week</th>\n'
         for hd in active_headers:
@@ -965,7 +1001,7 @@ def build_html(active_rows, completed_rows, mr_progress=None, report_states=None
             h += ('<tr>\n<td style="text-align:center;font-weight:bold;'
                   f'background-color:#F5EEF8">{label}</td>\n')
             h += render_data_cells(r)
-            h += checkbox_cells(r)
+            h += week_checkbox_cells(r)
             h += '</tr>\n'
         h += '</tbody></table>\n'
 
