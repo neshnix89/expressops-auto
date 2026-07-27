@@ -1,16 +1,20 @@
 """
 Sync the company-laptop checkout from GitHub `main` (no git required).
 
-The company laptop has no git installed, and the Relay command whitelist only
-permits `python C:\\Users\\tmoghanan\\Documents\\AI\\...`. This script is the
-relay-friendly deploy path: it downloads the latest `main` zip, extracts it,
-and copies the tree over the install dir — so future deploys run via:
+The company laptops have no git installed. This script is the deploy path: it
+downloads the latest `main` zip, extracts it, and copies the tree over the
+install dir — so deploys run via:
 
-    python C:\\Users\\tmoghanan\\Documents\\AI\\expressops-auto\\scripts\\sync_from_github.py
+    <python.exe> <install dir>\\scripts\\sync_from_github.py
+
+The install dir is derived from THIS FILE's location, so the same script works
+for any user on any laptop (set EXPRESSOPS_HOME to override). It used to be
+hardcoded, which meant a second person's install would have targeted the first
+person's home directory.
 
 config.yaml (and anything else gitignored) is NOT in the zip, so it is left
 untouched. Existing files are overwritten; files not present in the zip are
-preserved.
+preserved — so removing a file from the repo does NOT remove it from a laptop.
 """
 
 import io
@@ -23,7 +27,14 @@ import urllib.request
 import zipfile
 
 REPO_ZIP = "https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip"
-INSTALL_DIR = r"C:\Users\tmoghanan\Documents\AI\expressops-auto"
+# Derived from this file's own location (repo_root/scripts/sync_from_github.py),
+# so the same script works for any user on any laptop. Hardcoding a path meant a
+# second person's install silently targeted the first person's home directory.
+# Override with EXPRESSOPS_HOME if the repo lives somewhere unusual.
+INSTALL_DIR = os.environ.get(
+    "EXPRESSOPS_HOME",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
 TOP_LEVEL = "expressops-auto-main"  # zip's root folder
 
 

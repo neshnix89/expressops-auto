@@ -3,15 +3,27 @@ REM ============================================================
 REM  ONE-TIME: create EDMAdmin.exe + test EDM connectivity.
 REM  Double-click this once. It:
 REM    1. syncs the latest code from GitHub
-REM    2. copies python.exe -> C:\Users\tmoghanan\EDMAdmin.exe
+REM    2. copies python.exe -> <python install dir>\EDMAdmin.exe
 REM       (the renamed exe that passes the Oracle logon trigger)
 REM    3. runs a single known PT->PRSG query to confirm EDM works
 REM    4. opens the short result for you to paste back to Claude
 REM  Read-only against EDM (one SELECT). Safe to re-run.
 REM ============================================================
 setlocal
-set "PY=C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
-cd /d C:\Users\tmoghanan\Documents\AI\expressops-auto
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+
+set "PY=%EXPRESSOPS_PY%"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PY if exist "%ProgramFiles%\Python312\python.exe" set "PY=%ProgramFiles%\Python312\python.exe"
+if not defined PY (
+    echo [ERROR] python.exe not found. Install Python 3.12, or set EXPRESSOPS_PY to its path.
+    pause
+    exit /b 1
+)
+cd /d "%ROOT%"
 set PYTHONIOENCODING=utf-8
 if not exist logs mkdir logs
 

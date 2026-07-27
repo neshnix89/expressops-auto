@@ -13,8 +13,20 @@ REM  never blanked) — fix EDMAdmin.exe or use --allow-no-edm.
 REM  This is the same action the daily scheduled job performs.
 REM ============================================================
 setlocal
-set "PY=C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
-cd /d C:\Users\tmoghanan\Documents\AI\expressops-auto
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+
+set "PY=%EXPRESSOPS_PY%"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if not defined PY if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PY if exist "%ProgramFiles%\Python312\python.exe" set "PY=%ProgramFiles%\Python312\python.exe"
+if not defined PY (
+    echo [ERROR] python.exe not found. Install Python 3.12, or set EXPRESSOPS_PY to its path.
+    pause
+    exit /b 1
+)
+cd /d "%ROOT%"
 set PYTHONIOENCODING=utf-8
 
 echo [1/4] Syncing latest code from GitHub...

@@ -36,7 +36,10 @@ from core.errors import (
 DEFAULT_EDM_HOST = "sgp01.sg.pepperl-fuchs.com"
 DEFAULT_EDM_PORT = 1521
 DEFAULT_EDM_SERVICE = "SGP01EDMEWA.WORLD"
-DEFAULT_EDM_EXE = r"C:\Users\tmoghanan\EDMAdmin.exe"
+# Fallback only — config edm.python_exe should point at the real one, which
+# scripts/setup_edmadmin.py creates INSIDE the Python install dir (beside
+# python3xx.dll). A copy anywhere else dies with 0xC0000135 before running.
+DEFAULT_EDM_EXE = str(Path(sys.executable).parent / "EDMAdmin.exe")
 
 
 class EDMClient:

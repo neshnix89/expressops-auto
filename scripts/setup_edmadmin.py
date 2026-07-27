@@ -13,6 +13,7 @@ setup_edmadmin.bat.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import sys
@@ -21,7 +22,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-PYDIR = Path(r"C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312")
 TEST_PT = "PTDE-AXT7"  # REF_EDM confirmed pair: PTDE-AXT7 -> PRSG-A0N5, RELEASESTATE 9
 
 
@@ -31,11 +31,18 @@ def _load_cfg():
 
 
 def _python_dir() -> Path:
-    """Directory containing python.exe + python3xx.dll."""
-    if PYDIR.exists():
-        return PYDIR
-    cand = Path(sys.executable)
-    return cand.parent if cand.name.lower() == "python.exe" else PYDIR
+    """Directory containing python.exe + python3xx.dll.
+
+    Taken from the running interpreter, so it is correct for whoever is running
+    it. EDMAdmin.exe MUST be created here and not in the home directory: it is a
+    bare copy of python.exe, and away from python3xx.dll it dies in the Windows
+    loader with 0xC0000135 (STATUS_DLL_NOT_FOUND) — silently, before any code
+    runs. Override with EXPRESSOPS_PYDIR only if you know what you are doing.
+    """
+    override = os.environ.get("EXPRESSOPS_PYDIR")
+    if override and Path(override).exists():
+        return Path(override)
+    return Path(sys.executable).parent
 
 
 def ensure_edmadmin(dest: Path) -> bool:

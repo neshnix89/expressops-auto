@@ -27,9 +27,13 @@ m3:
 
 # EDM Oracle
 edm:
-  # EDM requires running Python via EDMAdmin.exe
-  # Set this to the path of your renamed python.exe
-  python_exe: "C:\\Users\\tmoghanan\\EDMAdmin.exe"
+  # EDM requires running Python via EDMAdmin.exe (a renamed python.exe) to get
+  # past SYS.PF_SEC_LOGON_TRIGGER. Leave this blank and run
+  #     python scripts\setup_edmadmin.py
+  # which creates EDMAdmin.exe INSIDE your Python install dir and writes the
+  # real path back here. It must live beside python3xx.dll — a copy anywhere
+  # else dies in the Windows loader with 0xC0000135 before running any code.
+  python_exe: ""
   schema: "ADMEDP"
   # Connection string used by cx_Oracle / oracledb
   connection_string: "YOUR_EDM_CONNECTION_STRING"
