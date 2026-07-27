@@ -818,9 +818,13 @@ def build_html(active_rows, completed_rows, mr_progress=None):
         return '<tr>\n' + render_data_cells(r) + checkbox_cells(r) + '</tr>\n'
 
     # --- MR Week Priority Table ---
-    # A container is listed here when EITHER its Remarks carry "MR Week XX" OR its
-    # "MR in progress" box is ticked (coexist). Numbered weeks sort first
-    # (ascending); ticked-only rows (no week number) follow, labelled "In Progress".
+    # Three independent ways in, checked in this order (first match wins):
+    #   1. Remarks carry an exact "MR Week XX"  -> "Week XX", sorted by number
+    #   2. the "MR in progress" box is ticked   -> "In Progress"
+    #   3. SMT Build Closure Date is set        -> "SMT Done" (automatic)
+    # (3) is deliberately NOT wired to the tick-box: auto-ticking would make the
+    # box impossible to clear, since every run would re-tick it. The box stays the
+    # manual signal; the SMT date is an independent automatic one.
     mr_week_rows = []  # (sort_key, label, row)
     seen = set()
     for r in active_rows:
@@ -836,6 +840,14 @@ def build_html(active_rows, completed_rows, mr_progress=None):
         if key in mr_progress:
             mr_week_rows.append((10_000, "In Progress", r))
             seen.add(key)
+    for r in active_rows:
+        key = r["Container"]
+        if key in seen:
+            continue
+        if str(r.get("SMT_Closure", "")).strip():
+            mr_week_rows.append((10_001, "SMT Done", r))
+            seen.add(key)
+    # Stable sort: ties keep active_rows order (ageing desc).
     mr_week_rows.sort(key=lambda x: x[0])
 
     # Info bar
@@ -847,8 +859,9 @@ def build_html(active_rows, completed_rows, mr_progress=None):
     # MR Week table (only shown if there are rows)
     if mr_week_rows:
         h += '<h2>MR Week Schedule</h2>\n'
-        h += '<p><em>Containers tagged with "MR Week XX" in Remarks, or with the '
-        h += '"MR in progress" box ticked. Numbered weeks first, then in-progress. '
+        h += '<p><em>Containers tagged with "MR Week XX" in Remarks, with the '
+        h += '"MR in progress" box ticked, or whose SMT Build has closed. '
+        h += 'Numbered weeks first, then in-progress, then SMT-closed. '
         h += 'Automatically removed when MR Status is DONE.</em></p>\n'
         h += '<table><thead><tr>\n'
         h += f'<th {hdr_style_mr}>MR Week</th>\n'
