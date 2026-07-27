@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -60,6 +61,50 @@ def _snapshot(html):
         "mr_progress": mr_progress,
         "close_ticked": ticked_done,
     }
+
+
+# Anything that looks like a week tag but is NOT the exact string build_html
+# requires. MR_WEEK_PATTERN is anchored ^...$, so the cell must contain the week
+# tag and NOTHING else — "MR Week 30 - waiting parts" silently never shows up.
+NEARMISS_RE = re.compile(r'\bMR\s*(week|wk)\b', re.IGNORECASE)
+
+
+def mr_week_membership(snap):
+    """Who would appear in the MR Week Schedule table, and why.
+
+    Mirrors build_html: an active row qualifies via an exact "MR Week NN" remark
+    (sorted first) or via a ticked "MR in progress" box. Also returns remarks
+    that look like a week tag but fail the anchored pattern.
+    """
+    weeks, nearmiss = [], []
+    for k, m in snap["active"].items():
+        rem = str(m.get("Remarks", ""))
+        hit = M.MR_WEEK_PATTERN.search(rem)
+        if hit:
+            weeks.append((int(hit.group(1)), k, rem))
+        elif NEARMISS_RE.search(rem):
+            nearmiss.append((k, rem))
+    tagged = {k for _w, k, _r in weeks}
+    # Ticks only count for rows that are actually in the active table.
+    ticks = sorted((snap["mr_progress"] & set(snap["active"])) - tagged)
+    return sorted(weeks), ticks, nearmiss
+
+
+def report_mr_week(snap, label):
+    weeks, ticks, nearmiss = mr_week_membership(snap)
+    total = len(weeks) + len(ticks)
+    print(f"\n  MR Week Schedule table in {label}: {total} row(s)"
+          f"{'  -> table NOT rendered' if total == 0 else ''}")
+    for w, k, rem in weeks:
+        print(f"      Week {w:<4} {k:<18} via remark {rem!r}")
+    for k in ticks:
+        print(f"      InProg    {k:<18} via 'MR in progress' tick")
+    if nearmiss:
+        print(f"      !! {len(nearmiss)} remark(s) look like a week tag but do NOT match")
+        print(f"         the anchored ^MR Week NN$ pattern, so they are IGNORED:")
+        for k, rem in nearmiss:
+            print(f"         {k:<18} {rem!r}")
+    return total
 
 
 def _fmt_set(s, limit=200):
@@ -119,6 +164,11 @@ def diff(old, new, old_v, new_v):
     print(f"\n  [5] MR Status changed  ({len(lost_status)})")
     for k, o, n in lost_status:
         print(f"      {k:<18} {o!r} -> {n!r}")
+
+    # --- why the MR Week table does or doesn't render, in each version ---
+    print(f"\n  [7] MR Week Schedule membership (two ways in: exact remark, or tick)")
+    report_mr_week(old, f"v{old_v}")
+    report_mr_week(new, f"v{new_v}")
 
     # --- what a restore would need to put back ---
     print(f"\n  [6] Restore scope: rows only v{old_v} can supply")
