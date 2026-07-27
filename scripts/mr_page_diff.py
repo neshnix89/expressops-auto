@@ -66,8 +66,9 @@ def _fmt_set(s, limit=200):
     s = sorted(s)
     if not s:
         return "(none)"
+    # ASCII only: this runs on a cp1252 Windows console.
     shown = ", ".join(s[:limit])
-    return shown + (f"  … +{len(s)-limit} more" if len(s) > limit else "")
+    return shown + (f"  ... +{len(s)-limit} more" if len(s) > limit else "")
 
 
 def diff(old, new, old_v, new_v):
