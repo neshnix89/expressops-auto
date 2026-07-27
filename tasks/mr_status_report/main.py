@@ -379,6 +379,64 @@ def edm_lookup_prsg(pt_numbers):
     return results, True
 
 
+def split_reports(cell):
+    """"QD-1, QD-2" -> ["QD-1", "QD-2"]. Report cells are comma-joined."""
+    return [t.strip().upper() for t in str(cell or "").split(",") if t.strip()]
+
+
+def edm_lookup_reports(report_numbers):
+    """Release state for PE (QD-*) and TE (906-*) report documents.
+
+    Unlike PRSG — which is reached indirectly via EDM_REFERENCES.REF (the PT
+    number) — these report numbers ARE EDM_DOCS.DOCNUMBER values in their own
+    right, so this is a direct lookup. Confirmed by scripts/probe_edm_reports.py
+    against the live page: all 30 numbers matched EDM_DOCS.DOCNUMBER exactly.
+
+    RELEASESTATE is a string; observed values across QD/906 docs are '9'
+    (released, 16.6k), '0' (17.7k), '5' (1.0k) and '4' (101). 9 == Released,
+    the same coding PRSG uses. Revisions are separate documents with separate
+    states ('906-0011' = 5 while '906-0011A' = 9), so match exactly and never
+    collapse revisions.
+
+    Returns (states, ok):
+      states[DOCNUMBER_UPPER] = True if released else False
+      ok is False if EDM could not be queried, so the caller can render the
+      cells uncoloured rather than painting every report red.
+    """
+    from core.edm import EDMClient
+
+    unique = sorted({r for r in report_numbers if r})
+    if not unique:
+        return {}, True
+
+    client = EDMClient(CFG)
+    states = {}
+    log.info(f"EDM: looking up release state for {len(unique)} PE/TE report doc(s)...")
+    try:
+        for i in range(0, len(unique), 400):
+            batch = unique[i:i + 400]
+            binds = {f"p{j}": d for j, d in enumerate(batch)}
+            ph = ",".join(f":p{j}" for j in range(len(batch)))
+            sql = (f"SELECT DOCNUMBER, RELEASESTATE FROM ADMEDP.EDM_DOCS "
+                   f"WHERE DOCNUMBER IN ({ph})")
+            for row in client.query(sql, binds):
+                doc = str(row.get("DOCNUMBER", "")).strip().upper()
+                rs = str(row.get("RELEASESTATE", "")).strip()
+                states[doc] = (rs == "9")
+    except Exception as e:
+        log.error(f"EDM report lookup FAILED: {e}")
+        print(f"  ⚠ PE/TE release lookup failed: {e} — cells will be uncoloured")
+        return {}, False
+
+    rel = sum(1 for v in states.values() if v)
+    missing = [d for d in unique if d not in states]
+    log.info(f"EDM: {len(states)}/{len(unique)} report doc(s) found, {rel} released"
+             + (f"; not in EDM: {missing[:10]}" if missing else ""))
+    print(f"  📑 PE/TE reports: {rel} released, "
+          f"{len(states) - rel} not released, {len(missing)} not found")
+    return states, True
+
+
 # =====================================================================
 # CONFLUENCE
 # =====================================================================
@@ -698,7 +756,7 @@ def parse_page_html(html):
     return manual, completed, completed_rows, ticked_done, mr_progress
 
 
-def build_html(active_rows, completed_rows, mr_progress=None):
+def build_html(active_rows, completed_rows, mr_progress=None, report_states=None):
     """Build Confluence storage format HTML with MR Week priority table.
 
     mr_progress: set of container keys whose "MR in progress" box is ticked. That
@@ -765,6 +823,28 @@ def build_html(active_rows, completed_rows, mr_progress=None):
         # Free text — preserve as-is with escaping
         return esc(s)
 
+    def report_cell(v):
+        """PE/TE cell with each report number coloured by EDM release state.
+
+        Green = RELEASESTATE 9 (released). Red = anything else, plus documents
+        EDM does not have at all. Coloured per number, not per cell: a cell often
+        holds several reports and one unreleased among released ones is the
+        interesting case.
+
+        report_states is None when the EDM lookup was unavailable — then the text
+        is rendered plain, because painting every report red would be a lie.
+        """
+        toks = split_reports(v)
+        if not toks:
+            return ""
+        if report_states is None:
+            return esc(", ".join(toks))
+        out = []
+        for t in toks:
+            colour = "#1E7E34" if report_states.get(t) else "#C0392B"
+            out.append(f'<span style="color:{colour}"><strong>{esc(t)}</strong></span>')
+        return ", ".join(out)
+
     def age_td(v):
         if v == "" or v is None:
             return '<td style="text-align:center">-</td>'
@@ -804,8 +884,8 @@ def build_html(active_rows, completed_rows, mr_progress=None):
         h += f'<td {cen}>{esc(r.get("SMT_Closure",""))}</td>\n'
         h += f'<td {cen}>{esc(r.get("Doc_Closure",""))}</td>\n'
         h += f'<td {cen}>{esc(r.get("Close_Date",""))}</td>\n'
-        h += f'<td>{esc(r.get("PE_Reports",""))}</td>\n'
-        h += f'<td>{esc(r.get("TE_Reports",""))}</td>\n'
+        h += f'<td>{report_cell(r.get("PE_Reports",""))}</td>\n'
+        h += f'<td>{report_cell(r.get("TE_Reports",""))}</td>\n'
         h += f'<td {cen}>{ho_badge(r.get("Handover_PE",""))}</td>\n'
         h += f'<td {cen}>{ho_badge(r.get("Handover_TE",""))}</td>\n'
         h += age_td(r.get("Ageing", "")) + '\n'
@@ -978,7 +1058,7 @@ def conf_update(csess, html, version, retry=True, dry_run=False):
 # =====================================================================
 # EXCEL (backup)
 # =====================================================================
-def write_excel(active_rows, completed_rows):
+def write_excel(active_rows, completed_rows, report_states=None):
     EXCEL_FILE.parent.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.Workbook()
     wb.active.title = MAIN_TAB
@@ -1041,6 +1121,21 @@ def write_excel(active_rows, completed_rows):
         elif pc.value == "Not Released":
             pc.fill = PatternFill(start_color="E74C3C", end_color="E74C3C", fill_type="solid")
             pc.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+
+        # PE/TE report release colour. A cell can hold several reports, and Excel
+        # has no per-token colouring, so: green only if every report is released,
+        # red if any is unreleased or missing from EDM. Left plain when the EDM
+        # lookup was unavailable (report_states is None).
+        if report_states is not None:
+            for rk in ("PE_Reports", "TE_Reports"):
+                rc = main_ws.cell(row=r, column=COL[rk])
+                toks = split_reports(rc.value)
+                if not toks:
+                    continue
+                if all(report_states.get(t) for t in toks):
+                    rc.font = Font(name="Arial", size=10, bold=True, color="1E7E34")
+                else:
+                    rc.font = Font(name="Arial", size=10, bold=True, color="C0392B")
 
         # Handover PE/TE color (Approved=green, Pending=yellow)
         for hk in ("Handover_PE", "Handover_TE"):
@@ -1152,6 +1247,17 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False, allow_stale_page
         else:
             log.warning(f"[{k}] No PT number extracted from summary — PRSG lookup skipped")
 
+    # 3a. PE/TE report release state — a direct EDM_DOCS.DOCNUMBER lookup (these
+    # report numbers are documents themselves; see edm_lookup_reports). Failure
+    # is non-fatal: report_states=None renders the cells uncoloured.
+    report_tokens = set()
+    for d in jira_data.values():
+        report_tokens.update(split_reports(d.get("PE_Reports", "")))
+        report_tokens.update(split_reports(d.get("TE_Reports", "")))
+    report_states, reports_ok = edm_lookup_reports(sorted(report_tokens))
+    if not reports_ok:
+        report_states = None
+
     # 3b. Handover PE/TE — pull Approved/Pending from the Confluence workflow
     # pages (Comala) by PT number. Resilient: on failure the maps stay empty and
     # every Handover cell reads "No handover" (logged), never blocking publish.
@@ -1236,13 +1342,14 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False, allow_stale_page
 
     # 5. Publish Confluence
     print("\n📝 Publishing to Confluence..." + ("  (DRY-RUN)" if dry_run else ""))
-    html = build_html(active, all_completed, mr_progress=mr_progress)
+    html = build_html(active, all_completed, mr_progress=mr_progress,
+                      report_states=report_states)
     conf_update(csess, html, page_ver, dry_run=dry_run)
 
     # 6. Excel backup
     print("\n💾 Saving Excel backup...")
     try:
-        write_excel(active, all_completed)
+        write_excel(active, all_completed, report_states=report_states)
         print(f"  ✅ {EXCEL_FILE}")
     except Exception as e:
         print(f"  ⚠ Excel failed: {e}")

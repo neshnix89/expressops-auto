@@ -30,6 +30,28 @@ Pilot_DMR_Report.py`. Logic is preserved; secrets now come from `config.yaml`.
   3. its **Close container without MR** tick-box on the page is ticked — the
      manual "settle" path for projects that don't need to go for MR.
 
+## PE / TE report release colouring
+The **PE Reports** and **TE Reports** cells are coloured per report number from
+EDM: **green** = released, **red** = not released, not found, or no document.
+
+Unlike PRSG (reached indirectly via `EDM_REFERENCES.REF` = the PT number), these
+report numbers ARE `EDM_DOCS.DOCNUMBER` values, so it is a direct lookup —
+confirmed by `scripts/probe_edm_reports.py` against the live page (30/30 exact
+matches). `RELEASESTATE` is a **string**; observed values across QD/906 docs are
+`'9'` released (16.6k), `'0'` (17.7k), `'5'` (1.0k), `'4'` (101). `9 == Released`,
+same coding as PRSG.
+
+Revisions are separate documents with separate states (`906-0011` = 5 while
+`906-0011A` = 9), so numbers are matched **exactly** and revisions are never
+collapsed — unlike the Handover PT matching, which is deliberately
+revision-tolerant.
+
+Colouring is **per number, not per cell**: a cell often holds several reports and
+one unreleased among released ones is the case worth seeing. If the EDM lookup
+fails, cells render as plain uncoloured text rather than painting everything red.
+Only the active tables are coloured; COMPLETED MR keeps plain text, since those
+rows are replayed from the page and would lose the markup on the next round trip.
+
 ## Tick-box columns (two, both Confluence `<ac:task-list>` checkboxes)
 The Active MR and MR Week tables each end with two checkbox columns:
 
