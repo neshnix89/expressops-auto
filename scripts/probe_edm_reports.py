@@ -14,9 +14,16 @@ state, the same way PRSG Status already is. The PRSG lookup works like this:
 Whether QD-* / 906-* documents live in EDM_DOCS.DOCNUMBER at all — and in what
 exact format — is NOT known, so this probe establishes it instead of guessing.
 
-Run on the company laptop (EDMAdmin.exe preferred; plain python delegates):
-    C:\\Users\\tmoghanan\\EDMAdmin.exe -m scripts.probe_edm_reports
-    python -m scripts.probe_edm_reports
+Run on the company laptop with PLAIN python, exactly like run_mr_report.bat does:
+
+    C:\\Users\\tmoghanan\\AppData\\Local\\Programs\\Python\\Python312\\python.exe ^
+        -m scripts.probe_edm_reports
+
+EDMClient spawns EDMAdmin.exe as a subprocess for the Oracle call, so plain
+python is the supported entry point. Do NOT invoke EDMAdmin.exe directly from a
+shell: it is a bare copy of python.exe with no python312.dll beside it, so
+unless Python is on PATH it dies in the Windows loader with 0xC0000135
+(STATUS_DLL_NOT_FOUND) before running any code — silently, with no traceback.
 """
 from __future__ import annotations
 

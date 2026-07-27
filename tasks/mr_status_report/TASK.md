@@ -63,12 +63,17 @@ else) / **No handover** (no matching page). See `handover.py`.
   "No handover" and publishing still proceeds.
 
 ## Run
+Use **plain python** — `EDMClient` spawns `EDMAdmin.exe` as a subprocess for the
+Oracle call, so it is not the entry point:
 ```
 # Preview (reads live, builds page, does NOT publish):
-EDMAdmin.exe -m tasks.mr_status_report.main --live --dry-run
+...\Python312\python.exe -m tasks.mr_status_report.main --live --dry-run
 # Publish for real:
-EDMAdmin.exe -m tasks.mr_status_report.main --live
+...\Python312\python.exe -m tasks.mr_status_report.main --live
 ```
+Running `EDMAdmin.exe` directly from a shell fails silently with exit
+`0xC0000135` (STATUS_DLL_NOT_FOUND): it is a bare copy of `python.exe` with no
+`python312.dll` beside it, and Python is not on PATH on that laptop.
 One-click: `run_mr_report.bat` (dry-run) / `publish_mr_report.bat` (live).
 `--mock` is a no-op (live-only task; no saved mock data).
 

@@ -18,10 +18,20 @@ cross-references with EDM Oracle DB for PRSG release status, and publishes to:
   1. Confluence page (live team view, editable manual fields)
   2. Excel file (local backup)
 
-IMPORTANT: For the EDM/PRSG lookup to work the live run must use EDMAdmin.exe
-(a renamed python.exe) to bypass SYS.PF_SEC_LOGON_TRIGGER:
-  EDMAdmin.exe -m tasks.mr_status_report.main --live
-Under a plain python.exe the EDM step is skipped gracefully (no PRSG statuses).
+Run it with PLAIN python — that is what run_mr_report.bat / publish_mr_report.bat
+do, and it is the supported entry point:
+
+  ...\\Python312\\python.exe -m tasks.mr_status_report.main --live
+
+The Oracle logon trigger (SYS.PF_SEC_LOGON_TRIGGER) still has to be bypassed by
+EDMAdmin.exe (a renamed python.exe), but core.edm.EDMClient handles that itself:
+under plain python it spawns EDMAdmin.exe as a SUBPROCESS for the query, and
+only queries Oracle directly when it is already running as EDMAdmin.
+
+Do NOT invoke EDMAdmin.exe directly from a shell. It is a bare copy of
+python.exe with no python312.dll beside it, so unless Python is on PATH it dies
+in the Windows loader with 0xC0000135 (STATUS_DLL_NOT_FOUND) before executing
+any code — no output, no traceback, just an exit code.
 """
 from __future__ import annotations
 
