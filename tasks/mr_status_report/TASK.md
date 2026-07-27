@@ -72,6 +72,21 @@ EDMAdmin.exe -m tasks.mr_status_report.main --live
 One-click: `run_mr_report.bat` (dry-run) / `publish_mr_report.bat` (live).
 `--mock` is a no-op (live-only task; no saved mock data).
 
+## Publish guards (do not remove)
+The Confluence page — not this script — is the source of truth for the COMPLETED
+MR history, the manual MR Status / Remarks columns and both tick-boxes. If the
+page read fails, none of that is in hand, so the run **refuses to publish**
+(`--allow-stale-page` overrides; never use it on the scheduled run). Likewise
+`conf_update` never retries a 409 when `version == 0`, because version 0 means
+the page was never read and the 409 is Confluence correctly rejecting the write.
+
+Both guards exist because of the **2026-07-23 13:07 incident**: a transient
+connection error on the page GET was swallowed, the run rebuilt the page from
+nothing, Confluence rejected it with a 409, and the retry path re-fetched the
+real version and forced it through as v254 — dropping 28 completed containers
+back into Active, clearing all 4 "MR in progress" ticks and blanking every
+"MR Week XX" remark (which is what made the MR Week Schedule table disappear).
+
 ## Discovery / to confirm on the laptop
 - EDMAdmin.exe path (config `edm.python_exe`, default
   `C:\Users\tmoghanan\EDMAdmin.exe`) — the bats fall back to plain python if

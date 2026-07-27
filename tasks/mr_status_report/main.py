@@ -470,12 +470,28 @@ def conf_read_manual_fields(csess):
     url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}?expand=body.storage,version"
     resp = csess.get(url, timeout=15)
     if resp.status_code != 200:
-        log.warning(f"Confluence read failed: {resp.status_code}")
-        return {}, set(), [], set(), set(), 0
+        # RAISE, don't return empties. An empty result is indistinguishable from
+        # "the page is legitimately empty", and publishing on that basis wipes the
+        # COMPLETED MR history and every manual Remark. See run()'s read guard.
+        raise RuntimeError(
+            f"Confluence read failed: HTTP {resp.status_code} for page {CONFLUENCE_PAGE_ID}"
+        )
 
     page = resp.json()
     version = page["version"]["number"]
     html = page.get("body", {}).get("storage", {}).get("value", "")
+    manual, completed, completed_rows, ticked_done, mr_progress = parse_page_html(html)
+    return manual, completed, completed_rows, ticked_done, mr_progress, version
+
+
+def parse_page_html(html):
+    """Parse MR-report storage HTML -> (manual, completed_keys, completed_rows,
+    ticked_done, mr_progress).
+
+    Split out from conf_read_manual_fields so the same logic can be applied to a
+    historical page version (see scripts/mr_page_diff.py) without re-fetching or
+    duplicating the parse.
+    """
     manual = {}
     completed = set()
 
@@ -489,7 +505,7 @@ def conf_read_manual_fields(csess):
         log.info(f"  'MR in progress' ticked for: {sorted(mr_progress)}")
 
     if not html or "<table" not in html:
-        return manual, completed, [], ticked_done, mr_progress, version
+        return manual, completed, [], ticked_done, mr_progress
 
     # Smart macro handling: extract title text from status macros instead of deleting
     # Turns <ac:structured-macro ac:name="status">...<ac:parameter ac:name="title">DONE</ac:parameter>...</ac:structured-macro>
@@ -625,7 +641,7 @@ def conf_read_manual_fields(csess):
                 log.debug(f"  [{key}] Completed row parsed ({n} cells): Ageing={cr['Ageing']}, Remarks={cr['Remarks']}, Date={cr['Completion_Date']}")
                 completed_rows.append(cr)
 
-    return manual, completed, completed_rows, ticked_done, mr_progress, version
+    return manual, completed, completed_rows, ticked_done, mr_progress
 
 
 def build_html(active_rows, completed_rows, mr_progress=None):
@@ -867,7 +883,16 @@ def conf_update(csess, html, version, retry=True, dry_run=False):
     log.error(f"Response body: {resp.text[:1000]}")
     log.error(f"Sent version: {version + 1} | Page ID: {CONFLUENCE_PAGE_ID} | Space: {CONFLUENCE_SPACE_KEY}")
 
-    # If 409 (conflict) or 400 with version issue, re-fetch and retry once
+    # If 409 (conflict) or 400 with version issue, re-fetch and retry once.
+    # NEVER retry when version == 0: that means we never successfully read the
+    # page, so the 409 is Confluence correctly rejecting a publish built from no
+    # prior state. Re-fetching the real version and forcing it through turns that
+    # safe rejection into a full overwrite of the live page (this is exactly what
+    # destroyed v253 -> v254 on 2026-07-23).
+    if retry and version == 0:
+        log.error("Refusing to retry: page version is 0 (the page was never read). "
+                  "Publishing now would overwrite live content with un-merged data.")
+        return False
     if retry and resp.status_code in (400, 409):
         log.warning("Possible version conflict — re-fetching latest page version and retrying...")
         try:
@@ -983,7 +1008,7 @@ def write_excel(active_rows, completed_rows):
 # =====================================================================
 # MAIN
 # =====================================================================
-def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
+def run(dry_run=False, allow_no_edm=False, recover_ticks=False, allow_stale_page=False):
     log.info("")
     log.info("=" * 70)
     log.info("  NEW RUN: Pilot Run & DMR - MR Tracking Report" + ("  [DRY-RUN]" if dry_run else ""))
@@ -993,13 +1018,32 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False):
     # 1. Read Confluence (source of truth for manual fields + completed history)
     log.info("Reading Confluence page...")
     csess = conf_session()
+    conf_read_ok = True
     try:
         manual, completed_keys, prev_completed_rows, ticked_done, mr_progress, page_ver = conf_read_manual_fields(csess)
         log.info(f"  Confluence: {len(manual)} active rows | {len(completed_keys)} completed | "
                  f"{len(ticked_done)} close-ticked | {len(mr_progress)} mr-in-progress | page v{page_ver}")
     except Exception as e:
+        conf_read_ok = False
+        # log.exception, not print: the 2026-07-23 incident was hard to diagnose
+        # precisely because this error only ever went to the console.
+        log.exception(f"Confluence read FAILED: {e}")
         print(f"  ⚠ Confluence read error: {e}")
         manual, completed_keys, prev_completed_rows, ticked_done, mr_progress, page_ver = {}, set(), [], set(), set(), 0
+
+    # The page is the source of truth for the COMPLETED MR history, the manual
+    # MR Status / Remarks columns and both tick-boxes. If we could not read it we
+    # have none of that, so publishing would drop every completed container back
+    # into Active and blank the "MR Week XX" remarks. Refuse, exactly like the
+    # EDM guard below does for PRSG.
+    if not conf_read_ok:
+        log.error("Confluence page unreadable — manual fields and COMPLETED MR history unavailable.")
+        print("\n❌ Confluence page could not be read.")
+        if not dry_run and not allow_stale_page:
+            print("   Refusing to PUBLISH (would wipe COMPLETED MR + manual Remarks).")
+            print("   Re-run once the network/Confluence is back, or pass --allow-stale-page to override.")
+            return
+        print("   Continuing anyway (dry-run or --allow-stale-page).")
 
     # ONE-TIME: restore ticks the old daily job wiped (only when --recover-ticks).
     if recover_ticks and page_ver:
@@ -1167,6 +1211,10 @@ def main():
     ap.add_argument("--recover-ticks", action="store_true",
                     help="ONE-TIME: restore ticked Status checkboxes from page history "
                          "(after the old job wiped the column); not used by the daily run")
+    ap.add_argument("--allow-stale-page", action="store_true",
+                    help="publish even if the Confluence page could not be read — this "
+                         "WIPES the COMPLETED MR history and all manual Remarks. Do not "
+                         "use on the scheduled run.")
     ap.set_defaults(mode="mock")
     args = ap.parse_args()
 
@@ -1178,7 +1226,8 @@ def main():
         return
 
     _load_settings("live")
-    run(dry_run=args.dry_run, allow_no_edm=args.allow_no_edm, recover_ticks=args.recover_ticks)
+    run(dry_run=args.dry_run, allow_no_edm=args.allow_no_edm, recover_ticks=args.recover_ticks,
+        allow_stale_page=args.allow_stale_page)
 
 
 if __name__ == "__main__":
