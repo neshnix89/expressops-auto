@@ -165,6 +165,42 @@ def diff(old, new, old_v, new_v):
     for k, o, n in lost_status:
         print(f"      {k:<18} {o!r} -> {n!r}")
 
+    # --- completed rows that SURVIVED but lost their content ------------------
+    # Comparing completed keys alone misses this: a container can still be in the
+    # COMPLETED table while its Remarks were blanked and its Completion Date
+    # restamped, because the 2026-07-23 run rebuilt those rows from Jira with no
+    # manual data in hand.
+    both = sorted(set(old["completed_rows"]) & set(new["completed_rows"]))
+    lost_remarks, changed_done, lost_prsg = [], [], []
+    for k in both:
+        o, n = old["completed_rows"][k], new["completed_rows"][k]
+        if str(o.get("Remarks", "")).strip() and not str(n.get("Remarks", "")).strip():
+            lost_remarks.append((k, o["Remarks"]))
+        od, nd = str(o.get("Completion_Date", "")).strip(), str(n.get("Completion_Date", "")).strip()
+        if od and od != nd:
+            changed_done.append((k, od, nd))
+        if str(o.get("PRSG_Number", "")).strip() and not str(n.get("PRSG_Number", "")).strip():
+            lost_prsg.append(k)
+
+    print(f"\n  [8] Completed in BOTH versions but degraded  ({len(both)} compared)")
+    print(f"      Remarks blanked        : {len(lost_remarks)}")
+    print(f"      Completion Date changed: {len(changed_done)}")
+    print(f"      PRSG Number blanked    : {len(lost_prsg)}")
+    if changed_done:
+        from collections import Counter
+        tally = Counter(nd for _k, _od, nd in changed_done)
+        summary = ", ".join("{} x{}".format(d or "(blank)", c)
+                            for d, c in tally.most_common(5))
+        print(f"      new Completion Date values: {summary}")
+    for k, rem in lost_remarks[:12]:
+        print(f"        {k:<18} lost remark {rem[:64]!r}")
+    if len(lost_remarks) > 12:
+        print(f"        ... +{len(lost_remarks)-12} more")
+    for k, od, nd in changed_done[:12]:
+        print(f"        {k:<18} completion {od} -> {nd or '(blank)'}")
+    if len(changed_done) > 12:
+        print(f"        ... +{len(changed_done)-12} more")
+
     # --- why the MR Week table does or doesn't render, in each version ---
     print(f"\n  [7] MR Week Schedule membership (two ways in: exact remark, or tick)")
     report_mr_week(old, f"v{old_v}")
