@@ -136,7 +136,11 @@ def main():
     args = ap.parse_args()
 
     M._load_settings("live")
-    logging.getLogger("MR_Report").setLevel(logging.WARNING)  # keep the parse quiet
+    # main.py's basicConfig puts the ROOT logger at DEBUG with a StreamHandler,
+    # so urllib3 connection chatter would bury the diff. Quieten everything.
+    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("MR_Report").setLevel(logging.WARNING)
     csess = M.conf_session()
 
     print(f"Reading page {M.CONFLUENCE_PAGE_ID} (read-only, no writes)...")
