@@ -36,8 +36,9 @@ EDM: **green** = released, **red** = not released, not found, or no document.
 
 Unlike PRSG (reached indirectly via `EDM_REFERENCES.REF` = the PT number), these
 report numbers ARE `EDM_DOCS.DOCNUMBER` values, so it is a direct lookup —
-confirmed by `scripts/probe_edm_reports.py` against the live page (30/30 exact
-matches). `RELEASESTATE` is a **string**; observed values across QD/906 docs are
+confirmed 2026-07-27 by a one-off probe against the live page (30/30 exact
+matches: 16 QD, 14 906). The probe was deleted after use; it is in git history
+if it is ever needed again. `RELEASESTATE` is a **string**; observed values are
 `'9'` released (16.6k), `'0'` (17.7k), `'5'` (1.0k), `'4'` (101). `9 == Released`,
 same coding as PRSG.
 

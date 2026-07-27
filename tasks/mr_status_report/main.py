@@ -389,8 +389,10 @@ def edm_lookup_reports(report_numbers):
 
     Unlike PRSG — which is reached indirectly via EDM_REFERENCES.REF (the PT
     number) — these report numbers ARE EDM_DOCS.DOCNUMBER values in their own
-    right, so this is a direct lookup. Confirmed by scripts/probe_edm_reports.py
-    against the live page: all 30 numbers matched EDM_DOCS.DOCNUMBER exactly.
+    right, so this is a direct lookup. Confirmed 2026-07-27 by a one-off probe
+    against the live page: all 30 report numbers on it (16 QD, 14 906) matched
+    EDM_DOCS.DOCNUMBER exactly, with no format mismatch. The probe was deleted
+    after use; it is in git history if it is ever needed again.
 
     RELEASESTATE is a string; observed values across QD/906 docs are '9'
     (released, 16.6k), '0' (17.7k), '5' (1.0k) and '4' (101). 9 == Released,
