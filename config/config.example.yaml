@@ -61,10 +61,35 @@ mo_ref_order_monitor:
   mo_number_regex: '\b(70\d{8})\b'
   # Per-MO state/history lives here (survives sync; keep out of the zip sync path).
   state_dir: "outputs/mo_ref_order_monitor_state"
+  # Pilot: restrict live runs to these containers first (CLI --container wins).
+  # pilot_containers: ["NPIOTHER-5589", "NPIOTHER-5322"]
   webex:
     enabled: false                         # flip to true once bot + rooms exist
     default_room_id: ""                    # fallback room when a marker isn't mapped
     routing: {}                            # VHRORN value -> Webex roomId, e.g. { QM: "ROOMID" }
+    # Message templates (Webex markdown). Placeholders:
+    #   {mo} {pn} {marker} {prev_marker} {prev_dwell} {total_dwell}
+    #   {status} {container} {url} {order_type} {responsible}
+    # Omit a key to use the built-in default.
+    messages:
+      initial: |-
+        🟢 **MO {mo}** · {pn}
+        Stage: **{marker}**
+        Container: [{container}]({url})
+      change: |-
+        🔵 **MO {mo}** · {pn}
+        Stage: {prev_marker} → **{marker}**
+        {prev_marker} took **{prev_dwell}**
+        Container: [{container}]({url})
+      reopen: |-
+        🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})
+        Stage: **{marker}**
+        Container: [{container}]({url})
+      closed: |-
+        ✅ **MO {mo}** · {pn} — **CLOSED** (Sts {status})
+        Last stage {marker} took **{prev_dwell}**
+        Total build time: **{total_dwell}**
+        Container: [{container}]({url})
 
 # Anthropic API (for AI-powered analysis)
 anthropic:

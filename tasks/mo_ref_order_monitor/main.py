@@ -38,6 +38,7 @@ from core.config_loader import load_config
 from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
+from core.calendar import fmt_hours
 from core.m3 import M3Client
 
 from tasks.mo_ref_order_monitor import state as state_store
@@ -84,21 +85,54 @@ def container_is_closed(jira: JiraClient, key: str) -> bool:
     return bool(issue.get("fields", {}).get("resolution"))
 
 
-def webex_message(reason: str, state: dict) -> str:
-    mo = state["mo_no"]
-    pn = state.get("pn", "")
-    marker = state.get("current_marker", "")
-    sts = state.get("last_status", "")
-    tag = f"MO {mo}" + (f" ({pn})" if pn else "")
-    if reason == "initial":
-        return f"**{tag}** started — stage **{marker}**"
-    if reason == "change":
-        return f"**{tag}** stage → **{marker}**"
-    if reason == "reopen":
-        return f"**{tag}** RE-OPENED — Sts {sts}"
-    if reason == "closed":
-        return f"**{tag}** CLOSED — Sts {sts}"
-    return f"**{tag}** {marker}"
+DEFAULT_WEBEX_TEMPLATES = {
+    "initial": ("🟢 **MO {mo}** · {pn}\n"
+                "Stage: **{marker}**\n"
+                "Container: [{container}]({url})"),
+    "change": ("🔵 **MO {mo}** · {pn}\n"
+               "Stage: {prev_marker} → **{marker}**\n"
+               "{prev_marker} took **{prev_dwell}**\n"
+               "Container: [{container}]({url})"),
+    "reopen": ("🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})\n"
+               "Stage: **{marker}**\n"
+               "Container: [{container}]({url})"),
+    "closed": ("✅ **MO {mo}** · {pn} — **CLOSED** (Sts {status})\n"
+               "Last stage {marker} took **{prev_dwell}**\n"
+               "Total build time: **{total_dwell}**\n"
+               "Container: [{container}]({url})"),
+}
+
+
+def webex_message(reason: str, state: dict, templates: dict, base_url: str) -> str:
+    """Render the Webex notification for one action."""
+    history = state.get("history", [])
+    last = history[-1] if history else None
+    grand: dict[str, float] = {}
+    for h in history:
+        for day, sec in (h.get("by_day") or {}).items():
+            grand[day] = grand.get(day, 0.0) + sec
+    container = state.get("container_key", "")
+
+    fields = {
+        "mo": state["mo_no"],
+        "pn": state.get("pn", "") or "—",
+        "marker": state.get("current_marker", "") or "—",
+        "status": state.get("last_status", ""),
+        "container": container,
+        "url": f"{base_url.rstrip('/')}/browse/{container}",
+        "order_type": state.get("order_type", ""),
+        "responsible": state.get("responsible", ""),
+        "prev_marker": (last or {}).get("marker", "—"),
+        "prev_dwell": (f"{len((last or {}).get('by_day', {}))}d, "
+                       f"{fmt_hours((last or {}).get('work_seconds', 0))}"
+                       if last else "—"),
+        "total_dwell": f"{len(grand)}d, {fmt_hours(sum(grand.values()))}" if grand else "—",
+    }
+    tpl = templates.get(reason) or DEFAULT_WEBEX_TEMPLATES.get(reason) or "{mo} {marker}"
+    try:
+        return tpl.format(**fields)
+    except KeyError as exc:
+        return f"MO {fields['mo']} {fields['marker']} (bad template placeholder {exc})"
 
 
 # ── main ─────────────────────────────────────────────────────────────
@@ -117,6 +151,7 @@ def run(args: argparse.Namespace) -> int:
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
+    webex_templates = config.get("mo_ref_order_monitor.webex.messages", {}) or {}
     webex = WebexNotifier(
         token=config.get("webex.bot_token", ""),
         enabled=bool(config.get("mo_ref_order_monitor.webex.enabled", False)),
@@ -198,7 +233,9 @@ def run(args: argparse.Namespace) -> int:
 
         for a in actions:
             if a.kind == "webex":
-                if webex.notify(a.webex_marker, webex_message(a.reason, state)):
+                msg = webex_message(a.reason, state, webex_templates,
+                                    config.jira_base_url)
+                if webex.notify(a.webex_marker, msg):
                     webex_sent += 1
 
         state_store.save_state(state_dir, state)
