@@ -89,8 +89,21 @@ if ($webexPids -notcontains $fgPid) {
     exit 2
 }
 
-# 5) Safe to type. Enter sends the message.
+# 5) Prime the compose box before the real text.
+#    The first keystrokes after a window activation are routinely swallowed
+#    while the app finishes settling (observed: the leading 5 characters of a
+#    message went missing). Send a throwaway space, delete it, and only then
+#    type the payload — so any dropped keystrokes cost us the primer, not the
+#    start of the message. If the space was swallowed too, the backspace hits
+#    an empty box and does nothing.
+Start-Sleep -Milliseconds 800
+[System.Windows.Forms.SendKeys]::SendWait(" ")
+Start-Sleep -Milliseconds 400
+[System.Windows.Forms.SendKeys]::SendWait("{BS}")
+Start-Sleep -Milliseconds 400
+
+# 6) Type the payload, then send with Enter.
 [System.Windows.Forms.SendKeys]::SendWait($Message)
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
 exit 0

@@ -69,7 +69,7 @@ class WebexNotifier:
     def __init__(self, enabled: bool, logger: logging.Logger,
                  transport: str = "desktop", queue_file: Path | None = None,
                  space_link: str = "", open_delay: float = 6.0,
-                 type_delay: float = 1.0, webhook_url: str = "",
+                 type_delay: float = 2.0, webhook_url: str = "",
                  token: str = "", default_room: str = "",
                  routing: dict[str, str] | None = None, dry_run: bool = False):
         self.enabled = enabled
