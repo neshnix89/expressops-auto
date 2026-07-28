@@ -1,9 +1,9 @@
 @echo off
 REM ============================================================
-REM  ONE-TIME setup: run the MO Ref-order-no monitor every 15 min
-REM  during working hours, Mon-Fri.
+REM  ONE-TIME setup: run the MO Ref-order-no monitor every 30 min
+REM  during working hours.
 REM
-REM  Creates ONE Task Scheduler job that repeats every 15 minutes
+REM  Creates ONE Task Scheduler job that repeats every 30 minutes
 REM  for 9 hours starting 08:00 (i.e. 08:00-17:00, matching the
 REM  working-hours dwell window). Re-running overwrites it (/F),
 REM  so it is safe to run again to change the cadence.
@@ -19,17 +19,17 @@ setlocal
 set "BAT=C:\Users\tmoghanan\Documents\AI\expressops-auto-dev\run_mo_ref_order_monitor.bat"
 set "TN=MO_RefOrder_Monitor"
 
-echo Creating 15-minute repeating job for the MO Ref-order-no monitor...
+echo Creating 30-minute repeating job for the MO Ref-order-no monitor...
 echo   -^> %BAT%
 echo.
 
-schtasks /Create /TN "%TN%" /TR "%BAT%" /SC DAILY /ST 08:00 /RI 15 /DU 0009:00 /F
+schtasks /Create /TN "%TN%" /TR "%BAT%" /SC DAILY /ST 08:00 /RI 30 /DU 0009:00 /F
 
 echo.
 echo Scheduled job:
 schtasks /Query /TN "%TN%" /FO LIST | findstr /I "TaskName Next Status"
 echo.
-echo Done. Runs every 15 min from 08:00 to 17:00 (while you are logged in).
+echo Done. Runs every 30 min from 08:00 to 17:00 (while you are logged in).
 echo.
 echo To pause / resume / remove:
 echo   schtasks /Change /TN "%TN%" /DISABLE
