@@ -83,6 +83,7 @@ mo_ref_order_monitor:
     type_delay_seconds: 2                  # settle before typing (raise if text truncates)
     # Undelivered alerts (laptop locked, Webex closed) are retried next run.
     queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
+    max_age_hours: 12                      # drop queued alerts older than this (stale = noise)
     webhook_url: ""                        # webhook transport only
     default_room_id: ""                    # bot transport only
     routing: {}                            # bot transport only: marker -> roomId

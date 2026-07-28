@@ -41,6 +41,12 @@ if ([string]::IsNullOrWhiteSpace($SpaceLink) -or [string]::IsNullOrWhiteSpace($M
 }
 
 Add-Type -AssemblyName System.Windows.Forms
+
+# Compile the Win32 helper only once per session. Re-running Add-Type for an
+# existing type raises, and the compile step itself is the flakiest part of
+# this script (observed: a transient "error occurred while creating the
+# pipeline" that succeeded on the next attempt).
+if (-not ('WxWin32' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -82,6 +88,7 @@ public class WxWin32 {
     }
 }
 "@
+}
 
 # Titles that indicate a preview / viewer window rather than the chat window.
 $previewPattern = '\.(png|jpe?g|gif|bmp|webp|heic|pdf|docx?|xlsx?|pptx?|mp4|mov)$|^Image$|Preview'

@@ -33,6 +33,7 @@ import json
 import logging
 import subprocess
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -71,8 +72,10 @@ class WebexNotifier:
                  space_link: str = "", open_delay: float = 6.0,
                  type_delay: float = 2.0, webhook_url: str = "",
                  token: str = "", default_room: str = "",
-                 routing: dict[str, str] | None = None, dry_run: bool = False):
+                 routing: dict[str, str] | None = None, dry_run: bool = False,
+                 max_age_hours: float = 12.0):
         self.enabled = enabled
+        self.max_age_hours = float(max_age_hours or 0)
         self.log = logger
         self.transport = (transport or "desktop").strip().lower()
         self.queue_file = Path(queue_file) if queue_file else None
@@ -110,7 +113,8 @@ class WebexNotifier:
             self.log.info("[webex] (disabled) marker=%s -> %s", marker, flatten(text))
             return False
         q = self._load_queue()
-        q.append({"marker": marker, "text": text})
+        q.append({"marker": marker, "text": text,
+                  "queued_at": datetime.now().isoformat(timespec="seconds")})
         self._save_queue(q)
         self.log.info("[webex] queued marker=%s (%d pending)", marker, len(q))
         return True
@@ -125,6 +129,24 @@ class WebexNotifier:
         if self.dry_run:
             self.log.info("[webex] (dry-run) %d message(s) would be sent", len(q))
             return (0, len(q))
+
+        # Drop stale alerts. An issue notification surfacing a day late (laptop
+        # left locked over a weekend) is noise, not information.
+        if self.max_age_hours:
+            cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
+            fresh = []
+            for item in q:
+                ts = item.get("queued_at")
+                try:
+                    stale = bool(ts) and datetime.fromisoformat(ts) < cutoff
+                except ValueError:
+                    stale = False
+                if stale:
+                    self.log.warning("[webex] dropping stale alert queued %s: %s",
+                                     ts, flatten(item.get("text", ""))[:100])
+                else:
+                    fresh.append(item)
+            q = fresh
 
         remaining = []
         sent = 0
@@ -181,15 +203,23 @@ class WebexNotifier:
             return False
 
         body = flatten(text)
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-             "-File", str(script),
-             "-SpaceLink", self.space_link,
-             "-Message", sendkeys_escape(body),
-             "-OpenDelay", str(self.open_delay),
-             "-TypeDelay", str(self.type_delay)],
-            capture_output=True, timeout=180, check=False,
-        )
+        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+               "-File", str(script),
+               "-SpaceLink", self.space_link,
+               "-Message", sendkeys_escape(body),
+               "-OpenDelay", str(self.open_delay),
+               "-TypeDelay", str(self.type_delay)]
+
+        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+
+        # Exit 1 is PowerShell itself failing (e.g. a flaky Add-Type compile),
+        # not a decision by our script — those are transient, so retry once
+        # immediately rather than waiting for the next 15-min run. Codes 2/3/4
+        # are deliberate refusals and must NOT be retried here.
+        if proc.returncode == 1:
+            self.log.warning("[webex] transient PowerShell failure — retrying once")
+            time.sleep(3)
+            proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
         stdout = (proc.stdout or b"").decode("utf-8", "replace").strip()
         if proc.returncode == 0:
             self.log.info("[webex] sent via desktop app: %s", body[:120])
