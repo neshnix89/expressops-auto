@@ -151,38 +151,53 @@ class WebexNotifier:
             self.log.error("[webex] send error (%s): %s", self.transport, exc)
             return False
 
+    # send_webex_desktop.ps1 exit codes
+    _PS_ERRORS = {
+        2: "Webex did not reach the foreground — nothing typed (will retry)",
+        3: "no Webex window found — is the app running and signed in?",
+        4: "bad arguments to the PowerShell helper",
+    }
+
     def _send_desktop(self, text: str) -> bool:
-        """Open the space in the Webex desktop app and type the message."""
+        """
+        Open the space in the Webex desktop app and type the message.
+
+        Delegated to send_webex_desktop.ps1, which forces the Webex window to
+        the foreground and VERIFIES it before typing. Without that check
+        SendKeys silently types into whatever has focus (e.g. the console that
+        launched us). A non-zero exit means nothing was typed, so the caller
+        keeps the message queued.
+        """
         if not self.space_link:
             self.log.error("[webex] desktop transport needs space_link (Copy space link)")
             return False
-        body = flatten(text)
+        if self.space_link.lower().startswith("http"):
+            self.log.warning("[webex] space_link is an https link — it may open a browser. "
+                             "Prefer the webexteams://im?space=... form.")
 
-        # 1) Bring the space to the foreground.
-        subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-             f'Start-Process "{powershell_quote(self.space_link)}"'],
-            capture_output=True, timeout=60, check=False,
-        )
-        time.sleep(self.open_delay)
-
-        # 2) Type into the compose box and send. SendKeys goes to whatever has
-        #    focus, so a locked screen / stolen focus makes this fail — hence
-        #    the queue: an undelivered message is retried next run.
-        keys = sendkeys_escape(body) + "{ENTER}"
-        ps = ("Add-Type -AssemblyName System.Windows.Forms; "
-              f'[System.Windows.Forms.SendKeys]::SendWait("{powershell_quote(keys)}")')
-        time.sleep(self.type_delay)
-        proc = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-            capture_output=True, timeout=60, check=False,
-        )
-        if proc.returncode != 0:
-            self.log.error("[webex] SendKeys failed: %s",
-                           (proc.stderr or b"").decode("utf-8", "replace")[:300])
+        script = Path(__file__).resolve().parent / "send_webex_desktop.ps1"
+        if not script.exists():
+            self.log.error("[webex] helper script missing: %s", script)
             return False
-        self.log.info("[webex] typed into desktop app: %s", body[:120])
-        return True
+
+        body = flatten(text)
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(script),
+             "-SpaceLink", self.space_link,
+             "-Message", sendkeys_escape(body),
+             "-OpenDelay", str(self.open_delay),
+             "-TypeDelay", str(self.type_delay)],
+            capture_output=True, timeout=180, check=False,
+        )
+        if proc.returncode == 0:
+            self.log.info("[webex] sent via desktop app: %s", body[:120])
+            return True
+
+        reason = self._PS_ERRORS.get(proc.returncode, "PowerShell helper failed")
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        self.log.error("[webex] %s (exit %d) %s", reason, proc.returncode, detail[:300])
+        return False
 
     def _send_webhook(self, text: str) -> bool:
         if not self.webhook_url:
