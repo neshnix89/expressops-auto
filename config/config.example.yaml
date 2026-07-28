@@ -63,31 +63,40 @@ mo_ref_order_monitor:
   state_dir: "outputs/mo_ref_order_monitor_state"
   # Pilot: restrict live runs to these containers first (CLI --container wins).
   # pilot_containers: ["NPIOTHER-5589", "NPIOTHER-5322"]
+  #
+  # Issue flag: production appends "IS" to the ref order no when the run has a
+  # problem (e.g. "QM IS"). Webex is notified ONLY when this flag changes
+  # (raised / cleared) — routine stage changes stay silent. JIRA still records
+  # every change. Default matches a trailing IS, case-insensitive.
+  issue_regex: '(?i)IS\s*$'
   webex:
-    enabled: false                         # flip to true once bot + rooms exist
-    default_room_id: ""                    # fallback room when a marker isn't mapped
-    routing: {}                            # VHRORN value -> Webex roomId, e.g. { QM: "ROOMID" }
+    enabled: false                         # flip to true once a transport works
+    # "webhook" = Incoming Webhooks integration (recommended: works when the
+    # org blocks bots). "bot" = bot token + roomId routing.
+    transport: "webhook"
+    webhook_url: ""                        # from the Incoming Webhooks integration
+    default_room_id: ""                    # bot transport only
+    routing: {}                            # bot transport only: marker -> roomId
     # Message templates (Webex markdown). Placeholders:
-    #   {mo} {pn} {marker} {prev_marker} {prev_dwell} {total_dwell}
-    #   {status} {container} {url} {order_type} {responsible}
+    #   {mo} {pn} {marker} {prev_marker} {prev_dwell} {issue_dwell}
+    #   {total_dwell} {status} {container} {url} {order_type} {responsible}
     # Omit a key to use the built-in default.
     messages:
-      initial: |-
-        🟢 **MO {mo}** · {pn}
-        Stage: **{marker}**
+      issue_raised: |-
+        🔴 **ISSUE — MO {mo}** · {pn}
+        Ref order no: **{marker}**
         Container: [{container}]({url})
-      change: |-
-        🔵 **MO {mo}** · {pn}
-        Stage: {prev_marker} → **{marker}**
-        {prev_marker} took **{prev_dwell}**
+      issue_cleared: |-
+        🟢 **RESOLVED — MO {mo}** · {pn}
+        Ref order no: **{marker}**
+        Issue lasted **{issue_dwell}**
         Container: [{container}]({url})
       reopen: |-
         🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})
-        Stage: **{marker}**
+        Ref order no: **{marker}**
         Container: [{container}]({url})
       closed: |-
         ✅ **MO {mo}** · {pn} — **CLOSED** (Sts {status})
-        Last stage {marker} took **{prev_dwell}**
         Total build time: **{total_dwell}**
         Container: [{container}]({url})
 

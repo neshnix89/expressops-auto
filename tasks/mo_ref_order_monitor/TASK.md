@@ -83,8 +83,15 @@ Keep these identical so existing containers stay consistent:
 4. **Dwell-time summary:** for each distinct Ref-order-no value observed, how long it
    stayed before advancing to the next (days + hours). Published once, below the MO
    status table, when status → 80/90. This is a delay indicator.
-5. **Webex notification:** on each published change, send to a Webex group chosen by
-   the Ref-order-no value (routing table — see Discovery).
+5. **Webex notification — ISSUE-GATED (not every change).** Production appends
+   **`IS`** to the ref order no (case-insensitive, at the end — e.g. `QM IS`) when
+   the run has a problem. Webex is notified ONLY on a change of that flag:
+   - no-IS → IS: **issue_raised**
+   - IS → no-IS: **issue_cleared** (includes how long the issue lasted)
+   - MO close: **closed** (always, regardless of IS)
+   - re-open: **reopen** (exception event; re-baselines the IS state)
+   Routine stage changes send nothing. JIRA still records every change.
+   All notifications go to a single group for now (routing per value deferred).
 6. **State/history file** (per MO, local JSON): current Ref order no, first-seen /
    last-seen timestamps per value, last MO status, last publish date, and the cached
    container key. Owns dwell-time history and avoids re-scanning all containers each

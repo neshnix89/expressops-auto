@@ -40,6 +40,19 @@ LEGACY_PREFIX = "h2. MO BUILD STATUS - "
 # neighbouring content (legacy tables, other MOs, manual notes).
 _HEADING_RE = re.compile(r"h[1-6]\.\s")
 
+# An "issue" is flagged by production by appending IS to the ref order no
+# (case-insensitive, at the end) — e.g. "QM IS", "AOI-IS", "QMIS". Webex is
+# notified only when this issue state CHANGES (raised / cleared), never on
+# routine stage changes. Override via config `issue_regex`.
+DEFAULT_ISSUE_REGEX = r"(?i)IS\s*$"
+
+
+def marker_has_issue(marker: str, pattern: str | None = None) -> bool:
+    """True if the ref-order-no value carries the IS issue flag."""
+    if not marker:
+        return False
+    return bool(re.search(pattern or DEFAULT_ISSUE_REGEX, marker.strip()))
+
 
 # ---------------------------------------------------------------------------
 # Value objects
@@ -97,6 +110,7 @@ def new_state(mo_no: str) -> dict:
         "last_poll_date": None,        # 'YYYY-MM-DD' of last status write
         "closed_published": False,
         "abandoned": False,
+        "issue_active": False,         # IS flag currently on the ref order no
         "history": [],                 # completed stages (with work_seconds)
         "days": {},                    # 'YYYY-MM-DD' -> per-day aggregate
     }
@@ -136,8 +150,25 @@ def _close_stage(state: dict, end: datetime,
 # ---------------------------------------------------------------------------
 # State machine
 # ---------------------------------------------------------------------------
+def _issue_actions(state: dict, marker: str, issue_regex: str | None) -> list[Action]:
+    """
+    Webex gating: notify ONLY when the IS issue flag on the ref order no
+    changes state. Routine stage changes stay silent.
+      no-IS -> IS : issue_raised
+      IS -> no-IS : issue_cleared
+    """
+    now_issue = marker_has_issue(marker, issue_regex)
+    was_issue = bool(state.get("issue_active", False))
+    if now_issue == was_issue:
+        return []
+    state["issue_active"] = now_issue
+    return [Action("webex", reason="issue_raised" if now_issue else "issue_cleared",
+                   webex_marker=marker)]
+
+
 def apply_observation(state: dict, obs: Observation,
-                      holidays: set | None = None) -> list[Action]:
+                      holidays: set | None = None,
+                      issue_regex: str | None = None) -> list[Action]:
     """Advance the lifecycle by one poll. Mutates state, returns actions."""
     actions: list[Action] = []
     if state.get("abandoned"):
@@ -167,7 +198,10 @@ def apply_observation(state: dict, obs: Observation,
         state["last_poll_date"] = today
         state["last_status"] = obs.status
         actions.append(Action("publish", reason="reopen"))
+        # A re-open is an exception event — always notify, then re-baseline the
+        # IS state so the next raise/clear transition is detected correctly.
         actions.append(Action("webex", reason="reopen", webex_marker=new_marker))
+        state["issue_active"] = marker_has_issue(new_marker, issue_regex)
         return actions
 
     # --- Active ---
@@ -185,7 +219,7 @@ def apply_observation(state: dict, obs: Observation,
                 day["changes"] = 0
                 state["last_poll_date"] = today
                 actions.append(Action("publish", reason="initial"))
-                actions.append(Action("webex", reason="initial", webex_marker=marker))
+                actions.extend(_issue_actions(state, marker, issue_regex))
             state["last_status"] = obs.status
             return actions
 
@@ -202,8 +236,10 @@ def apply_observation(state: dict, obs: Observation,
             day["end_marker"] = marker
             state["last_poll_date"] = today
             actions.append(Action("publish", reason="change"))
-            actions.append(Action("webex", reason="change", webex_marker=marker))
+            actions.extend(_issue_actions(state, marker, issue_regex))
         else:
+            # Value can change IS-flag without changing stage (e.g. "QM" ->
+            # "QM IS"); that is handled above. Nothing to do here for Webex.
             # No change: heartbeat row only on the first write of a new day.
             if state.get("last_poll_date") != today:
                 day["end_marker"] = prev_marker
@@ -224,9 +260,11 @@ def apply_observation(state: dict, obs: Observation,
         day["note"] = f"CLOSED Sts {obs.status}"
         day["end_marker"] = state.get("current_marker") or ""
         state["last_poll_date"] = today
+        # MO close always notifies, regardless of IS state.
         actions.append(Action("publish", reason="closed"))
         actions.append(Action("webex", reason="closed",
                               webex_marker=state.get("current_marker") or ""))
+        state["issue_active"] = False
     # else already closed -> stay silent.
 
     state["last_status"] = obs.status

@@ -86,18 +86,17 @@ def container_is_closed(jira: JiraClient, key: str) -> bool:
 
 
 DEFAULT_WEBEX_TEMPLATES = {
-    "initial": ("🟢 **MO {mo}** · {pn}\n"
-                "Stage: **{marker}**\n"
-                "Container: [{container}]({url})"),
-    "change": ("🔵 **MO {mo}** · {pn}\n"
-               "Stage: {prev_marker} → **{marker}**\n"
-               "{prev_marker} took **{prev_dwell}**\n"
-               "Container: [{container}]({url})"),
+    "issue_raised": ("🔴 **ISSUE — MO {mo}** · {pn}\n"
+                     "Ref order no: **{marker}**\n"
+                     "Container: [{container}]({url})"),
+    "issue_cleared": ("🟢 **RESOLVED — MO {mo}** · {pn}\n"
+                      "Ref order no: **{marker}**\n"
+                      "Issue lasted **{issue_dwell}**\n"
+                      "Container: [{container}]({url})"),
     "reopen": ("🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})\n"
-               "Stage: **{marker}**\n"
+               "Ref order no: **{marker}**\n"
                "Container: [{container}]({url})"),
     "closed": ("✅ **MO {mo}** · {pn} — **CLOSED** (Sts {status})\n"
-               "Last stage {marker} took **{prev_dwell}**\n"
                "Total build time: **{total_dwell}**\n"
                "Container: [{container}]({url})"),
 }
@@ -127,6 +126,11 @@ def webex_message(reason: str, state: dict, templates: dict, base_url: str) -> s
                        f"{fmt_hours((last or {}).get('work_seconds', 0))}"
                        if last else "—"),
         "total_dwell": f"{len(grand)}d, {fmt_hours(sum(grand.values()))}" if grand else "—",
+        # On issue_cleared, `last` is the IS-flagged value that just ended, so
+        # its dwell is how long the issue was open.
+        "issue_dwell": (f"{len((last or {}).get('by_day', {}))}d, "
+                        f"{fmt_hours((last or {}).get('work_seconds', 0))}"
+                        if last else "—"),
     }
     tpl = templates.get(reason) or DEFAULT_WEBEX_TEMPLATES.get(reason) or "{mo} {marker}"
     try:
@@ -152,12 +156,15 @@ def run(args: argparse.Namespace) -> int:
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
     webex_templates = config.get("mo_ref_order_monitor.webex.messages", {}) or {}
+    issue_regex = config.get("mo_ref_order_monitor.issue_regex") or None
     webex = WebexNotifier(
-        token=config.get("webex.bot_token", ""),
         enabled=bool(config.get("mo_ref_order_monitor.webex.enabled", False)),
+        logger=log,
+        transport=config.get("mo_ref_order_monitor.webex.transport", "webhook"),
+        webhook_url=config.get("mo_ref_order_monitor.webex.webhook_url", ""),
+        token=config.get("webex.bot_token", ""),
         default_room=config.get("mo_ref_order_monitor.webex.default_room_id", ""),
         routing=config.get("mo_ref_order_monitor.webex.routing", {}) or {},
-        logger=log,
         dry_run=args.dry_run,
     )
 
@@ -200,7 +207,7 @@ def run(args: argparse.Namespace) -> int:
             skipped += 1
             continue
 
-        actions = apply_observation(state, obs)
+        actions = apply_observation(state, obs, issue_regex=issue_regex)
         do_publish = any(a.kind == "publish" for a in actions)
         reasons = ",".join(a.reason for a in actions) or "no-op"
         log.info("MO %s: marker=%s sts=%s -> %s", mo_no, obs.marker, obs.status, reasons)
