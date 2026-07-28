@@ -23,6 +23,26 @@ Per MO, keep polling until the JIRA container is closed (resolution set).
 
 ---
 
+## Coexistence with the legacy Excel→Jira table (phase-out period)
+
+Both tables run side by side for ~1 week after go-live, then the legacy one is
+retired. Rules enforced in code:
+
+- **Separate headings.** Legacy (untouched, still written by Excel→Jira):
+  `h2. MO BUILD STATUS - {mo}`. This tool writes `h2. MO BUILD TRACKING - {mo}`
+  (+ `h3. MO BUILD DWELL - {mo}`). The tool never matches or edits the legacy
+  heading.
+- **Placement.** A new tracking section is appended at the END of the
+  description, so it always renders *below* the legacy table.
+- **Non-destructive boundaries.** Section replacement is line-based and stops at
+  the next wiki heading of any kind, so legacy tables, other MOs' sections and
+  manual notes/PIC feedback are never consumed.
+- **Self-heal.** The legacy tool PUTs the whole description, so a concurrent run
+  can drop our section (lost update). Each poll checks whether our section is
+  still present; if it published before and the section is gone, it re-publishes.
+- **Pilot flag.** `--container KEY[,KEY]` restricts a run to specific containers
+  so go-live can start on 1-2 containers.
+
 ## Confirmed contract inherited from Excel→Jira (src/backend/excel_to_jira.py)
 
 Keep these identical so existing containers stay consistent:

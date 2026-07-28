@@ -17,6 +17,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -26,8 +27,18 @@ from core.calendar import SG_HOLIDAYS, business_hours_by_day, fmt_hours
 # MO is active; a drop back below it is a re-open.
 CLOSED_THRESHOLD = 80
 
-STATUS_PREFIX = "h2. MO BUILD STATUS - "
+# Section headings owned by THIS tool. Deliberately distinct from the legacy
+# Excel->Jira table so both can coexist during the phase-out period.
+TRACKING_PREFIX = "h2. MO BUILD TRACKING - "
 DWELL_PREFIX = "h3. MO BUILD DWELL - "
+
+# The legacy Excel->Jira table heading. We must NEVER match, rewrite or delete
+# it — the old tool keeps maintaining it until it is phased out.
+LEGACY_PREFIX = "h2. MO BUILD STATUS - "
+
+# Any wiki heading line, used to bound our section without swallowing
+# neighbouring content (legacy tables, other MOs, manual notes).
+_HEADING_RE = re.compile(r"h[1-6]\.\s")
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +258,7 @@ def render_status_table(state: dict, username: str, timestamp: str) -> str:
         sub += f" · Responsible {resp}"
     sub += f" · updated by {username} on {timestamp}_"
 
-    lines = [f"{STATUS_PREFIX}{mo}", sub,
+    lines = [f"{TRACKING_PREFIX}{mo}", sub,
              "||Day||Ref Order No||# Chg||Stages that day||"]
     for day_iso in sorted(state.get("days", {})):
         d = state["days"][day_iso]
@@ -303,31 +314,48 @@ def render_mo_section(state: dict, username: str, timestamp: str) -> str:
     return section
 
 
+def has_section(desc: str, mo_no: str) -> bool:
+    """True if this tool's tracking section for `mo_no` is in the description."""
+    head = f"{TRACKING_PREFIX}{mo_no}"
+    return any(line.strip() == head for line in normalize(desc).split("\n"))
+
+
 def upsert_mo_section(current_desc: str, state: dict, username: str,
                       timestamp: str) -> str:
     """
-    Replace this MO's whole section (status table + optional dwell) in the
-    container description, bounded by the next MO's status marker. Regenerated
-    from state, so no fragile row parsing.
+    Insert or replace THIS MO's tracking section (tracking table + optional
+    dwell block) in the container description.
+
+    Placement: a new section is appended at the END of the description, so it
+    always lands *below* the legacy `MO BUILD STATUS` table during the
+    phase-out period. An existing section is replaced in place.
+
+    Boundaries are line-based and stop at the next wiki heading of any kind
+    (except our own dwell sub-heading), so legacy tables, other MOs' sections
+    and manual notes are never consumed.
     """
     desc = normalize(current_desc)
     mo = state["mo_no"]
-    marker_line = f"{STATUS_PREFIX}{mo}"
-    new_section = render_mo_section(state, username, timestamp).rstrip() + "\n"
+    tracking_head = f"{TRACKING_PREFIX}{mo}"
+    dwell_head = f"{DWELL_PREFIX}{mo}"
+    new_section = render_mo_section(state, username, timestamp).rstrip()
 
-    start = desc.find(marker_line)
-    if start == -1:
+    lines = desc.split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln.strip() == tracking_head), None)
+
+    if start is None:
         base = desc.rstrip()
-        return (base + "\n\n" if base else "") + new_section
+        return (base + "\n\n" if base else "") + new_section + "\n"
 
-    # Section ends at the next MO's status marker (or end of description).
-    nxt = desc.find(STATUS_PREFIX, start + len(marker_line))
-    before = desc[:start].rstrip()
-    after = desc[nxt:] if nxt != -1 else ""
-    parts = []
-    if before:
-        parts.append(before)
-    parts.append(new_section.rstrip())
-    if after.strip():
-        parts.append(after.strip())
+    # Our section runs until the next heading that isn't our own dwell block.
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        s = lines[j].strip()
+        if _HEADING_RE.match(s) and s != dwell_head:
+            end = j
+            break
+
+    before = "\n".join(lines[:start]).rstrip()
+    after = "\n".join(lines[end:]).strip()
+    parts = [p for p in (before, new_section, after) if p]
     return "\n\n".join(parts) + "\n"

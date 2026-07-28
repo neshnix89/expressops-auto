@@ -42,7 +42,7 @@ from core.m3 import M3Client
 
 from tasks.mo_ref_order_monitor import state as state_store
 from tasks.mo_ref_order_monitor.logic import (
-    apply_observation, new_state, upsert_mo_section,
+    apply_observation, has_section, new_state, upsert_mo_section,
 )
 from tasks.mo_ref_order_monitor.m3_mo import fetch_mo_header
 from tasks.mo_ref_order_monitor.webex import WebexNotifier
@@ -136,6 +136,11 @@ def run(args: argparse.Namespace) -> int:
             mo_map.setdefault(st["mo_no"], st["container_key"])
     if args.only:
         mo_map = {m: k for m, k in mo_map.items() if m == args.only}
+    if args.container:
+        allowed = {c.strip().upper() for c in args.container.split(",") if c.strip()}
+        mo_map = {m: k for m, k in mo_map.items() if k.upper() in allowed}
+        log.info("pilot: restricted to container(s) %s -> %d MO(s)",
+                 ", ".join(sorted(allowed)), len(mo_map))
 
     published = webex_sent = abandoned = skipped = 0
 
@@ -165,9 +170,22 @@ def run(args: argparse.Namespace) -> int:
         reasons = ",".join(a.reason for a in actions) or "no-op"
         log.info("MO %s: marker=%s sts=%s -> %s", mo_no, obs.marker, obs.status, reasons)
 
-        if do_publish:
+        # Self-heal: during the phase-out the legacy Excel->Jira tool also PUTs
+        # the whole description, so a concurrent run can drop our section. If we
+        # have published before but the section is gone, re-publish it.
+        issue = desc = None
+        if not do_publish and state.get("days"):
             issue = jira.get_issue(container_key)
             desc = issue.get("fields", {}).get("description", "") or ""
+            if not has_section(desc, mo_no):
+                log.warning("MO %s: tracking section missing from %s — restoring",
+                            mo_no, container_key)
+                do_publish = True
+
+        if do_publish:
+            if desc is None:
+                issue = jira.get_issue(container_key)
+                desc = issue.get("fields", {}).get("description", "") or ""
             new_desc = upsert_mo_section(desc, state, username,
                                          now.strftime("%Y-%m-%d %H:%M:%S"))
             if writes_disabled:
@@ -197,6 +215,8 @@ def main() -> int:
     g.add_argument("--live", action="store_true", help="live mode (real JIRA writes)")
     p.add_argument("--dry-run", action="store_true", help="fetch + compute, no writes")
     p.add_argument("--only", metavar="MO", help="restrict to a single MO number")
+    p.add_argument("--container", metavar="KEY[,KEY]",
+                   help="pilot: restrict to specific container key(s)")
     p.add_argument("--now", metavar='"YYYY-MM-DD HH:MM"', help="override poll time (testing)")
     args = p.parse_args()
     try:
