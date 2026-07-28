@@ -61,23 +61,30 @@ DEFAULT_MO_REGEX = r"\b(70\d{8})\b"
 
 # ── watch-list discovery ─────────────────────────────────────────────
 def discover_mo_container_map(jira: JiraClient, jql: str, mo_re: re.Pattern,
-                              log) -> dict[str, str]:
-    """Scan container comments for MO numbers -> {mo_no: container_key}."""
+                              log) -> tuple[dict[str, str], set[str]]:
+    """
+    Scan container comments for MO numbers.
+
+    Returns ({mo_no: container_key}, {container keys in JQL scope}) — the scope
+    set lets the caller explain why a requested container produced no MO.
+    """
     result = jira.search(jql, fields=["summary"])
     containers = result.get("issues", [])
     log.info("watch-list: %d containers in scope", len(containers))
     mo_map: dict[str, str] = {}
+    in_scope: set[str] = set()
     for c in containers:
         key = c.get("key")
         if not key:
             continue
+        in_scope.add(key.upper())
         issue = jira.get_issue(key)
         comments = (issue.get("fields", {}).get("comment", {}) or {}).get("comments", [])
         blob = "\n".join((cm.get("body") or "") for cm in comments)
         for mo in mo_re.findall(blob):
             mo_map.setdefault(mo, key)  # first container wins
     log.info("watch-list: %d MO(s) found in comments", len(mo_map))
-    return mo_map
+    return mo_map, in_scope
 
 
 def container_is_closed(jira: JiraClient, key: str) -> bool:
@@ -172,7 +179,7 @@ def run(args: argparse.Namespace) -> int:
     log.info("mode=%s dry_run=%s now=%s", mode, args.dry_run, now.isoformat())
 
     # Build the watch-list: comment-scan + MOs already tracked in state.
-    mo_map = discover_mo_container_map(jira, jql, mo_re, log)
+    mo_map, in_scope = discover_mo_container_map(jira, jql, mo_re, log)
     for st in state_store.all_states(state_dir):
         if not st.get("abandoned") and st.get("container_key"):
             mo_map.setdefault(st["mo_no"], st["container_key"])
@@ -183,6 +190,13 @@ def run(args: argparse.Namespace) -> int:
         mo_map = {m: k for m, k in mo_map.items() if k.upper() in allowed}
         log.info("pilot: restricted to container(s) %s -> %d MO(s)",
                  ", ".join(sorted(allowed)), len(mo_map))
+        # Diagnose silent misses: a requested container with no MO either fell
+        # outside the JQL scope or has no MO number in its comments.
+        matched = {k.upper() for k in mo_map.values()}
+        for key in sorted(allowed - matched):
+            log.warning("pilot: %s produced no MO — %s", key,
+                        "no MO number found in its comments" if key in in_scope
+                        else "NOT in JQL scope (check Product Type / NPI Location)")
 
     published = webex_sent = abandoned = skipped = 0
 
