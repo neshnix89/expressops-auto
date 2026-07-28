@@ -282,6 +282,26 @@ def _day_disp(day_iso: str) -> str:
     return datetime.strptime(day_iso, "%Y-%m-%d").strftime("%d-%b")
 
 
+# Characters that start a block-level construct in JIRA wiki markup. A cell
+# beginning with one gets parsed as a list/heading instead of text — e.g. a
+# "# Chg" header rendered as "1. Chg".
+_WIKI_LEADERS = ("#", "*", "-", "+", "!", "{", "h1.", "h2.", "h3.")
+
+
+def _cell(value) -> str:
+    """
+    Make a value safe inside a JIRA wiki table cell: no newlines, no bare
+    pipes (they would split the row), and no leading block markup.
+    """
+    s = str(value if value is not None else "").replace("\r", " ").replace("\n", " ")
+    s = s.replace("|", "\\|").strip()
+    if not s:
+        return " "
+    if s.startswith(_WIKI_LEADERS):
+        s = " " + s          # a leading space defuses the markup, renders the same
+    return s
+
+
 def render_status_table(state: dict, username: str, timestamp: str) -> str:
     """Daily table: end-of-day stage, # changes, stages seen that day."""
     mo = state["mo_no"]
@@ -296,13 +316,15 @@ def render_status_table(state: dict, username: str, timestamp: str) -> str:
         sub += f" · Responsible {resp}"
     sub += f" · updated by {username} on {timestamp}_"
 
+    # "Changes" not "# Chg" — a leading # is numbered-list markup in JIRA wiki.
     lines = [f"{TRACKING_PREFIX}{mo}", sub,
-             "||Day||Ref Order No||# Chg||Stages that day||"]
+             "||Day||Ref Order No||Changes||Stages that day||"]
     for day_iso in sorted(state.get("days", {})):
         d = state["days"][day_iso]
         eod = d.get("note") or d.get("end_marker") or ""
         stages = " → ".join(d.get("stages", []))
-        lines.append(f"|{_day_disp(day_iso)}|{eod}|{d.get('changes', 0)}|{stages}|")
+        lines.append(f"|{_cell(_day_disp(day_iso))}|{_cell(eod)}|"
+                     f"{_cell(d.get('changes', 0))}|{_cell(stages)}|")
     return "\n".join(lines) + "\n"
 
 
@@ -334,8 +356,9 @@ def render_dwell(state: dict) -> str:
         daily = " · ".join(f"{_day_disp(day)} {fmt_hours(sec)}"
                            for day, sec in sorted(by_day.items())) or "—"
         days = len(by_day)
-        lines.append(f"|{r['marker']}|{fmt(r['start'])}|{fmt(r['end'])}|"
-                     f"{days}|{daily}|{days}d, {fmt_hours(r['work_seconds'])}|")
+        lines.append(f"|{_cell(r['marker'])}|{_cell(fmt(r['start']))}|"
+                     f"{_cell(fmt(r['end']))}|{_cell(days)}|{_cell(daily)}|"
+                     f"{_cell(f'{days}d, ' + fmt_hours(r['work_seconds']))}|")
     g_days = len(grand_by_day)
     g_secs = sum(grand_by_day.values())
     lines.append(f"|*Total*| | |*{g_days}*| |*{g_days}d, {fmt_hours(g_secs)}*|")
