@@ -2,31 +2,36 @@
 Send one message to a Webex space by driving the Webex DESKTOP APP.
 
 Used by tasks/mo_ref_order_monitor when the org blocks Webex bots and
-integrations. Opens the space via its webexteams:// deep link, FORCES the
-Webex window to the foreground, VERIFIES the foreground window really belongs
-to Webex, and only then types.
+integrations. Opens the space via its webexteams:// deep link, picks the real
+CHAT window, forces it to the foreground, VERIFIES that exact window has focus,
+and only then types.
 
-The verification matters: SendKeys goes to whatever currently has focus, so
-without it a failed activation types the message into the calling console (or
-worse, into another app). On any failure this exits non-zero and types
-nothing — the caller keeps the message queued and retries later.
+Two failure modes this guards against, both observed in testing:
+  * keystrokes leaking into whatever else had focus (typed into the console),
+  * an auxiliary Webex window (e.g. an image preview) being targeted instead of
+    the chat window — it shares the process ID, so a PID-level check passes
+    while the message goes nowhere useful. Verification is therefore by window
+    HANDLE, not by process.
+
+On any failure this exits non-zero having typed nothing; the caller keeps the
+message queued and retries later.
 
 Exit codes:
     0  sent
-    2  Webex did not reach the foreground (nothing typed)
-    3  no Webex window found (nothing typed)
+    2  the chat window did not reach the foreground (nothing typed)
+    3  no usable Webex chat window found (nothing typed)
     4  bad arguments
 
 Usage:
     powershell -NoProfile -ExecutionPolicy Bypass -File send_webex_desktop.ps1 `
         -SpaceLink "webexteams://im?space=..." -Message "text" `
-        -OpenDelay 6 -TypeDelay 1
+        -OpenDelay 6 -TypeDelay 2
 #>
 param(
     [Parameter(Mandatory = $true)][string]$SpaceLink,
     [Parameter(Mandatory = $true)][string]$Message,
     [double]$OpenDelay = 6,
-    [double]$TypeDelay = 1
+    [double]$TypeDelay = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,64 +43,118 @@ if ([string]::IsNullOrWhiteSpace($SpaceLink) -or [string]::IsNullOrWhiteSpace($M
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public class WxWin32 {
-    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int max);
     [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    public static List<IntPtr> VisibleWindows() {
+        List<IntPtr> list = new List<IntPtr>();
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (IsWindowVisible(h)) list.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+    public static string Title(IntPtr h) {
+        int len = GetWindowTextLength(h);
+        if (len == 0) return "";
+        StringBuilder sb = new StringBuilder(len + 1);
+        GetWindowText(h, sb, sb.Capacity);
+        return sb.ToString();
+    }
+    public static int Pid(IntPtr h) { int p; GetWindowThreadProcessId(h, out p); return p; }
+    public static long Area(IntPtr h) {
+        RECT r; if (!GetWindowRect(h, out r)) return 0;
+        return (long)(r.Right - r.Left) * (long)(r.Bottom - r.Top);
+    }
 }
 "@
 
-function Get-WebexWindows {
-    # Webex App is Webex.exe; older Teams client is CiscoCollabHost.exe.
-    Get-Process |
-        Where-Object {
-            $_.MainWindowHandle -ne 0 -and
-            ($_.ProcessName -match '^(Webex|CiscoCollabHost|webexmta)$' -or
-             $_.MainWindowTitle -match 'Webex')
+# Titles that indicate a preview / viewer window rather than the chat window.
+$previewPattern = '\.(png|jpe?g|gif|bmp|webp|heic|pdf|docx?|xlsx?|pptx?|mp4|mov)$|^Image$|Preview'
+
+function Get-WebexChatWindow {
+    $procIds = @(Get-Process |
+        Where-Object { $_.ProcessName -match '^(Webex|CiscoCollabHost|webexmta)$' } |
+        Select-Object -ExpandProperty Id)
+    if (-not $procIds) { return $null }
+
+    $cands = foreach ($h in [WxWin32]::VisibleWindows()) {
+        $t = [WxWin32]::Title($h)
+        if ([string]::IsNullOrWhiteSpace($t)) { continue }
+        $wpid = [WxWin32]::Pid($h)
+        if ($procIds -notcontains $wpid) { continue }
+        [pscustomobject]@{
+            Handle    = $h
+            Title     = $t
+            Pid       = $wpid
+            Area      = [WxWin32]::Area($h)
+            IsPreview = ($t -match $previewPattern)
         }
+    }
+    if (-not $cands) { return $null }
+
+    Write-Host "[webex-ps] candidate windows:"
+    foreach ($c in $cands) {
+        Write-Host ("    '{0}' pid={1} area={2} preview={3}" -f $c.Title, $c.Pid, $c.Area, $c.IsPreview)
+    }
+
+    # Prefer a non-preview window whose title mentions Webex; then largest area
+    # (the chat window is the big one, previews and toasts are small).
+    $ranked = $cands |
+        Where-Object { -not $_.IsPreview } |
+        Sort-Object @{ Expression = { if ($_.Title -match 'Webex') { 0 } else { 1 } } },
+                    @{ Expression = { $_.Area }; Descending = $true }
+    if (-not $ranked) { return $null }
+    return @($ranked)[0]
 }
 
 # 1) Ask the OS to open the space in the Webex app.
 Start-Process $SpaceLink | Out-Null
 Start-Sleep -Seconds $OpenDelay
 
-# 2) Locate the Webex window.
-$wx = Get-WebexWindows | Select-Object -First 1
-if (-not $wx) {
-    Write-Error "No Webex window found - is the Webex desktop app running and signed in?"
+# 2) Locate the CHAT window specifically.
+$win = Get-WebexChatWindow
+if (-not $win) {
+    Write-Error "No Webex chat window found - is the app running, signed in, and not showing only a preview window?"
     exit 3
 }
+Write-Host ("[webex-ps] target: '{0}' (handle {1})" -f $win.Title, $win.Handle)
 
 # 3) Force it to the foreground (restore first if minimised).
-if ([WxWin32]::IsIconic($wx.MainWindowHandle)) {
-    [void][WxWin32]::ShowWindow($wx.MainWindowHandle, 9)  # SW_RESTORE
+if ([WxWin32]::IsIconic($win.Handle)) {
+    [void][WxWin32]::ShowWindow($win.Handle, 9)  # SW_RESTORE
     Start-Sleep -Milliseconds 500
 }
-[void][WxWin32]::SetForegroundWindow($wx.MainWindowHandle)
+[void][WxWin32]::SetForegroundWindow($win.Handle)
 Start-Sleep -Seconds $TypeDelay
 
-# 4) VERIFY focus before typing anything. Windows can refuse a foreground
-#    change (foreground lock), which is exactly how keystrokes leak elsewhere.
+# 4) VERIFY by HANDLE. A PID check is not enough: an image-preview window
+#    shares the chat window's process, so it would pass while swallowing the
+#    message.
 $fg = [WxWin32]::GetForegroundWindow()
-$fgPid = 0
-[void][WxWin32]::GetWindowThreadProcessId($fg, [ref]$fgPid)
-$webexPids = @(Get-WebexWindows | Select-Object -ExpandProperty Id)
-if ($webexPids -notcontains $fgPid) {
-    $owner = try { (Get-Process -Id $fgPid -ErrorAction Stop).ProcessName } catch { "unknown" }
-    Write-Error "Webex is not in the foreground (focus held by '$owner', pid $fgPid) - nothing typed"
+if ($fg -ne $win.Handle) {
+    $fgTitle = [WxWin32]::Title($fg)
+    Write-Error ("Target chat window is not in the foreground (focus held by '{0}') - nothing typed" -f $fgTitle)
     exit 2
 }
 
-# 5) Prime the compose box before the real text.
-#    The first keystrokes after a window activation are routinely swallowed
-#    while the app finishes settling (observed: the leading 5 characters of a
-#    message went missing). Send a throwaway space, delete it, and only then
-#    type the payload — so any dropped keystrokes cost us the primer, not the
-#    start of the message. If the space was swallowed too, the backspace hits
-#    an empty box and does nothing.
+# 5) Prime the compose box. The first keystrokes after activation are routinely
+#    swallowed while the app settles (observed: leading 5 chars lost). Spend a
+#    throwaway space + backspace so any loss costs the primer, not the message.
 Start-Sleep -Milliseconds 800
 [System.Windows.Forms.SendKeys]::SendWait(" ")
 Start-Sleep -Milliseconds 400

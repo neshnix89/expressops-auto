@@ -190,13 +190,19 @@ class WebexNotifier:
              "-TypeDelay", str(self.type_delay)],
             capture_output=True, timeout=180, check=False,
         )
+        stdout = (proc.stdout or b"").decode("utf-8", "replace").strip()
         if proc.returncode == 0:
             self.log.info("[webex] sent via desktop app: %s", body[:120])
+            for line in stdout.splitlines():          # window-selection trace
+                self.log.debug("[webex] %s", line)
             return True
 
         reason = self._PS_ERRORS.get(proc.returncode, "PowerShell helper failed")
         detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
         self.log.error("[webex] %s (exit %d) %s", reason, proc.returncode, detail[:300])
+        # The candidate-window list is the fastest way to diagnose a bad target.
+        for line in stdout.splitlines():
+            self.log.error("[webex] %s", line)
         return False
 
     def _send_webhook(self, text: str) -> bool:
