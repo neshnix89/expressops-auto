@@ -109,7 +109,19 @@ DEFAULT_WEBEX_TEMPLATES = {
 }
 
 
-def webex_message(reason: str, state: dict, templates: dict, base_url: str) -> str:
+# Typed into the compose box, markdown syntax is unreliable — these plain-text
+# variants are used for the "desktop" transport unless overridden in config.
+DESKTOP_WEBEX_TEMPLATES = {
+    "issue_raised": "🔴 ISSUE — MO {mo} ({pn}) — Ref order no: {marker} — {container} {url}",
+    "issue_cleared": ("🟢 RESOLVED — MO {mo} ({pn}) — Ref order no: {marker} — "
+                      "issue lasted {issue_dwell} — {container} {url}"),
+    "reopen": "🟠 MO {mo} ({pn}) RE-OPENED (Sts {status}) — Ref order no: {marker} — {container} {url}",
+    "closed": "✅ MO {mo} ({pn}) CLOSED (Sts {status}) — total build time {total_dwell} — {container} {url}",
+}
+
+
+def webex_message(reason: str, state: dict, templates: dict, base_url: str,
+                  transport: str = "desktop") -> str:
     """Render the Webex notification for one action."""
     history = state.get("history", [])
     last = history[-1] if history else None
@@ -139,7 +151,9 @@ def webex_message(reason: str, state: dict, templates: dict, base_url: str) -> s
                         f"{fmt_hours((last or {}).get('work_seconds', 0))}"
                         if last else "—"),
     }
-    tpl = templates.get(reason) or DEFAULT_WEBEX_TEMPLATES.get(reason) or "{mo} {marker}"
+    fallback = (DESKTOP_WEBEX_TEMPLATES if transport == "desktop"
+                else DEFAULT_WEBEX_TEMPLATES)
+    tpl = templates.get(reason) or fallback.get(reason) or "{mo} {marker}"
     try:
         return tpl.format(**fields)
     except KeyError as exc:
@@ -167,13 +181,26 @@ def run(args: argparse.Namespace) -> int:
     webex = WebexNotifier(
         enabled=bool(config.get("mo_ref_order_monitor.webex.enabled", False)),
         logger=log,
-        transport=config.get("mo_ref_order_monitor.webex.transport", "webhook"),
+        transport=config.get("mo_ref_order_monitor.webex.transport", "desktop"),
+        queue_file=PROJECT_ROOT / config.get(
+            "mo_ref_order_monitor.webex.queue_file",
+            f"outputs/{TASK_NAME}_webex_queue.json"),
+        space_link=config.get("mo_ref_order_monitor.webex.space_link", ""),
+        open_delay=config.get("mo_ref_order_monitor.webex.open_delay_seconds", 6),
+        type_delay=config.get("mo_ref_order_monitor.webex.type_delay_seconds", 1),
         webhook_url=config.get("mo_ref_order_monitor.webex.webhook_url", ""),
         token=config.get("webex.bot_token", ""),
         default_room=config.get("mo_ref_order_monitor.webex.default_room_id", ""),
         routing=config.get("mo_ref_order_monitor.webex.routing", {}) or {},
         dry_run=args.dry_run,
     )
+
+    # Standalone transport test — send one message and exit (no JIRA/M3 work).
+    if args.test_webex:
+        webex.notify("TEST", args.test_webex)
+        sent, pending = webex.flush()
+        log.info("test-webex: sent=%d pending=%d", sent, pending)
+        return 0 if sent else 1
 
     writes_disabled = config.is_mock or args.dry_run
     log.info("mode=%s dry_run=%s now=%s", mode, args.dry_run, now.isoformat())
@@ -255,14 +282,20 @@ def run(args: argparse.Namespace) -> int:
         for a in actions:
             if a.kind == "webex":
                 msg = webex_message(a.reason, state, webex_templates,
-                                    config.jira_base_url)
+                                    config.jira_base_url, webex.transport)
                 if webex.notify(a.webex_marker, msg):
                     webex_sent += 1
 
         state_store.save_state(state_dir, state)
 
-    log.info("SUMMARY: published=%d webex=%d abandoned=%d skipped=%d (of %d MOs)",
-             published, webex_sent, abandoned, skipped, len(mo_map))
+    # Deliver queued notifications last, so a Webex/UI failure can never
+    # interfere with JIRA updates. Anything undelivered is retried next run.
+    delivered, pending = webex.flush()
+
+    log.info("SUMMARY: published=%d webex_queued=%d delivered=%d pending=%d "
+             "abandoned=%d skipped=%d (of %d MOs)",
+             published, webex_sent, delivered, pending, abandoned, skipped,
+             len(mo_map))
     return 0
 
 
@@ -276,6 +309,8 @@ def main() -> int:
     p.add_argument("--container", metavar="KEY[,KEY]",
                    help="pilot: restrict to specific container key(s)")
     p.add_argument("--now", metavar='"YYYY-MM-DD HH:MM"', help="override poll time (testing)")
+    p.add_argument("--test-webex", metavar="TEXT",
+                   help="send one test message via the configured transport, then exit")
     args = p.parse_args()
     try:
         return run(args)

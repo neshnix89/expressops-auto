@@ -71,34 +71,28 @@ mo_ref_order_monitor:
   issue_regex: '(?i)IS\s*$'
   webex:
     enabled: false                         # flip to true once a transport works
-    # "webhook" = Incoming Webhooks integration (recommended: works when the
-    # org blocks bots). "bot" = bot token + roomId routing.
-    transport: "webhook"
-    webhook_url: ""                        # from the Incoming Webhooks integration
+    # Transport:
+    #   "desktop" — drive the Webex desktop app on the laptop (NO admin approval
+    #               needed). Viable because IS-gated alerts are rare.
+    #   "webhook" — Incoming Webhooks integration (needs admin approval).
+    #   "bot"     — bot token + roomId (blocked by policy today).
+    transport: "desktop"
+    # desktop: Webex -> open the space -> space menu -> "Copy space link".
+    space_link: ""                         # webexteams://im?space=... or https://eurl.io/...
+    open_delay_seconds: 6                  # wait for the app to focus the space
+    type_delay_seconds: 1                  # settle before typing
+    # Undelivered alerts (laptop locked, Webex closed) are retried next run.
+    queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
+    webhook_url: ""                        # webhook transport only
     default_room_id: ""                    # bot transport only
     routing: {}                            # bot transport only: marker -> roomId
-    # Message templates (Webex markdown). Placeholders:
+    # Message templates. Placeholders:
     #   {mo} {pn} {marker} {prev_marker} {prev_dwell} {issue_dwell}
     #   {total_dwell} {status} {container} {url} {order_type} {responsible}
-    # Omit a key to use the built-in default.
-    messages:
-      issue_raised: |-
-        🔴 **ISSUE — MO {mo}** · {pn}
-        Ref order no: **{marker}**
-        Container: [{container}]({url})
-      issue_cleared: |-
-        🟢 **RESOLVED — MO {mo}** · {pn}
-        Ref order no: **{marker}**
-        Issue lasted **{issue_dwell}**
-        Container: [{container}]({url})
-      reopen: |-
-        🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})
-        Ref order no: **{marker}**
-        Container: [{container}]({url})
-      closed: |-
-        ✅ **MO {mo}** · {pn} — **CLOSED** (Sts {status})
-        Total build time: **{total_dwell}**
-        Container: [{container}]({url})
+    # Omit a key to use the built-in default (plain text for "desktop",
+    # markdown for the API transports). Multi-line bodies are flattened to one
+    # line for "desktop" because Enter sends the message.
+    messages: {}
 
 # Anthropic API (for AI-powered analysis)
 anthropic:
