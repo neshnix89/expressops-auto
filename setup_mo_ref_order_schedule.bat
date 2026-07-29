@@ -16,7 +16,7 @@ REM  check the JIRA result:
 REM    python -m tasks.mo_ref_order_monitor.main --live --container NPIOTHER-5589
 REM ============================================================
 setlocal
-set "BAT=C:\Users\tmoghanan\Documents\AI\expressops-auto-dev\run_mo_ref_order_monitor.bat"
+set "BAT=C:\Users\tmoghanan\Documents\AI\expressops-auto\run_mo_ref_order_monitor.bat"
 set "TN=MO_RefOrder_Monitor"
 
 echo Creating 30-minute repeating job for the MO Ref-order-no monitor...
