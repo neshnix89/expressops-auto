@@ -172,8 +172,16 @@ def run(args: argparse.Namespace) -> int:
     mo_re = re.compile(config.get("mo_ref_order_monitor.mo_number_regex", DEFAULT_MO_REGEX))
     username = config.get("mo_ref_order_monitor.username", "ExpressOPS MO Monitor")
     no_status_label = config.get("mo_ref_order_monitor.no_status_label", "No Status")
-    state_dir = PROJECT_ROOT / config.get(
-        "mo_ref_order_monitor.state_dir", f"outputs/{TASK_NAME}_state")
+
+    def _resolve(val: str) -> Path:
+        # Absolute paths (a shared network location like Y:\... or \\server\...)
+        # are used as-is so two laptops can share one state store; relative
+        # paths stay under the repo. Critical for multi-machine operation.
+        p = Path(val)
+        return p if p.is_absolute() else PROJECT_ROOT / p
+
+    state_dir = _resolve(config.get(
+        "mo_ref_order_monitor.state_dir", f"outputs/{TASK_NAME}_state"))
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
@@ -183,9 +191,9 @@ def run(args: argparse.Namespace) -> int:
         enabled=bool(config.get("mo_ref_order_monitor.webex.enabled", False)),
         logger=log,
         transport=config.get("mo_ref_order_monitor.webex.transport", "desktop"),
-        queue_file=PROJECT_ROOT / config.get(
+        queue_file=_resolve(config.get(
             "mo_ref_order_monitor.webex.queue_file",
-            f"outputs/{TASK_NAME}_webex_queue.json"),
+            f"outputs/{TASK_NAME}_webex_queue.json")),
         space_link=config.get("mo_ref_order_monitor.webex.space_link", ""),
         open_delay=config.get("mo_ref_order_monitor.webex.open_delay_seconds", 6),
         type_delay=config.get("mo_ref_order_monitor.webex.type_delay_seconds", 2),
