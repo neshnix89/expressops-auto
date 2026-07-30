@@ -67,6 +67,10 @@ mo_ref_order_monitor:
   # no marker yet is still visible as 'watched, not marked'.
   no_status_label: "No Status"
   # Per-MO state/history lives here (survives sync; keep out of the zip sync path).
+  # SINGLE-LAPTOP default below. For a SECOND laptop sharing one history, point
+  # BOTH machines' state_dir AND webex.queue_file at the same absolute network
+  # path (use single quotes so backslashes stay literal), e.g.:
+  #   state_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\state'
   state_dir: "outputs/mo_ref_order_monitor_state"
   # Pilot: restrict live runs to these containers first (CLI --container wins).
   # pilot_containers: ["NPIOTHER-5589", "NPIOTHER-5322"]
