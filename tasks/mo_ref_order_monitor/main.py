@@ -268,7 +268,11 @@ def run(args: argparse.Namespace) -> int:
         actions = apply_observation(state, obs, issue_regex=issue_regex)
         do_publish = any(a.kind == "publish" for a in actions)
         reasons = ",".join(a.reason for a in actions) or "no-op"
-        log.info("MO %s: marker=%s sts=%s -> %s", mo_no, obs.marker, obs.status, reasons)
+        # VHLMDT/VHCHNO expose the ODS replica's freshness: if a P1 change isn't
+        # reflected here, MWOHED_AP simply hasn't synced yet (not a bug).
+        log.info("MO %s: marker=%r sts=%s -> %s  [M3 lastmod=%s chg#=%s by=%s]",
+                 mo_no, obs.marker, obs.status, reasons,
+                 obs.last_modified or "?", obs.change_no or "?", obs.changed_by or "?")
 
         # Self-heal: during the phase-out the legacy Excel->Jira tool also PUTs
         # the whole description, so a concurrent run can drop our section. If we

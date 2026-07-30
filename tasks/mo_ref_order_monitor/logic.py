@@ -67,6 +67,9 @@ class Observation:
     pn: str = ""                      # VHPRNO
     order_type: str = ""              # VHORTY
     responsible: str = ""             # VHRESP
+    last_modified: str = ""           # VHLMDT (diagnostic: replica freshness)
+    change_no: str = ""               # VHCHNO (diagnostic)
+    changed_by: str = ""              # VHCHID (diagnostic)
     at: datetime = field(default_factory=lambda: datetime(1970, 1, 1))
 
 

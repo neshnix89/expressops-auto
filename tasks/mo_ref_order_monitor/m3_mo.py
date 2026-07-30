@@ -14,8 +14,11 @@ from core.m3 import M3Client
 from .logic import Observation, parse_status
 
 # Only the columns we need (VH-prefixed MO header). Confirmed 2026-07.
+# VHLMDT/VHCHNO are diagnostics: they reveal when the ODS replica (MWOHED_AP)
+# last refreshed, which is how we tell a real "no change" from replica lag.
 _SQL = (
-    "SELECT VHMFNO, VHPRNO, VHWHST, VHWHHS, VHRORN, VHORTY, VHRESP "
+    "SELECT VHMFNO, VHPRNO, VHWHST, VHWHHS, VHRORN, VHORTY, VHRESP, "
+    "VHLMDT, VHCHNO, VHCHID "
     "FROM {schema}.MWOHED_AP WHERE VHMFNO = ?"
 )
 
@@ -38,5 +41,8 @@ def fetch_mo_header(m3: M3Client, mo_no: str, at: datetime) -> Observation | Non
         pn=(str(r.get("VHPRNO", "")) or "").strip(),
         order_type=(str(r.get("VHORTY", "")) or "").strip(),
         responsible=(str(r.get("VHRESP", "")) or "").strip(),
+        last_modified=(str(r.get("VHLMDT", "")) or "").strip(),
+        change_no=(str(r.get("VHCHNO", "")) or "").strip(),
+        changed_by=(str(r.get("VHCHID", "")) or "").strip(),
         at=at,
     )

@@ -23,7 +23,10 @@ import sys
 
 DSN = "ODSSG"          # documented DSN (see CLAUDE.md) — not a secret, no password
 SCHEMA = "PFODS"
-TARGET_MO = "7003904788"
+# Optional CLI arg: an MO number to inspect (default = the original discovery MO).
+# Use it to read the live replica value on demand, e.g. to check for ODS lag:
+#   python -m tasks.mo_ref_order_monitor.discover_mo_header 7003928601
+TARGET_MO = sys.argv[1].strip() if len(sys.argv) > 1 else "7003904788"
 
 # Candidate MO-header tables (standard M3 = MWOHED; _AP is the ODS convention here)
 CANDIDATE_TABLES = ["MWOHED_AP", "MWOHED", "MWOHEDV_AP"]
