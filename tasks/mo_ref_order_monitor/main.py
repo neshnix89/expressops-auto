@@ -242,6 +242,17 @@ def run(args: argparse.Namespace) -> int:
                         "no MO number found in its comments" if key in in_scope
                         else "NOT in JQL scope (check Product Type / NPI Location)")
 
+    # --reset wipes persisted state for the MOs in scope, so a test starts from
+    # a clean table. Guarded to the current (already-filtered) mo_map, never the
+    # whole store. Refused without an explicit MO selector to avoid surprises.
+    if args.reset:
+        if not (args.map or args.only or args.container):
+            log.error("--reset requires --map / --only / --container to scope it")
+            return 2
+        for mo_no in mo_map:
+            if state_store.delete_state(state_dir, mo_no):
+                log.warning("reset: cleared persisted state for MO %s", mo_no)
+
     published = webex_sent = abandoned = skipped = 0
 
     for mo_no, container_key in sorted(mo_map.items()):
@@ -252,7 +263,8 @@ def run(args: argparse.Namespace) -> int:
         if container_is_closed(jira, container_key):
             if not state.get("abandoned"):
                 state["abandoned"] = True
-                state_store.save_state(state_dir, state)
+                if not args.dry_run:
+                    state_store.save_state(state_dir, state)
                 abandoned += 1
                 log.info("MO %s: container %s closed -> abandon", mo_no, container_key)
             continue
@@ -307,7 +319,11 @@ def run(args: argparse.Namespace) -> int:
                 if webex.notify(a.webex_marker, msg):
                     webex_sent += 1
 
-        state_store.save_state(state_dir, state)
+        # A --dry-run must not advance the lifecycle: persisting state here
+        # would make a later real run think this poll already happened (missed
+        # publishes) and would seed history the container never actually got.
+        if not args.dry_run:
+            state_store.save_state(state_dir, state)
 
     # Deliver queued notifications last, so a Webex/UI failure can never
     # interfere with JIRA updates. Anything undelivered is retried next run.
@@ -332,6 +348,9 @@ def main() -> int:
     p.add_argument("--map", action="append", metavar="MO=CONTAINER",
                    help="force an MO->container pairing and skip comment-scan "
                         "discovery (repeatable); for controlled tests")
+    p.add_argument("--reset", action="store_true",
+                   help="wipe persisted state for the in-scope MOs before running "
+                        "(requires --map/--only/--container); clears test history")
     p.add_argument("--now", metavar='"YYYY-MM-DD HH:MM"', help="override poll time (testing)")
     p.add_argument("--test-webex", metavar="TEXT",
                    help="send one test message via the configured transport, then exit")

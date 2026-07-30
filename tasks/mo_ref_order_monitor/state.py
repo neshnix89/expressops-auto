@@ -37,6 +37,15 @@ def save_state(state_dir: Path, state: dict) -> Path:
     return path
 
 
+def delete_state(state_dir: Path, mo_no: str) -> bool:
+    """Remove a single MO's persisted state. Returns True if a file was deleted."""
+    path = _state_path(state_dir, mo_no)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
 def all_states(state_dir: Path) -> list[dict]:
     """Load every persisted state (used to keep watching MOs already known)."""
     if not state_dir.exists():
