@@ -206,11 +206,27 @@ def run(args: argparse.Namespace) -> int:
     writes_disabled = config.is_mock or args.dry_run
     log.info("mode=%s dry_run=%s now=%s", mode, args.dry_run, now.isoformat())
 
-    # Build the watch-list: comment-scan + MOs already tracked in state.
-    mo_map, in_scope = discover_mo_container_map(jira, jql, mo_re, log)
-    for st in state_store.all_states(state_dir):
-        if not st.get("abandoned") and st.get("container_key"):
-            mo_map.setdefault(st["mo_no"], st["container_key"])
+    # --map MO=KEY forces an explicit MO->container pairing and SKIPS the
+    # comment-scan discovery entirely. Use it to test a specific MO in a
+    # specific container without relying on the MO number being present in that
+    # container's comments.
+    if args.map:
+        mo_map = {}
+        in_scope = set()
+        for pair in args.map:
+            if "=" not in pair:
+                log.error("--map expects MO=CONTAINER, got %r", pair)
+                return 2
+            mo_no, key = (p.strip() for p in pair.split("=", 1))
+            mo_map[mo_no] = key.upper()
+        log.info("forced map (comment scan skipped): %s",
+                 ", ".join(f"{m}->{k}" for m, k in mo_map.items()))
+    else:
+        # Build the watch-list: comment-scan + MOs already tracked in state.
+        mo_map, in_scope = discover_mo_container_map(jira, jql, mo_re, log)
+        for st in state_store.all_states(state_dir):
+            if not st.get("abandoned") and st.get("container_key"):
+                mo_map.setdefault(st["mo_no"], st["container_key"])
     if args.only:
         mo_map = {m: k for m, k in mo_map.items() if m == args.only}
     if args.container:
@@ -309,6 +325,9 @@ def main() -> int:
     p.add_argument("--only", metavar="MO", help="restrict to a single MO number")
     p.add_argument("--container", metavar="KEY[,KEY]",
                    help="pilot: restrict to specific container key(s)")
+    p.add_argument("--map", action="append", metavar="MO=CONTAINER",
+                   help="force an MO->container pairing and skip comment-scan "
+                        "discovery (repeatable); for controlled tests")
     p.add_argument("--now", metavar='"YYYY-MM-DD HH:MM"', help="override poll time (testing)")
     p.add_argument("--test-webex", metavar="TEXT",
                    help="send one test message via the configured transport, then exit")
