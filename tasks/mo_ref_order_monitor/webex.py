@@ -112,6 +112,12 @@ class WebexNotifier:
         if not self.enabled:
             self.log.info("[webex] (disabled) marker=%s -> %s", marker, flatten(text))
             return False
+        if self.dry_run:
+            # A dry-run must not write the shared queue file, or the messages
+            # sit there and get sent by the next real run (observed: duplicates).
+            self.log.info("[webex] (dry-run) would send marker=%s -> %s",
+                          marker, flatten(text))
+            return False
         q = self._load_queue()
         q.append({"marker": marker, "text": text,
                   "queued_at": datetime.now().isoformat(timespec="seconds")})
@@ -121,14 +127,12 @@ class WebexNotifier:
 
     def flush(self) -> tuple[int, int]:
         """Attempt delivery of everything queued. Returns (sent, still_pending)."""
-        if not self.enabled:
+        if not self.enabled or self.dry_run:
+            # Dry-run never reads/mutates the real queue file.
             return (0, 0)
         q = self._load_queue()
         if not q:
             return (0, 0)
-        if self.dry_run:
-            self.log.info("[webex] (dry-run) %d message(s) would be sent", len(q))
-            return (0, len(q))
 
         # Drop stale alerts. An issue notification surfacing a day late (laptop
         # left locked over a weekend) is noise, not information.

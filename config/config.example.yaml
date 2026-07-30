@@ -63,6 +63,9 @@ mo_ref_order_monitor:
   jql: 'issue in relation("filter=25423", "Project Parent", Tasks, Deviations, level1) AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore" ORDER BY created ASC'
   # How MO numbers are recognised inside container comments (M3 MO = 10 digits, 70xxxxxxxx).
   mo_number_regex: '\b(70\d{8})\b'
+  # Shown in the table when the ref order no (VHRORN) is blank, so an MO with
+  # no marker yet is still visible as 'watched, not marked'.
+  no_status_label: "No Status"
   # Per-MO state/history lives here (survives sync; keep out of the zip sync path).
   state_dir: "outputs/mo_ref_order_monitor_state"
   # Pilot: restrict live runs to these containers first (CLI --container wins).

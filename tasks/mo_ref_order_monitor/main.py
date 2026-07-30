@@ -171,6 +171,7 @@ def run(args: argparse.Namespace) -> int:
     jql = config.get("mo_ref_order_monitor.jql", DEFAULT_JQL)
     mo_re = re.compile(config.get("mo_ref_order_monitor.mo_number_regex", DEFAULT_MO_REGEX))
     username = config.get("mo_ref_order_monitor.username", "ExpressOPS MO Monitor")
+    no_status_label = config.get("mo_ref_order_monitor.no_status_label", "No Status")
     state_dir = PROJECT_ROOT / config.get(
         "mo_ref_order_monitor.state_dir", f"outputs/{TASK_NAME}_state")
 
@@ -276,6 +277,13 @@ def run(args: argparse.Namespace) -> int:
             log.warning("MO %s: not found in M3 (skip)", mo_no)
             skipped += 1
             continue
+
+        # A blank ref order no would otherwise produce no marker -> no stage ->
+        # no table, hiding the MO. Show it with an explicit placeholder so the
+        # container reflects "watched, not yet marked". When production later
+        # enters a value it registers as a normal change.
+        if not obs.marker:
+            obs.marker = no_status_label
 
         actions = apply_observation(state, obs, issue_regex=issue_regex)
         do_publish = any(a.kind == "publish" for a in actions)
