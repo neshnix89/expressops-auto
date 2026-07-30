@@ -47,6 +47,58 @@ tableau:
   content_url: ""          # default site
   verify_ssl: false
 
+# Webex (Cisco public cloud — webexapis.com, independent of corp network)
+# Used by mo_ref_order_monitor to notify build-progress groups.
+webex:
+  # Bot access token from developer.webex.com -> My Apps -> Create Bot.
+  # Add the bot to each target space, then run discover_webex_rooms.py to get roomIds.
+  bot_token: "YOUR_WEBEX_BOT_TOKEN"
+
+# MO Ref-order-no monitor (tasks/mo_ref_order_monitor)
+# Polls M3 MWOHED_AP.VHRORN per active MO and maintains the container's
+# MO BUILD STATUS table + working-hours dwell summary; notifies Webex on change.
+mo_ref_order_monitor:
+  username: "ExpressOPS MO Monitor"        # stamped on the status table footer
+  # Container universe (inherited from the Excel->Jira tool it replaces).
+  jql: 'issue in relation("filter=25423", "Project Parent", Tasks, Deviations, level1) AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore" ORDER BY created ASC'
+  # How MO numbers are recognised inside container comments (M3 MO = 10 digits, 70xxxxxxxx).
+  mo_number_regex: '\b(70\d{8})\b'
+  # Per-MO state/history lives here (survives sync; keep out of the zip sync path).
+  state_dir: "outputs/mo_ref_order_monitor_state"
+  # Pilot: restrict live runs to these containers first (CLI --container wins).
+  # pilot_containers: ["NPIOTHER-5589", "NPIOTHER-5322"]
+  #
+  # Issue flag: production appends "IS" to the ref order no when the run has a
+  # problem (e.g. "QM IS"). Webex is notified ONLY when this flag changes
+  # (raised / cleared) — routine stage changes stay silent. JIRA still records
+  # every change. Default matches a trailing IS, case-insensitive.
+  issue_regex: '(?i)IS\s*$'
+  webex:
+    enabled: false                         # flip to true once a transport works
+    # Transport:
+    #   "desktop" — drive the Webex desktop app on the laptop (NO admin approval
+    #               needed). Viable because IS-gated alerts are rare.
+    #   "webhook" — Incoming Webhooks integration (needs admin approval).
+    #   "bot"     — bot token + roomId (blocked by policy today).
+    transport: "desktop"
+    # desktop: Webex -> open the space -> space menu -> "Copy space link".
+    space_link: ""                         # webexteams://im?space=... or https://eurl.io/...
+    open_delay_seconds: 6                  # wait for the app to focus the space
+    type_delay_seconds: 2                  # settle before typing (raise if text truncates)
+    # Undelivered alerts (laptop locked, Webex closed) are retried next run.
+    queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
+    max_age_hours: 12                      # drop queued alerts older than this (stale = noise)
+    webhook_url: ""                        # webhook transport only
+    default_room_id: ""                    # bot transport only
+    routing: {}                            # bot transport only: marker -> roomId
+    # Message templates. Placeholders:
+    #   {mo} {pn} {marker} {prev_marker} {prev_dwell} {issue_dwell}
+    #   {total_dwell} {status} {container} {url} {order_type} {responsible}
+    # Omit a key to use the built-in default (plain text for "desktop",
+    # markdown for the API transports). Multi-line bodies are flattened to one
+    # line for "desktop" because Enter sends the message.
+    messages: {}
+
 # Anthropic API (for AI-powered analysis)
 anthropic:
   api_key: "YOUR_ANTHROPIC_API_KEY"

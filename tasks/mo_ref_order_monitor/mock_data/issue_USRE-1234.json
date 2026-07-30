@@ -1,0 +1,18 @@
+{
+  "key": "USRE-1234",
+  "fields": {
+    "summary": "PCBA S M30 15-UR NPI Container",
+    "resolution": null,
+    "description": "Existing container description text.\n",
+    "comment": {
+      "comments": [
+        {
+          "body": "MO 7003904788 triggered for SMT build. Please proceed."
+        },
+        {
+          "body": "Some other unrelated note."
+        }
+      ]
+    }
+  }
+}
