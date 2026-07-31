@@ -26,11 +26,11 @@
 
 .EXAMPLE
     # second laptop: 09:15 start, offset from the primary's :00/:30 slots
-    .\scripts\setup_mo_ref_order_schedule.ps1 -StartTime 09:15 -DurationHours 7.75 -Runner run_mo_ref_order_monitor_portable.bat
+    powershell -ExecutionPolicy Bypass -File .\scripts\setup_mo_ref_order_schedule.ps1 -StartTime 09:15 -DurationHours 7.75 -Runner run_mo_ref_order_monitor_portable.bat
 
 .EXAMPLE
     # inspect what is registered / when it last ran
-    .\scripts\setup_mo_ref_order_schedule.ps1 -ShowOnly
+    powershell -ExecutionPolicy Bypass -File .\scripts\setup_mo_ref_order_schedule.ps1 -ShowOnly
 #>
 [CmdletBinding()]
 param(
@@ -97,5 +97,6 @@ Say "  catches up missed slots : yes"
 Say "  overlapping runs : ignored"
 Say "  next run : $($info.NextRunTime)"
 Write-Host ""
-Say "Verify any time with:  .\scripts\setup_mo_ref_order_schedule.ps1 -ShowOnly"
+Say "Verify any time with:"
+Say "  powershell -ExecutionPolicy Bypass -File .\scripts\setup_mo_ref_order_schedule.ps1 -ShowOnly"
 Say "Run once now with   :  Start-ScheduledTask -TaskName '$TaskName'"
