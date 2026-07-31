@@ -31,6 +31,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import tempfile
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -152,13 +155,20 @@ class WebexNotifier:
                     fresh.append(item)
             q = fresh
 
-        remaining = []
-        sent = 0
-        for item in q:
-            if self.send_one(item.get("marker", ""), item.get("text", "")):
-                sent += 1
-            else:
-                remaining.append(item)
+        if self.transport == "desktop":
+            # One visit to the space for the whole batch: re-opening the deep
+            # link per message re-renders the compose box, and text typed into
+            # a mid-render box is silently lost (observed: 3 "sent", 1 arrived).
+            sent = self._send_desktop_many([i.get("text", "") for i in q])
+            remaining = q[sent:]
+        else:
+            remaining = []
+            sent = 0
+            for item in q:
+                if self.send_one(item.get("marker", ""), item.get("text", "")):
+                    sent += 1
+                else:
+                    remaining.append(item)
         self._save_queue(remaining)
         if remaining:
             self.log.warning("[webex] %d message(s) still pending — will retry next run",
@@ -238,6 +248,61 @@ class WebexNotifier:
         for line in stdout.splitlines():
             self.log.error("[webex] %s", line)
         return False
+
+    def _send_desktop_many(self, texts: list[str]) -> int:
+        """
+        Type several messages during ONE visit to the space.
+
+        Returns how many were actually typed, so the caller dequeues exactly
+        those and retries the rest next run. The helper prints "SENT n" per
+        message, which is the only honest signal available — the desktop
+        transport cannot read the space back to confirm delivery.
+        """
+        if not texts:
+            return 0
+        if not self.space_link:
+            self.log.error("[webex] desktop transport needs space_link (Copy space link)")
+            return 0
+        script = Path(__file__).resolve().parent / "send_webex_desktop.ps1"
+        if not script.exists():
+            self.log.error("[webex] helper script missing: %s", script)
+            return 0
+
+        tmp = Path(tempfile.gettempdir()) / f"eo_webex_{os.getpid()}.txt"
+        tmp.write_text("\n".join(sendkeys_escape(flatten(t)) for t in texts),
+                       encoding="utf-8")
+        try:
+            cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                   "-File", str(script),
+                   "-SpaceLink", self.space_link,
+                   "-MessageFile", str(tmp),
+                   "-OpenDelay", str(self.open_delay),
+                   "-TypeDelay", str(self.type_delay)]
+            proc = subprocess.run(cmd, capture_output=True, timeout=300, check=False)
+            if proc.returncode == 1:
+                self.log.warning("[webex] transient PowerShell failure — retrying once")
+                time.sleep(3)
+                proc = subprocess.run(cmd, capture_output=True, timeout=300, check=False)
+
+            stdout = (proc.stdout or b"").decode("utf-8", "replace")
+            sent = len(re.findall(r"^SENT \d+", stdout, re.M))
+            if sent:
+                self.log.info("[webex] sent %d/%d via desktop app (one visit)",
+                              sent, len(texts))
+            if sent < len(texts):
+                reason = self._PS_ERRORS.get(proc.returncode, "PowerShell helper failed")
+                detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+                self.log.error("[webex] %s (exit %d) %s", reason, proc.returncode,
+                               detail[:300])
+                for line in stdout.splitlines():
+                    if not line.startswith("SENT"):
+                        self.log.error("[webex] %s", line)
+            return sent
+        except Exception as exc:  # noqa: BLE001
+            self.log.error("[webex] batch send error: %s", exc)
+            return 0
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _send_webhook(self, text: str) -> bool:
         if not self.webhook_url:
