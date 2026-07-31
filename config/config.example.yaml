@@ -82,6 +82,11 @@ mo_ref_order_monitor:
   # (raised / cleared) — routine stage changes stay silent. JIRA still records
   # every change. Default matches a trailing IS, case-insensitive.
   issue_regex: '(?i)IS\s*$'
+  # An MO first seen ALREADY at status 80/90 finished before the monitor
+  # started watching: record it silently instead of posting a CLOSED row and
+  # a close alert with no dwell history behind it. A later re-open still
+  # resumes normally. Set false to publish those too.
+  baseline_closed_on_first_sight: true
   webex:
     enabled: false                         # flip to true once a transport works
     # Transport:

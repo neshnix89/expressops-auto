@@ -187,6 +187,11 @@ def run(args: argparse.Namespace) -> int:
     m3 = M3Client(config, mock_data_dir=MOCK_DIR)
     webex_templates = config.get("mo_ref_order_monitor.webex.messages", {}) or {}
     issue_regex = config.get("mo_ref_order_monitor.issue_regex") or None
+    # An MO first seen already closed finished before we started watching:
+    # record it silently rather than posting a CLOSED row + alert with no
+    # dwell history behind it. Set false to publish those too.
+    baseline_closed = bool(config.get(
+        "mo_ref_order_monitor.baseline_closed_on_first_sight", True))
     webex = WebexNotifier(
         enabled=bool(config.get("mo_ref_order_monitor.webex.enabled", False)),
         logger=log,
@@ -315,7 +320,8 @@ def run(args: argparse.Namespace) -> int:
         if not obs.marker:
             obs.marker = no_status_label
 
-        actions = apply_observation(state, obs, issue_regex=issue_regex)
+        actions = apply_observation(state, obs, issue_regex=issue_regex,
+                                    baseline_closed=baseline_closed)
         do_publish = any(a.kind == "publish" for a in actions)
         reasons = ",".join(a.reason for a in actions) or "no-op"
         # VHLMDT/VHCHNO expose the ODS replica's freshness: if a P1 change isn't
