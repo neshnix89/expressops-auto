@@ -128,6 +128,30 @@ Original error: $($_.Exception.Message)
 }
 Say "code installed."
 
+# ── 2b. Python dependencies ─────────────────────────────────────────
+# A fresh Python has none of these; the primary laptop only had them from
+# earlier tasks. Without them the dry run dies on `ModuleNotFoundError`.
+$req = Join-Path $InstallDir "requirements.txt"
+if (Test-Path $req) {
+    Say "installing Python dependencies..."
+    & $py -m pip install --disable-pip-version-check -q -r $req
+    if ($LASTEXITCODE -ne 0) {
+        Warn "pip install reported an error. Behind a proxy, try:"
+        Warn "  $py -m pip install --proxy http://<proxy>:<port> -r `"$req`""
+    }
+}
+# Verify what actually imports, rather than trusting pip's exit code.
+$missing = & $py -c @"
+import importlib, sys
+need = {'yaml': 'PyYAML', 'requests': 'requests', 'pyodbc': 'pyodbc'}
+print(' '.join(pkg for mod, pkg in need.items()
+                if importlib.util.find_spec(mod) is None))
+"@
+if ($missing -and $missing.Trim()) {
+    Die "missing Python package(s): $missing`nInstall them, then re-run this installer."
+}
+Say "dependencies OK (yaml, requests, pyodbc)."
+
 # ── 3. config.yaml ──────────────────────────────────────────────────
 $cfgPath = Join-Path $InstallDir "config\config.yaml"
 if ((Test-Path $cfgPath) -and -not $Force) {
