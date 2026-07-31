@@ -142,7 +142,7 @@ if (Test-Path $req) {
 }
 # Verify what actually imports, rather than trusting pip's exit code.
 $missing = & $py -c @"
-import importlib, sys
+import importlib.util
 need = {'yaml': 'PyYAML', 'requests': 'requests', 'pyodbc': 'pyodbc'}
 print(' '.join(pkg for mod, pkg in need.items()
                 if importlib.util.find_spec(mod) is None))
