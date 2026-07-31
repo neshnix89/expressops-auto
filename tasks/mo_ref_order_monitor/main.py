@@ -203,6 +203,8 @@ def run(args: argparse.Namespace) -> int:
         open_delay=config.get("mo_ref_order_monitor.webex.open_delay_seconds", 6),
         type_delay=config.get("mo_ref_order_monitor.webex.type_delay_seconds", 2),
         max_age_hours=config.get("mo_ref_order_monitor.webex.max_age_hours", 12),
+        combine_alerts=bool(config.get(
+            "mo_ref_order_monitor.webex.combine_alerts", True)),
         webhook_url=config.get("mo_ref_order_monitor.webex.webhook_url", ""),
         token=config.get("webex.bot_token", ""),
         default_room=config.get("mo_ref_order_monitor.webex.default_room_id", ""),
