@@ -238,11 +238,25 @@ def run(args: argparse.Namespace) -> int:
                 mo_map.setdefault(st["mo_no"], st["container_key"])
     if args.only:
         mo_map = {m: k for m, k in mo_map.items() if m == args.only}
+    # Pilot scope: --container wins; otherwise fall back to config
+    # `pilot_containers`. Keeping the list in config.yaml matters because
+    # config.yaml is gitignored and survives sync, whereas an edit to the
+    # runner .bat is overwritten by the next sync_now.
+    allowed: set[str] | None = None
+    scope_src = ""
     if args.container:
         allowed = {c.strip().upper() for c in args.container.split(",") if c.strip()}
+        scope_src = "--container"
+    else:
+        cfg_pilot = config.get("mo_ref_order_monitor.pilot_containers") or []
+        if cfg_pilot:
+            allowed = {str(c).strip().upper() for c in cfg_pilot if str(c).strip()}
+            scope_src = "config pilot_containers"
+
+    if allowed:
         mo_map = {m: k for m, k in mo_map.items() if k.upper() in allowed}
-        log.info("pilot: restricted to container(s) %s -> %d MO(s)",
-                 ", ".join(sorted(allowed)), len(mo_map))
+        log.info("pilot (%s): restricted to container(s) %s -> %d MO(s)",
+                 scope_src, ", ".join(sorted(allowed)), len(mo_map))
         # Diagnose silent misses: a requested container with no MO either fell
         # outside the JQL scope or has no MO number in its comments.
         matched = {k.upper() for k in mo_map.values()}
