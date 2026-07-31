@@ -171,8 +171,17 @@ def _issue_actions(state: dict, marker: str, issue_regex: str | None) -> list[Ac
 
 def apply_observation(state: dict, obs: Observation,
                       holidays: set | None = None,
-                      issue_regex: str | None = None) -> list[Action]:
-    """Advance the lifecycle by one poll. Mutates state, returns actions."""
+                      issue_regex: str | None = None,
+                      baseline_closed: bool = True) -> list[Action]:
+    """
+    Advance the lifecycle by one poll. Mutates state, returns actions.
+
+    baseline_closed: when an MO is seen for the FIRST time already at status
+    80/90, record it silently instead of publishing a CLOSED row and firing a
+    close alert — the build finished before we started watching, so there is no
+    dwell history to report and the notification would be pure noise. Set False
+    to publish those too.
+    """
     actions: list[Action] = []
     if state.get("abandoned"):
         return actions
@@ -256,6 +265,21 @@ def apply_observation(state: dict, obs: Observation,
 
     # --- Closed (status >= 80) ---
     if not was_closed:
+        # Never observed before? Then this MO finished before we started
+        # watching. Record where it landed and stay quiet: there is no dwell
+        # history to publish, and a CLOSED row + alert for a days-old build is
+        # noise. A later re-open still resumes normally from here.
+        first_sighting = state.get("last_status") is None and not state.get("days")
+        if first_sighting and baseline_closed:
+            state["closed_published"] = True
+            state["baselined_closed"] = True
+            state["current_marker"] = marker or state.get("current_marker")
+            state["current_marker_since"] = obs.at.isoformat()
+            state["last_status"] = obs.status
+            state["last_poll_date"] = today
+            actions.append(Action("skip", reason="baselined_closed"))
+            return actions
+
         if state.get("current_marker"):
             _close_stage(state, obs.at, holidays)
         state["closed_published"] = True
