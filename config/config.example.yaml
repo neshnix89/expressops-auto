@@ -102,6 +102,10 @@ mo_ref_order_monitor:
     # Undelivered alerts (laptop locked, Webex closed) are retried next run.
     queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
     max_age_hours: 12                      # drop queued alerts older than this (stale = noise)
+    # Several pending alerts are posted as ONE multi-line message (line breaks
+    # via Shift+Enter). Fewer Enter presses = fewer chances for the desktop
+    # transport to misfire, and the group sees one grouped notification.
+    combine_alerts: true
     webhook_url: ""                        # webhook transport only
     default_room_id: ""                    # bot transport only
     routing: {}                            # bot transport only: marker -> roomId

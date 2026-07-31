@@ -69,6 +69,30 @@ def flatten(text: str) -> str:
     return "  |  ".join(parts)
 
 
+def combine_alerts(texts: list[str], title: str = "ExpressOPS MO Monitor") -> str:
+    """
+    Fold several queued alerts into ONE multi-line message.
+
+    One post per flush beats N posts: fewer Enter presses (each is a chance for
+    the desktop transport to misfire) and the group reads a single grouped
+    notification instead of a burst.
+    """
+    lines = [f"{title} — {len(texts)} alerts"]
+    for i, t in enumerate(texts, start=1):
+        lines.append(f"{i}) {flatten(t)}")
+    return "\n".join(lines)
+
+
+def sendkeys_multiline(text: str) -> str:
+    """
+    Escape a multi-line message for SendKeys, using Shift+Enter (+{ENTER}) for
+    the internal line breaks so the message is NOT sent early — a bare Enter
+    would post each line as its own message.
+    """
+    parts = [sendkeys_escape(ln) for ln in text.replace("\r", "").split("\n")]
+    return "+{ENTER}".join(parts)
+
+
 class WebexNotifier:
     def __init__(self, enabled: bool, logger: logging.Logger,
                  transport: str = "desktop", queue_file: Path | None = None,
@@ -76,9 +100,10 @@ class WebexNotifier:
                  type_delay: float = 2.0, webhook_url: str = "",
                  token: str = "", default_room: str = "",
                  routing: dict[str, str] | None = None, dry_run: bool = False,
-                 max_age_hours: float = 12.0):
+                 max_age_hours: float = 12.0, combine_alerts: bool = True):
         self.enabled = enabled
         self.max_age_hours = float(max_age_hours or 0)
+        self.combine_alerts = bool(combine_alerts)
         self.log = logger
         self.transport = (transport or "desktop").strip().lower()
         self.queue_file = Path(queue_file) if queue_file else None
@@ -268,9 +293,15 @@ class WebexNotifier:
             self.log.error("[webex] helper script missing: %s", script)
             return 0
 
+        # Several alerts -> one grouped post (line breaks via Shift+Enter).
+        combined = self.combine_alerts and len(texts) > 1
+        if combined:
+            payload = sendkeys_multiline(combine_alerts(texts))
+        else:
+            payload = sendkeys_escape(flatten(texts[0]))
+
         tmp = Path(tempfile.gettempdir()) / f"eo_webex_{os.getpid()}.txt"
-        tmp.write_text("\n".join(sendkeys_escape(flatten(t)) for t in texts),
-                       encoding="utf-8")
+        tmp.write_text(payload, encoding="utf-8")
         try:
             cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                    "-File", str(script),
@@ -285,10 +316,12 @@ class WebexNotifier:
                 proc = subprocess.run(cmd, capture_output=True, timeout=300, check=False)
 
             stdout = (proc.stdout or b"").decode("utf-8", "replace")
-            sent = len(re.findall(r"^SENT \d+", stdout, re.M))
+            posts = len(re.findall(r"^SENT \d+", stdout, re.M))
+            # One combined post carries all queued alerts, so it clears them all.
+            sent = len(texts) if (combined and posts >= 1) else posts
             if sent:
-                self.log.info("[webex] sent %d/%d via desktop app (one visit)",
-                              sent, len(texts))
+                self.log.info("[webex] sent %d alert(s) as %d post(s) via desktop app",
+                              sent, posts)
             if sent < len(texts):
                 reason = self._PS_ERRORS.get(proc.returncode, "PowerShell helper failed")
                 detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
