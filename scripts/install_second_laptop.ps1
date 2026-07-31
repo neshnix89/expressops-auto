@@ -198,16 +198,23 @@ if ($rc -ne 0) { Die "dry run failed (exit $rc). Fix the above before scheduling
 Say "dry run OK - nothing was written."
 
 # ── 5. Schedule ─────────────────────────────────────────────────────
+# Delegate to setup_mo_ref_order_schedule.ps1 rather than calling schtasks
+# directly: schtasks cannot set AllowStartIfOnBatteries or StartWhenAvailable,
+# and without those a laptop silently skips every slot while unplugged and
+# never catches up after sleep — observed on the primary machine.
 if ($SkipSchedule) {
     Say "skipping schedule (-SkipSchedule)."
 } else {
-    $bat = Join-Path $InstallDir "run_mo_ref_order_monitor_portable.bat"
-    if (-not (Test-Path $bat)) { Warn "runner not found: $bat" }
-    else {
-        # 09:15 start, every 30 min for 7h45 -> :15/:45 slots, offset from the
-        # primary laptop's :00/:30 so the two never run in the same minute.
-        schtasks /Create /TN "MO_RefOrder_Monitor" /TR "`"$bat`"" /SC DAILY /ST 09:15 /RI 30 /DU 0007:45 /F | Out-Null
-        Say "scheduled: every 30 min, 09:15-17:00 (offset from the primary laptop)."
+    $sched = Join-Path $InstallDir "scripts\setup_mo_ref_order_schedule.ps1"
+    if (-not (Test-Path $sched)) {
+        Warn "scheduler script not found: $sched"
+    } else {
+        # 09:15 start for 7h45 -> :15/:45 slots, offset from the primary
+        # laptop's :00/:30 so the two never run in the same minute.
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $sched `
+            -StartTime "09:15" -DurationHours 7.75 `
+            -Runner "run_mo_ref_order_monitor_portable.bat"
+        if ($LASTEXITCODE -ne 0) { Warn "scheduling failed (exit $LASTEXITCODE)" }
     }
 }
 
