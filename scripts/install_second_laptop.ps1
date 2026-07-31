@@ -15,8 +15,12 @@
     unless -Force is given.
 
 .EXAMPLE
-    # from the shared folder, simplest case
+    # pilot scope (default: the primary laptop's pilot containers)
     powershell -ExecutionPolicy Bypass -File .\install_second_laptop.ps1
+
+.EXAMPLE
+    # fleet-wide, matching a primary laptop with an empty pilot list
+    powershell -ExecutionPolicy Bypass -File .\install_second_laptop.ps1 -FleetWide
 
 .EXAMPLE
     # private repo: supply a GitHub personal access token
@@ -34,13 +38,22 @@ param(
     [string]$FromPath,
     [string]$SharedBase = "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering",
     # Pilot scope. MUST match the primary laptop, or this machine would write to
-    # containers the primary is deliberately not touching. Empty = fleet-wide.
+    # containers the primary is deliberately not touching.
     [string[]]$PilotContainers = @("NPIOTHER-5589", "NPIOTHER-5322"),
+    # Use -FleetWide for no restriction. Passing -PilotContainers @() does NOT
+    # work through `powershell -File`: the outer shell expands @() to zero
+    # arguments, so the parameter is left with no value and the call fails.
+    [switch]$FleetWide,
     [switch]$Force,
     [switch]$SkipSchedule
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($FleetWide) { $PilotContainers = @() }
+# Drop blanks so -PilotContainers "" also means fleet-wide.
+$PilotContainers = @($PilotContainers | Where-Object { $_ -and $_.Trim() })
+
 $repoZip = "https://github.com/neshnix89/expressops-auto/archive/refs/heads/$Branch.zip"
 
 function Say($m) { Write-Host "[install] $m" }
