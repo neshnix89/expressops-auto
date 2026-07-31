@@ -33,6 +33,9 @@ param(
     [string]$GitHubToken,
     [string]$FromPath,
     [string]$SharedBase = "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering",
+    # Pilot scope. MUST match the primary laptop, or this machine would write to
+    # containers the primary is deliberately not touching. Empty = fleet-wide.
+    [string[]]$PilotContainers = @("NPIOTHER-5589", "NPIOTHER-5322"),
     [switch]$Force,
     [switch]$SkipSchedule
 )
@@ -125,6 +128,9 @@ if ((Test-Path $cfgPath) -and -not $Force) {
 
     $stateDir = Join-Path $SharedBase "state"
     $queueFile = Join-Path $SharedBase "webex_queue.json"
+    $pilotYaml = if ($PilotContainers -and $PilotContainers.Count) {
+        "[" + (($PilotContainers | ForEach-Object { '"' + $_ + '"' }) -join ", ") + "]"
+    } else { "[]" }
 
     $cfg = @"
 # ExpressOPS config - SECOND LAPTOP
@@ -162,6 +168,9 @@ mo_ref_order_monitor:
   mo_number_regex: '\b(70\d{8})\b'
   no_status_label: "No Status"
   state_dir: '$stateDir'
+  # Must match the primary laptop's list, or this machine writes to containers
+  # the primary is not touching. Empty = fleet-wide.
+  pilot_containers: $pilotYaml
   issue_regex: '(?i)IS\s*$'
   webex:
     enabled: $webexOn
@@ -182,7 +191,7 @@ Write-Host ""
 Say "verifying (read-only dry run)..."
 Push-Location $InstallDir
 $env:PYTHONIOENCODING = "utf-8"
-& $py -m tasks.mo_ref_order_monitor.main --live --dry-run --container NPIOTHER-5589,NPIOTHER-5322,NPIOTHER-5791
+& $py -m tasks.mo_ref_order_monitor.main --live --dry-run
 $rc = $LASTEXITCODE
 Pop-Location
 if ($rc -ne 0) { Die "dry run failed (exit $rc). Fix the above before scheduling." }
