@@ -72,8 +72,10 @@ mo_ref_order_monitor:
   # path (use single quotes so backslashes stay literal), e.g.:
   #   state_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\state'
   state_dir: "outputs/mo_ref_order_monitor_state"
-  # Pilot: restrict live runs to these containers first (CLI --container wins).
-  # pilot_containers: ["NPIOTHER-5589", "NPIOTHER-5322"]
+  # Pilot scope: restrict live runs to these containers (CLI --container wins).
+  # Lives here rather than in the runner .bat because config.yaml is gitignored
+  # and survives sync. Leave EMPTY to run fleet-wide over the whole JQL.
+  pilot_containers: []
   #
   # Issue flag: production appends "IS" to the ref order no when the run has a
   # problem (e.g. "QM IS"). Webex is notified ONLY when this flag changes

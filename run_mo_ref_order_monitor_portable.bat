@@ -4,6 +4,8 @@ REM  PORTABLE runner for the MO Ref-order-no monitor.
 REM  Works from ANY user's checkout (no hardcoded username) — the
 REM  repo root is wherever this .bat lives (%~dp0).
 REM
+REM  Pilot scope comes from config.yaml -> mo_ref_order_monitor.pilot_containers.
+REM
 REM  Use this on a SECOND laptop. For it to share history with the
 REM  first laptop (and not fight over the JIRA tables), config.yaml
 REM  on BOTH machines must point state_dir + webex.queue_file at the
@@ -13,7 +15,7 @@ REM  If 'py' is not on PATH, set PY to the full python.exe path below.
 REM ============================================================
 setlocal
 set "PY=py"
-set "PILOT=--container NPIOTHER-5589,NPIOTHER-5322,NPIOTHER-5791"
+set "PILOT="
 
 cd /d "%~dp0"
 set PYTHONIOENCODING=utf-8
