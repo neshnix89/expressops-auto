@@ -253,6 +253,14 @@ def run(args: argparse.Namespace) -> int:
             allowed = {str(c).strip().upper() for c in cfg_pilot if str(c).strip()}
             scope_src = "config pilot_containers"
 
+    if not allowed and not args.map:
+        # Silence here previously meant "fleet-wide" indistinguishably from
+        # "config not loaded" — and the difference is writing to 2 containers
+        # vs every container in the JQL. Say so explicitly.
+        log.warning("NO pilot scope configured (mo_ref_order_monitor."
+                    "pilot_containers empty/absent) -> running FLEET-WIDE "
+                    "over %d MO(s)", len(mo_map))
+
     if allowed:
         mo_map = {m: k for m, k in mo_map.items() if k.upper() in allowed}
         log.info("pilot (%s): restricted to container(s) %s -> %d MO(s)",
