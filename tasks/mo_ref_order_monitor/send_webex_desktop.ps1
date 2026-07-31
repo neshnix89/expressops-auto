@@ -29,16 +29,29 @@ Usage:
 #>
 param(
     [Parameter(Mandatory = $true)][string]$SpaceLink,
-    [Parameter(Mandatory = $true)][string]$Message,
+    # One message, or -MessageFile for several (one per line, already escaped).
+    # Batching matters: re-opening the space deep-link per message re-renders
+    # the compose box, and messages typed into a mid-render box are lost.
+    [string]$Message,
+    [string]$MessageFile,
     [double]$OpenDelay = 6,
-    [double]$TypeDelay = 2
+    [double]$TypeDelay = 2,
+    [double]$SendGap = 2
 )
 
 $ErrorActionPreference = "Stop"
 
-if ([string]::IsNullOrWhiteSpace($SpaceLink) -or [string]::IsNullOrWhiteSpace($Message)) {
-    Write-Error "SpaceLink and Message are required"; exit 4
+if ([string]::IsNullOrWhiteSpace($SpaceLink)) {
+    Write-Error "SpaceLink is required"; exit 4
 }
+$messages = @()
+if ($MessageFile) {
+    if (-not (Test-Path $MessageFile)) { Write-Error "MessageFile not found: $MessageFile"; exit 4 }
+    $messages = @(Get-Content -Path $MessageFile -Encoding UTF8 | Where-Object { $_.Trim() })
+} elseif (-not [string]::IsNullOrWhiteSpace($Message)) {
+    $messages = @($Message)
+}
+if (-not $messages.Count) { Write-Error "No message(s) to send"; exit 4 }
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -168,8 +181,17 @@ Start-Sleep -Milliseconds 400
 [System.Windows.Forms.SendKeys]::SendWait("{BS}")
 Start-Sleep -Milliseconds 400
 
-# 6) Type the payload, then send with Enter.
-[System.Windows.Forms.SendKeys]::SendWait($Message)
-Start-Sleep -Milliseconds 500
-[System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+# 6) Type each payload, Enter after each. The space is opened ONCE above, so
+#    the compose box is not re-rendered between messages.
+#    "SENT n" on stdout lets the caller dequeue exactly what got through, even
+#    if a later message fails.
+$i = 0
+foreach ($m in $messages) {
+    $i++
+    [System.Windows.Forms.SendKeys]::SendWait($m)
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    Write-Host "SENT $i"
+    if ($i -lt $messages.Count) { Start-Sleep -Seconds $SendGap }
+}
 exit 0
