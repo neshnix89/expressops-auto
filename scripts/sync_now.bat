@@ -9,11 +9,47 @@ REM
 REM  Copy this ONE file anywhere (e.g. Desktop) and double-click
 REM  any time you want the latest code. Overwrites repo files,
 REM  never deletes - config.yaml / EDMAdmin.exe / outputs are kept.
+REM
+REM  Install dir is resolved in this order, so the SAME file works on
+REM  a second laptop with a different Windows user:
+REM    1. path passed as an argument  ->  sync_now.bat D:\work\expressops-auto
+REM    2. the folder this file sits in, if it looks like the repo
+REM       (used when run from inside scripts\ or the repo root)
+REM    3. %USERPROFILE%\Documents\AI\expressops-auto  (per-user default)
 REM ============================================================
 setlocal
-set "INSTALL=C:\Users\tmoghanan\Documents\AI\expressops-auto"
-set "PY=C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
 set "ZIPURL=https://github.com/neshnix89/expressops-auto/archive/refs/heads/main.zip"
+
+REM --- 1. explicit path argument wins
+set "INSTALL=%~1"
+
+REM --- 2. auto-detect: this file's folder, or its parent (scripts\)
+if not defined INSTALL (
+    if exist "%~dp0CLAUDE.md" set "INSTALL=%~dp0"
+)
+if not defined INSTALL (
+    for %%I in ("%~dp0..") do set "PARENT=%%~fI"
+    call :checkparent
+)
+
+REM --- 3. per-user default (works for any Windows account)
+if not defined INSTALL set "INSTALL=%USERPROFILE%\Documents\AI\expressops-auto"
+
+REM strip any trailing backslash so paths concatenate cleanly
+if "%INSTALL:~-1%"=="\" set "INSTALL=%INSTALL:~0,-1%"
+
+REM --- Python: explicit install, else the py launcher / PATH
+set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not exist "%PY%" (
+    where py >nul 2>&1 && (set "PY=py -3") || (set "PY=python")
+)
+goto begin
+
+:checkparent
+if exist "%PARENT%\CLAUDE.md" set "INSTALL=%PARENT%"
+goto :eof
+
+:begin
 
 echo Pulling latest from GitHub into:
 echo    %INSTALL%
@@ -22,7 +58,8 @@ echo.
 if exist "%INSTALL%\scripts\sync_from_github.py" (
     echo [via Python sync_from_github.py]
     cd /d "%INSTALL%"
-    "%PY%" scripts\sync_from_github.py
+    REM unquoted: %PY% may be "py -3" (launcher + arg), not a single path
+    %PY% scripts\sync_from_github.py
     goto done
 )
 
