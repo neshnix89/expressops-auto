@@ -190,6 +190,8 @@ repo root / scripts/
 ├── run_mo_ref_order_monitor.bat / _portable.bat
 ├── scripts/setup_mo_ref_order_schedule.ps1   ← laptop-safe task registration
 ├── scripts/set_pilot.py                      ← safe pilot-scope edits
+├── check_access.bat         ← DOUBLE-CLICK on a new machine -> one IT request
+├── scripts/check_access.py                   ← what this account can actually reach
 ├── scripts/install_second_laptop.ps1         ← one-shot second-machine setup
 └── scripts/patch_legacy_excel_to_jira.py     ← legacy publisher fix
 ```
@@ -207,6 +209,11 @@ repo root / scripts/
 ```
 
 ## Routine checks
+- **`check_access.bat`** on any NEW machine, BEFORE asking IT for anything. It
+  tests Python packages, the JIRA token (and reports **whose** it is), the M3
+  ODBC login plus each table individually, read **and write** on the shared
+  folder, and the Webex app — then prints every failure as one ready-to-paste
+  IT request. Piecemeal discovery turns a one-ticket setup into three.
 - **`diagnose.bat`** after any sync, and after any config edit. It reports code
   freshness, the parsed config, shared-state reachability, the scheduled task's
   battery/catch-up flags, and runs a read-only dry run. Safe to paste — secrets
