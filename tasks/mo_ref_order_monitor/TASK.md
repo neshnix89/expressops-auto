@@ -211,7 +211,11 @@ repo root / scripts/
 ```
 
 ## Routine checks
-- **`check_access.bat`** on any NEW machine, BEFORE asking IT for anything. It
+- **`check_access.bat`** on any NEW machine, BEFORE asking IT for anything.
+  It separates access from setup: EDM authenticates with the Windows/SSO
+  identity, so viewing EDM in the app means the ACCOUNT is already fine —
+  Python still needs `EDMAdmin.exe` because the Oracle logon trigger rejects
+  connections by program name. That is `setup_edmadmin.bat`, never a ticket. It
   tests Python packages, the JIRA token (and reports **whose** it is), the M3
   ODBC login plus each table individually, read **and write** on the shared
   folder, and the Webex app — then prints every failure as one ready-to-paste

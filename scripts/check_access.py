@@ -71,7 +71,8 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
     # ── 1. Python packages ───────────────────────────────────────────
     head("1. PYTHON PACKAGES")
     import importlib.util
-    for mod, pkg in (("yaml", "PyYAML"), ("requests", "requests"), ("pyodbc", "pyodbc")):
+    for mod, pkg in (("yaml", "PyYAML"), ("requests", "requests"),
+                     ("pyodbc", "pyodbc"), ("oracledb", "oracledb")):
         check(f"import {mod}", importlib.util.find_spec(mod) is not None, pkg,
               it_ask=f"install the Python package {pkg} (pip may need proxy settings)")
 
@@ -179,6 +180,48 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
                 check(f"{cfg.m3_schema}.{table}", False, str(exc)[:110],
                       it_ask=f"grant SELECT on {cfg.m3_schema}.{table} ({why})")
         conn.close()
+
+    # ── 4b. Confluence ───────────────────────────────────────────────
+    # mr_status_report reads the page before republishing, to preserve the
+    # manual columns. No token, no report.
+    head("4b. CONFLUENCE (read-only)")
+    cpat = cfg.confluence_pat
+    page = cfg.get("pages.mr_status_report", 560866215)
+    if not str(cpat).strip():
+        check("Confluence PAT set", False, "EMPTY — mr_status_report cannot publish")
+        print("       -> self-service: Confluence -> Profile -> Personal Access "
+              "Tokens. Not an IT request.")
+    else:
+        try:
+            cs = requests.Session()
+            cs.headers.update({"Authorization": f"Bearer {cpat}"})
+            cs.verify = False
+            r2 = cs.get(f"{cfg.confluence_base_url}/rest/api/content/{page}",
+                        params={"expand": "version"}, timeout=30)
+            ok = r2.status_code == 200
+            detail = (f"page {page} v{r2.json().get('version', {}).get('number')}"
+                      if ok else f"HTTP {r2.status_code}")
+            check("read MR Status page", ok, detail,
+                  it_ask=(f"grant read/write on Confluence page {page} "
+                          f"(MR Status Report) to this account")
+                  if r2.status_code == 403 else "")
+        except Exception as exc:  # noqa: BLE001
+            check("read MR Status page", False, f"{type(exc).__name__}: {exc}"[:120])
+
+    # ── 4c. EDM ──────────────────────────────────────────────────────
+    # EDM authenticates with the Windows/SSO identity, so viewing EDM in the app
+    # means the ACCOUNT is fine. Python still needs EDMAdmin.exe: the Oracle
+    # logon trigger rejects connections made by python.exe itself, by program
+    # name. That is a setup step here, never an IT request.
+    head("4c. EDM (mr_status_report — PE/TE release colouring)")
+    edm_exe = str(cfg.get("edm.python_exe", "") or "")
+    if not edm_exe:
+        check("EDMAdmin.exe configured", False, "edm.python_exe is EMPTY")
+        print("       -> double-click setup_edmadmin.bat (one-time, no IT needed)")
+    else:
+        check("EDMAdmin.exe present", Path(edm_exe).exists(), edm_exe)
+        if not Path(edm_exe).exists():
+            print("       -> re-run setup_edmadmin.bat; it must sit beside python3xx.dll")
 
     # ── 5. Shared folder ─────────────────────────────────────────────
     head("5. SHARED STATE FOLDER (read AND write)")

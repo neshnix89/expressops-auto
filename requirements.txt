@@ -3,3 +3,4 @@ PyYAML>=6.0
 beautifulsoup4>=4.12.0
 urllib3>=2.0.0
 pyodbc>=5.0.0        # M3 ODBC (DSN=ODSSG); Windows only
+oracledb>=2.0.0       # EDM Oracle (mr_status_report); needs the Oracle client for thick mode
