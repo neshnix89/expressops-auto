@@ -98,6 +98,23 @@ Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } 
 
 ## On the SECOND laptop
 
+### Refresh config.yaml FIRST
+
+A config written by an earlier build of the installer has **no Confluence PAT,
+no `pages` block and no `costing_hs_code_trigger` block** — so the MR report and
+the KPI overlay cannot publish and the costing task tags nobody. The installer
+leaves an existing config.yaml alone, so it must be told to rewrite it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto\scripts\install_second_laptop.ps1" -FromPath "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" -FleetWide -Force
+```
+
+It prompts for the JIRA PAT (masked), the Webex space link, and the Confluence
+PAT. The dry run at the end still fails on M3 until access is granted — that is
+expected, and it correctly refuses to schedule the MO monitor.
+
+### Then
+
 ```powershell
 cd C:\Users\wneo\Documents\AI\expressops-auto
 
