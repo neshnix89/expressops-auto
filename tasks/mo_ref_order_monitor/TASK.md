@@ -134,7 +134,9 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    the share with `robocopy /MIR` carried the primary's `config.yaml` — PAT and
    all — into a `_Public` folder and then onto the colleague's machine, where
    the installer adopted it silently and never prompted. **Never copy
-   `config.yaml` between machines**; the installer now excludes it.
+   `config.yaml` between machines**; the installer now excludes it. Prompts for
+   a token use `-AsSecureString` for the same reason — a plain `Read-Host`
+   echoes it into scrollback and into any screenshot of the install.
 3. **No pilot scope = FLEET-WIDE.** Logged as an explicit warning, because
    silence once meant both "by design" and "config not loaded".
 4. **A `--dry-run` must not persist anything** — not state, not the Webex queue.
