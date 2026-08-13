@@ -71,7 +71,14 @@ function Die($m) { Write-Host "[install] ERROR: $m" -ForegroundColor Red; exit 1
 # the whole install. robocopy has no such limit, which is why staging TO the
 # share worked while copying FROM it did not.
 function Copy-Tree($src, $dst) {
-    $null = robocopy $src $dst /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 /XD .git logs outputs
+    # /XF config.yaml: NEVER carry credentials between machines. A staged copy
+    # of somebody else's checkout contains THEIR JIRA PAT, and this script
+    # leaves an existing config.yaml untouched — so a copied one is silently
+    # adopted, the operator is never prompted, and every JIRA write from the
+    # new machine is attributed to the wrong person. Exactly that happened on
+    # the first second-laptop install.
+    $null = robocopy $src $dst /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 `
+        /XD .git logs outputs /XF config.yaml
     # robocopy exit codes: 0-7 are success (1 = files copied), 8+ are failures.
     $rc = $LASTEXITCODE
     $global:LASTEXITCODE = 0   # or the next `if ($LASTEXITCODE -ne 0)` misreads it
