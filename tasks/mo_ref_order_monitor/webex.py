@@ -193,6 +193,9 @@ class WebexNotifier:
         4: "bad arguments to the PowerShell helper",
         6: ("compose box did not contain the message — nothing sent (will retry). "
             "Usually the space was still switching; raise open_delay_seconds."),
+        7: ("the clipboard is not usable from this session — nothing sent. "
+            "Another app may be holding it, or the task is running without a "
+            "desktop (uncheck 'Run whether user is logged on or not')."),
     }
 
     def _send_desktop(self, text: str) -> bool:
