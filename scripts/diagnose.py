@@ -51,6 +51,12 @@ CODE_MARKERS = [
     ("dry-run keeps queue clean", "tasks/mo_ref_order_monitor/webex.py", "must not write the shared queue"),
     ("shared/absolute paths", "tasks/mo_ref_order_monitor/main.py", "def _resolve"),
     ("chat-window targeting", "tasks/mo_ref_order_monitor/send_webex_desktop.ps1", "Get-WebexChatWindow"),
+    # 13-Aug: focus alone was never proof the text got into the compose box.
+    # Two alerts posted nothing while the log said "sent". If these two read
+    # OLD, that hole is still open on this machine.
+    ("compose-box read-back", "tasks/mo_ref_order_monitor/send_webex_desktop.ps1",
+     "compose box never held the message"),
+    ("paste (no SendKeys escaping)", "tasks/mo_ref_order_monitor/webex.py", "RAW text"),
 ]
 
 
@@ -115,6 +121,7 @@ def main() -> int:
     print(f"  webex.transport     : {wx.get('transport', 'MISSING')!r}")
     print(f"  webex.space_link    : {redact(wx.get('space_link'))}")
     print(f"  webex.queue_file    : {wx.get('queue_file', 'MISSING')!r}")
+    print(f"  webex.open_delay    : {wx.get('open_delay_seconds', 'MISSING')!r}")
     print(f"  webex.type_delay    : {wx.get('type_delay_seconds', 'MISSING')!r}")
 
     if not mo.get("pilot_containers"):
