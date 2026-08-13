@@ -14,8 +14,23 @@ REM     python -m tasks.costing_hs_code_trigger.main --live --seed-baseline
 REM  or the first scheduled run will comment on existing tickets.
 REM ============================================================
 setlocal
-set "BAT=C:\Users\tmoghanan\Documents\AI\expressops-auto\run_costing_hs_code_trigger.bat"
+REM %~dp0 = the folder this .bat lives in. The path used to be hardcoded to
+REM tmoghanan's profile, which silently registered a BROKEN task on any other
+REM machine — the schedule appears, every run fails to find the runner.
+set "BAT=%~dp0run_costing_hs_code_trigger.bat"
+if not exist "%BAT%" (
+  echo [ERROR] runner not found: %BAT%
+  echo Run this .bat from the repo root.
+  pause
+  exit /b 1
+)
 
+REM NOTE: schtasks cannot set AllowStartIfOnBatteries or StartWhenAvailable,
+REM so these jobs are skipped while unplugged and never catch up after sleep.
+REM On a laptop prefer:
+REM   powershell -ExecutionPolicy Bypass -File scripts\setup_schedule.ps1 ^
+REM     -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat ^
+REM     -AtTimes "09:30","12:45","16:00"
 echo Creating 3 daily jobs for Costing/HS Code trigger...
 echo   -> %BAT%
 echo.
