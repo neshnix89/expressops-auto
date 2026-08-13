@@ -207,7 +207,15 @@ if ((Test-Path $cfgPath) -and -not $Force) {
 } else {
     Write-Host ""
     Say "config.yaml - a few values are needed:"
-    $jiraPat   = Read-Host "  JIRA Personal Access Token (JIRA - Profile - Personal Access Tokens)"
+    # -AsSecureString so the token is NOT echoed. A plain Read-Host prints it to
+    # the terminal, where it survives in scrollback and in any screenshot of the
+    # install — which is exactly how one token had to be revoked minutes after
+    # being created.
+    $patSecure = Read-Host "  JIRA Personal Access Token (JIRA - Profile - Personal Access Tokens)" -AsSecureString
+    $jiraPat = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($patSecure))
+    # The space link is not a secret and pasting it blind is error-prone, so it
+    # stays visible.
     $spaceLink = Read-Host "  Webex space link (Webex - the space - Copy space link), or blank to disable Webex"
     $webexOn   = if ([string]::IsNullOrWhiteSpace($spaceLink)) { "false" } else { "true" }
 
