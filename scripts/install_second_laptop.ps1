@@ -64,6 +64,20 @@ function Say($m) { Write-Host "[install] $m" }
 function Warn($m) { Write-Host "[install] $m" -ForegroundColor Yellow }
 function Die($m) { Write-Host "[install] ERROR: $m" -ForegroundColor Red; exit 1 }
 
+# Copy-Item (PowerShell 5.1) cannot read paths over 260 characters and fails
+# with a misleading "Could not find a part of the path". The shared-drive
+# staging prefix is 129 characters before any repo folder is added, so a long
+# mock_data filename tips it over — observed at 262 characters, which killed
+# the whole install. robocopy has no such limit, which is why staging TO the
+# share worked while copying FROM it did not.
+function Copy-Tree($src, $dst) {
+    $null = robocopy $src $dst /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 /XD .git logs outputs
+    # robocopy exit codes: 0-7 are success (1 = files copied), 8+ are failures.
+    $rc = $LASTEXITCODE
+    $global:LASTEXITCODE = 0   # or the next `if ($LASTEXITCODE -ne 0)` misreads it
+    if ($rc -ge 8) { Die "copy failed (robocopy exit $rc): $src -> $dst" }
+}
+
 # Scope must be stated, never assumed — see the parameter comment above.
 if (-not $FleetWide -and -not $PilotContainers) {
     Die @"
@@ -107,8 +121,17 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 if ($FromPath) {
     if (-not (Test-Path $FromPath)) { Die "FromPath not found: $FromPath" }
-    Say "copying from $FromPath"
-    Copy-Item -Path (Join-Path $FromPath '*') -Destination $InstallDir -Recurse -Force
+    $srcFull = (Resolve-Path $FromPath).Path.TrimEnd('\')
+    $dstFull = (Resolve-Path $InstallDir).Path.TrimEnd('\')
+    if ($srcFull -ieq $dstFull) {
+        # Lets an operator place the code by hand (robocopy, a USB copy) and
+        # still use this script for the parts that matter: dependencies,
+        # config, the dry run and the schedule.
+        Say "code is already at the install path - skipping the copy."
+    } else {
+        Say "copying from $FromPath"
+        Copy-Tree $srcFull $dstFull
+    }
 } else {
     $tmp = Join-Path $env:TEMP ("eo_install_" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -141,7 +164,7 @@ Original error: $($_.Exception.Message)
     Say "extracting..."
     Expand-Archive -Path $zip -DestinationPath $tmp -Force
     $src = (Get-ChildItem -Path $tmp -Directory | Select-Object -First 1).FullName
-    Copy-Item -Path (Join-Path $src '*') -Destination $InstallDir -Recurse -Force
+    Copy-Tree $src $InstallDir
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 Say "code installed."
