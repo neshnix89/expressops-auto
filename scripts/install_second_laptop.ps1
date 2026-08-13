@@ -256,6 +256,11 @@ edm:
   schema: "ADMEDP"
   connection_string: ""
 
+# ACTIVE/ACTIVE: same folder on BOTH laptops. Each task locks here before it
+# writes, so either machine can cover the other without double-posting.
+shared_dir: '$SharedBase'
+run_lock_ttl_minutes: 20
+
 logging:
   level: "INFO"
   log_dir: "logs"
