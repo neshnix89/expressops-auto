@@ -300,11 +300,17 @@ class WebexNotifier:
             # Record what was delivered. Without this the log cannot be compared
             # against the space, which is exactly what was needed to spot the
             # two alerts lost on 13-Aug.
+            stdout = (proc.stdout or b"").decode("utf-8", "replace")
             if proc.returncode == 0:
                 for t in texts:
                     self.log.info("[webex] delivered: %s", flatten(t)[:200])
-
-            stdout = (proc.stdout or b"").decode("utf-8", "replace")
+                # Keep the per-attempt verdict on a SUCCESS too. "attempt 1:
+                # MATCH" vs "attempt 3: MATCH" is the difference between a
+                # healthy machine and one that is one slow space-switch away
+                # from failing, and only the log will remember.
+                for line in stdout.splitlines():
+                    if "attempt" in line or "round-trip" in line:
+                        self.log.info("[webex] %s", line.strip())
             posts = len(re.findall(r"^SENT \d+", stdout, re.M))
             # One combined post carries all queued alerts, so it clears them all.
             sent = len(texts) if (combined and posts >= 1) else posts
