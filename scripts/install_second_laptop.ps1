@@ -263,6 +263,10 @@ logging:
 pages:
   mr_status_report: 560866215
   kpi_dashboard: 560871424
+  # kpi_overlay uploads kpi_cache.json here as an attachment; the Tampermonkey
+  # userscript downloads it to draw the pills. Without this key the overlay
+  # computes fine and then has nowhere to publish.
+  kpi_overlay_cache: 572629046
 
 # Costing + HS Code trigger. The usernames are JIRA logins — they drive both the
 # [~mention] and the detection of each person's "Done" reply, so they must match
