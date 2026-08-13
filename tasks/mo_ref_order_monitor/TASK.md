@@ -137,6 +137,17 @@ Change it on BOTH or they will disagree about which containers to maintain.
    Mismatch ⇒ re-paste, up to 3 attempts, then exit 6 with nothing sent and the
    alert left queued. Also: re-opening the deep link per message re-renders the
    compose box and loses text, hence one visit + one grouped post per flush.
+   **Webex swallows the first keystroke after a window is activated.** A primer
+   (space, backspace) before the real input is mandatory — without it the whole
+   Ctrl+V was eaten and every attempt read back empty. This is the same swallow
+   that used to clip the opening characters of a typed message; the primer was
+   dropped by accident in the switch to pasting and had to be restored.
+   Verified working 13-Aug 15:12 — first attempt, no retries.
+8. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
+   every `exit <code>` after one is dead code and PowerShell returns 1. Exit
+   codes must be written to stderr by hand or the caller cannot tell a refusal
+   from a crash — and Python retried the refusal, having been told it was
+   transient.
 6. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
    `|` splits the row. `VHRORN` is free text, so every cell is sanitised.
 7. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
