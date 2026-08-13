@@ -130,6 +130,11 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    Always register via `scripts/setup_mo_ref_order_schedule.ps1`.
 2. **`sync_now` overwrites the runner .bat but never `config.yaml`.** Anything
    operators tune (pilot scope) must live in config.yaml, or it reverts.
+   The flip side bit on the first second-laptop install: staging the repo to
+   the share with `robocopy /MIR` carried the primary's `config.yaml` — PAT and
+   all — into a `_Public` folder and then onto the colleague's machine, where
+   the installer adopted it silently and never prompted. **Never copy
+   `config.yaml` between machines**; the installer now excludes it.
 3. **No pilot scope = FLEET-WIDE.** Logged as an explicit warning, because
    silence once meant both "by design" and "config not loaded".
 4. **A `--dry-run` must not persist anything** — not state, not the Webex queue.
