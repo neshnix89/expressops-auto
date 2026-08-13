@@ -125,15 +125,24 @@ Change it on BOTH or they will disagree about which containers to maintain.
    silence once meant both "by design" and "config not loaded".
 4. **A `--dry-run` must not persist anything** — not state, not the Webex queue.
    Both caused real incidents (phantom history; duplicate alerts).
-5. **Webex desktop transport cannot confirm delivery.** It verifies the chat
-   window has focus *by window handle* (a PID check passes for image-preview
-   windows) and types — nothing more. Re-opening the deep link per message
-   re-renders the compose box and silently loses text, hence one visit + one
-   grouped post per flush.
+5. **Focus is not delivery.** The desktop transport used to verify the chat
+   window had focus *by window handle* (a PID check passes for image-preview
+   windows) and then type blind. That is not enough: if the space is still
+   switching, Webex discards the compose contents and the Enter posts nothing —
+   silently, with the log reporting success. **Two alerts were lost this way on
+   13-Aug**, one a RESOLVED notice a colleague waited an hour for.
+   Fixed 13-Aug: the message is **pasted** from the clipboard and the compose
+   box is **read back** (Ctrl+A/Ctrl+C, compared against the payload, with a
+   clipboard sentinel so an empty copy cannot fake a match) **before** Enter.
+   Mismatch ⇒ re-paste, up to 3 attempts, then exit 6 with nothing sent and the
+   alert left queued. Also: re-opening the deep link per message re-renders the
+   compose box and loses text, hence one visit + one grouped post per flush.
 6. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
    `|` splits the row. `VHRORN` is free text, so every cell is sanitised.
-7. **Emoji/`( ) % [ ]` need SendKeys escaping**; internal line breaks must be
-   Shift+Enter or each line posts separately.
+7. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
+   emoji and `( ) % [ ]`, and Shift+Enter for internal line breaks. The payload
+   is now RAW text — do not re-introduce escaping, or the braces get pasted
+   verbatim.
 
 ---
 
@@ -145,7 +154,7 @@ tasks/mo_ref_order_monitor/
 ├── m3_mo.py                 ← MWOHED_AP -> Observation
 ├── state.py                 ← per-MO JSON state (atomic write)
 ├── webex.py                 ← queue + 3 transports (desktop/webhook/bot)
-├── send_webex_desktop.ps1   ← chat-window targeting, focus verify, batch type
+├── send_webex_desktop.ps1   ← chat-window targeting, focus verify, paste + read-back
 ├── main.py                  ← orchestration (mock/live/dry-run)
 ├── capture.py               ← read-only mock-data capture
 ├── discover_mo_header.py    ← read-only M3 discovery (accepts an MO number)
@@ -183,6 +192,7 @@ repo root / scripts/
 ## Open items
 - [ ] **IT ticket I2607-2336** — Webex bot / Incoming Webhooks approval. Once
       granted, `transport: "webhook"` is a one-line change and removes the whole
-      UI-typing path (and its inability to confirm delivery).
+      UI-driving path. Still worth chasing: the read-back proves the text was in
+      the compose box, not that Webex accepted the post.
 - [ ] Retire the legacy Excel→Jira tool once the team is confident in this one.
 - [ ] Second laptop rollout.

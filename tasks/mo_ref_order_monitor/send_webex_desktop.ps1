@@ -3,40 +3,44 @@ Send one message to a Webex space by driving the Webex DESKTOP APP.
 
 Used by tasks/mo_ref_order_monitor when the org blocks Webex bots and
 integrations. Opens the space via its webexteams:// deep link, picks the real
-CHAT window, forces it to the foreground, VERIFIES that exact window has focus,
-and only then types.
+CHAT window, forces it to the foreground, PASTES the message, READS THE COMPOSE
+BOX BACK to confirm the text is really there, and only then presses Enter.
 
-Two failure modes this guards against, both observed in testing:
+Failure modes this guards against, all observed in production:
   * keystrokes leaking into whatever else had focus (typed into the console),
   * an auxiliary Webex window (e.g. an image preview) being targeted instead of
     the chat window — it shares the process ID, so a PID-level check passes
-    while the message goes nowhere useful. Verification is therefore by window
-    HANDLE, not by process.
+    while the message goes nowhere. Verification is by window HANDLE.
+  * THE SILENT ONE: the space is still switching after the deep link, Webex
+    discards the compose contents mid-render, and a blind Enter posts nothing.
+    Focus was held, so the old code reported success. Two alerts were lost this
+    way on 13-Aug — one of them a RESOLVED notice a colleague waited an hour
+    for. The read-back is what closes this hole; the paste is retried up to 3
+    times first, since the usual cause is simply that the space needed longer.
 
-On any failure this exits non-zero having typed nothing; the caller keeps the
-message queued and retries later.
+On any failure this exits non-zero WITHOUT sending; the caller keeps the
+message queued and retries next run.
 
 Exit codes:
-    0  sent
-    2  the chat window did not reach the foreground (nothing typed)
-    3  no usable Webex chat window found (nothing typed)
+    0  sent (and verified present in the compose box beforehand)
+    2  the chat window did not reach the foreground (nothing sent)
+    3  no usable Webex chat window found (nothing sent)
     4  bad arguments
+    6  compose box never held the message after 3 paste attempts (nothing sent)
 
 Usage:
     powershell -NoProfile -ExecutionPolicy Bypass -File send_webex_desktop.ps1 `
-        -SpaceLink "webexteams://im?space=..." -Message "text" `
+        -SpaceLink "webexteams://im?space=..." -MessageFile msg.txt `
         -OpenDelay 6 -TypeDelay 2
 #>
 param(
     [Parameter(Mandatory = $true)][string]$SpaceLink,
-    # One message, or -MessageFile for several (one per line, already escaped).
-    # Batching matters: re-opening the space deep-link per message re-renders
-    # the compose box, and messages typed into a mid-render box are lost.
+    # The message text, or -MessageFile holding it (UTF-8, real line breaks).
+    # It is ONE post: pasted whole, verified, then sent with a single Enter.
     [string]$Message,
     [string]$MessageFile,
     [double]$OpenDelay = 6,
-    [double]$TypeDelay = 2,
-    [double]$SendGap = 2
+    [double]$TypeDelay = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,14 +48,15 @@ $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($SpaceLink)) {
     Write-Error "SpaceLink is required"; exit 4
 }
-$messages = @()
+$Payload = ""
 if ($MessageFile) {
     if (-not (Test-Path $MessageFile)) { Write-Error "MessageFile not found: $MessageFile"; exit 4 }
-    $messages = @(Get-Content -Path $MessageFile -Encoding UTF8 | Where-Object { $_.Trim() })
+    $Payload = Get-Content -Path $MessageFile -Encoding UTF8 -Raw
 } elseif (-not [string]::IsNullOrWhiteSpace($Message)) {
-    $messages = @($Message)
+    $Payload = $Message
 }
-if (-not $messages.Count) { Write-Error "No message(s) to send"; exit 4 }
+$Payload = $Payload.TrimEnd("`r", "`n")
+if ([string]::IsNullOrWhiteSpace($Payload)) { Write-Error "No message to send"; exit 4 }
 
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -172,26 +177,79 @@ if ($fg -ne $win.Handle) {
     exit 2
 }
 
-# 5) Prime the compose box. The first keystrokes after activation are routinely
-#    swallowed while the app settles (observed: leading 5 chars lost). Spend a
-#    throwaway space + backspace so any loss costs the primer, not the message.
-Start-Sleep -Milliseconds 800
-[System.Windows.Forms.SendKeys]::SendWait(" ")
-Start-Sleep -Milliseconds 400
-[System.Windows.Forms.SendKeys]::SendWait("{BS}")
-Start-Sleep -Milliseconds 400
+# 5-7) Paste, READ THE COMPOSE BOX BACK, and only send once it matches.
+#      Retried in-process: the failure this guards against is a space that is
+#      still switching, which a few more seconds usually fixes. Giving up here
+#      would push the alert to the next poll — 30 minutes late for something
+#      like a RESOLVED notice.
+$prevClip = ""
+try { $prevClip = Get-Clipboard -Raw -ErrorAction SilentlyContinue } catch { }
 
-# 6) Type each payload, Enter after each. The space is opened ONCE above, so
-#    the compose box is not re-rendered between messages.
-#    "SENT n" on stdout lets the caller dequeue exactly what got through, even
-#    if a later message fails.
-$i = 0
-foreach ($m in $messages) {
-    $i++
-    [System.Windows.Forms.SendKeys]::SendWait($m)
+function Normalize([string]$t) { if ($null -eq $t) { return "" } ($t -replace '\s+', ' ').Trim() }
+$sentinel = "__EO_CLIPBOARD_SENTINEL__"
+$wantN = Normalize $Payload
+
+$sent = $false
+$lastSeen = ""
+foreach ($attempt in 1..3) {
+    if ($attempt -gt 1) {
+        Write-Host "[webex-ps] compose box was not ready - retry $attempt"
+        # Clear whatever partially landed, then let the space settle longer.
+        [System.Windows.Forms.SendKeys]::SendWait("^a")
+        Start-Sleep -Milliseconds 200
+        [System.Windows.Forms.SendKeys]::SendWait("{BACKSPACE}")
+        Start-Sleep -Seconds ($attempt * 2)
+
+        # Focus can be lost between attempts (a toast, a screensaver nudge).
+        [void][WxWin32]::SetForegroundWindow($win.Handle)
+        Start-Sleep -Milliseconds 500
+        if ([WxWin32]::GetForegroundWindow() -ne $win.Handle) { continue }
+    }
+
+    # Paste. Pasting beats typing: instant (no per-character race with the
+    # app), and immune to SendKeys escaping — emoji and punctuation go through
+    # verbatim.
+    Set-Clipboard -Value $Payload
     Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait("^v")
+    Start-Sleep -Milliseconds 900
+
+    # Read the compose box back. A sentinel goes on the clipboard first, so a
+    # Ctrl+C that copies nothing cannot leave our own payload behind and fake a
+    # match.
+    Set-Clipboard -Value $sentinel
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait("^a")
+    Start-Sleep -Milliseconds 300
+    [System.Windows.Forms.SendKeys]::SendWait("^c")
+    Start-Sleep -Milliseconds 600
+
+    $got = ""
+    try { $got = Get-Clipboard -Raw -ErrorAction SilentlyContinue } catch { }
+    $gotN = Normalize $got
+    if ($gotN -eq (Normalize $sentinel)) { $gotN = "" }
+    $lastSeen = $gotN
+    if ($gotN -ne $wantN) { continue }
+
+    # Verified. Deselect (Ctrl+A left everything selected) and send.
+    [System.Windows.Forms.SendKeys]::SendWait("{END}")
+    Start-Sleep -Milliseconds 250
     [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-    Write-Host "SENT $i"
-    if ($i -lt $messages.Count) { Start-Sleep -Seconds $SendGap }
+    Start-Sleep -Milliseconds 400
+    $sent = $true
+    break
 }
+
+if ($prevClip) { Set-Clipboard -Value $prevClip }
+
+if (-not $sent) {
+    $preview = if ([string]::IsNullOrWhiteSpace($lastSeen)) {
+        "<empty - the paste did not land>"
+    } elseif ($lastSeen.Length -gt 120) { $lastSeen.Substring(0, 120) + "..." }
+    else { $lastSeen }
+    Write-Error "compose box never held the message after 3 attempts - nothing sent. Found: '$preview'"
+    exit 6
+}
+
+Write-Host "SENT 1"
 exit 0
