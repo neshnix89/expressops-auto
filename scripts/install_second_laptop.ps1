@@ -217,6 +217,11 @@ if ((Test-Path $cfgPath) -and -not $Force) {
     # The space link is not a secret and pasting it blind is error-prone, so it
     # stays visible.
     $spaceLink = Read-Host "  Webex space link (Webex - the space - Copy space link), or blank to disable Webex"
+    # Needed by mr_status_report (reads the page, preserves the manual columns,
+    # republishes). Blank is fine if this machine only runs the JIRA-only tasks.
+    $confSecure = Read-Host "  Confluence PAT (for the MR Status Report; blank to skip)" -AsSecureString
+    $confPat = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($confSecure))
     $webexOn   = if ([string]::IsNullOrWhiteSpace($spaceLink)) { "false" } else { "true" }
 
     $stateDir = Join-Path $SharedBase "state"
@@ -239,7 +244,7 @@ jira:
 
 confluence:
   base_url: "https://pfteamspace.pepperl-fuchs.com"
-  pat: ""
+  pat: "$confPat"
   space_key: "EUDEMHTM0021"
 
 m3:
@@ -254,6 +259,30 @@ edm:
 logging:
   level: "INFO"
   log_dir: "logs"
+
+pages:
+  mr_status_report: 560866215
+  kpi_dashboard: 560871424
+
+# Costing + HS Code trigger. The usernames are JIRA logins — they drive both the
+# [~mention] and the detection of each person's "Done" reply, so they must match
+# the PRIMARY laptop's config exactly or the reminder loop never converges.
+# VERIFY these against the primary before the first live run.
+costing_hs_code_trigger:
+  costing_people:
+    - username: "kloo"
+      display: "Loo King Lun"
+    - username: "yuhuang"
+      display: "Yu Huang"
+  hs_code_person:
+    username: "fpangilina"
+    display: "F. Pangilina"
+  ready_resolutions: ["Done", "Acknowledged", "Won't Do"]
+  done_keywords: ["done", "updated", "completed"]
+  negation_guards: ["not done", "no update", "pending"]
+  reminder_interval_working_days: 2
+  trigger_marker: "#Ref: CostHS-Trigger#"
+  reminder_marker: "#Ref: CostHS-Reminder#"
 
 mo_ref_order_monitor:
   username: "ExpressOPS MO Monitor"
