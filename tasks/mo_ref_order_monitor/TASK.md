@@ -120,6 +120,11 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
 ---
 
 ## Operational lessons (all learned the hard way — do not re-discover)
+0. **Windows still has a 260-character path limit.** `Copy-Item` (PS 5.1) dies
+   on longer paths with a misleading "Could not find a part of the path";
+   `robocopy` does not. The shared-drive staging prefix is 129 characters
+   before any repo folder, so a long `mock_data` filename tips it over (262 —
+   it stopped a second-laptop install). The installer copies with robocopy.
 1. **Task Scheduler defaults break laptops.** `DisallowStartIfOnBatteries` is ON
    and `StartWhenAvailable` is OFF by default; `schtasks.exe` can set neither.
    Always register via `scripts/setup_mo_ref_order_schedule.ps1`.
