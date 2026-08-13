@@ -112,6 +112,10 @@ primary `:00/:30` (08:00–17:00), second `:15/:45` (09:15–17:00).
 
 **`pilot_containers` is NOT shared** — it lives in each machine's `config.yaml`.
 Change it on BOTH or they will disagree about which containers to maintain.
+`install_second_laptop.ps1` therefore has **no default scope**: it requires
+`-FleetWide` or `-PilotContainers` and refuses to guess. Its old default (two
+NPIOTHER keys) had already gone stale against a fleet-wide production.
+Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
 
 ---
 

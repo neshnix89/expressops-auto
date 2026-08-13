@@ -15,11 +15,12 @@
     unless -Force is given.
 
 .EXAMPLE
-    # pilot scope (default: the primary laptop's pilot containers)
-    powershell -ExecutionPolicy Bypass -File .\install_second_laptop.ps1
+    # pilot scope — the keys must match the primary laptop's config.yaml
+    powershell -ExecutionPolicy Bypass -File .\install_second_laptop.ps1 -PilotContainers "NPIOTHER-5589","NPIOTHER-5322"
 
 .EXAMPLE
     # fleet-wide, matching a primary laptop with an empty pilot list
+    # (this is production as of 13-Aug-2026)
     powershell -ExecutionPolicy Bypass -File .\install_second_laptop.ps1 -FleetWide
 
 .EXAMPLE
@@ -37,9 +38,12 @@ param(
     [string]$GitHubToken,
     [string]$FromPath,
     [string]$SharedBase = "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering",
-    # Pilot scope. MUST match the primary laptop, or this machine would write to
-    # containers the primary is deliberately not touching.
-    [string[]]$PilotContainers = @("NPIOTHER-5589", "NPIOTHER-5322"),
+    # Pilot scope. NO DEFAULT ON PURPOSE — it MUST match the primary laptop, and
+    # a hardcoded default silently goes stale the moment the primary's scope
+    # changes. It did: this used to default to two NPIOTHER containers while
+    # production had moved fleet-wide. One of -PilotContainers / -FleetWide is
+    # required; the script refuses to guess.
+    [string[]]$PilotContainers,
     # Use -FleetWide for no restriction. Passing -PilotContainers @() does NOT
     # work through `powershell -File`: the outer shell expands @() to zero
     # arguments, so the parameter is left with no value and the call fails.
@@ -59,6 +63,20 @@ $repoZip = "https://github.com/neshnix89/expressops-auto/archive/refs/heads/$Bra
 function Say($m) { Write-Host "[install] $m" }
 function Warn($m) { Write-Host "[install] $m" -ForegroundColor Yellow }
 function Die($m) { Write-Host "[install] ERROR: $m" -ForegroundColor Red; exit 1 }
+
+# Scope must be stated, never assumed — see the parameter comment above.
+if (-not $FleetWide -and -not $PilotContainers) {
+    Die @"
+Pilot scope not specified. It must match the PRIMARY laptop exactly.
+
+Read the primary's setting there:
+  python -c "import io,yaml;print(yaml.safe_load(io.open('config/config.yaml',encoding='utf-8-sig'))['mo_ref_order_monitor'].get('pilot_containers'))"
+
+Then re-run this installer with:
+  []                      ->  -FleetWide
+  ['KEY-1', 'KEY-2']      ->  -PilotContainers "KEY-1","KEY-2"
+"@
+}
 
 Say "target: $InstallDir"
 
