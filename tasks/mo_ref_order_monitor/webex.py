@@ -5,8 +5,9 @@ Three transports, because P+F blocks both bots and App-Hub integrations:
 
   1. "desktop"  — drives the Webex DESKTOP APP on the company laptop (no API,
      no admin approval). Opens the space via the `webexteams://` deep link,
-     then types the message with PowerShell SendKeys. Viable here only because
-     notifications are IS-gated and therefore rare.
+     PASTES the message from the clipboard, READS THE COMPOSE BOX BACK to
+     confirm the text is really there, and only then presses Enter. Viable
+     here only because notifications are IS-gated and therefore rare.
   2. "webhook"  — Incoming Webhooks integration (needs admin approval).
   3. "bot"      — bot token + roomId (blocked by policy today).
 
@@ -43,23 +44,6 @@ import requests
 
 WEBEX_MESSAGES = "https://webexapis.com/v1/messages"
 
-# SendKeys treats these as control characters — each must be brace-wrapped.
-_SENDKEYS_SPECIAL = set("+^%~(){}[]")
-
-
-def sendkeys_escape(text: str) -> str:
-    """Escape a string for [System.Windows.Forms.SendKeys]::SendWait."""
-    out = []
-    for ch in text:
-        out.append("{" + ch + "}" if ch in _SENDKEYS_SPECIAL else ch)
-    return "".join(out)
-
-
-def powershell_quote(text: str) -> str:
-    """Quote for a PowerShell double-quoted string literal."""
-    return text.replace("`", "``").replace('"', '`"').replace("$", "`$")
-
-
 def flatten(text: str) -> str:
     """
     Collapse to ONE line. In the desktop app Enter sends the message, so a
@@ -81,16 +65,6 @@ def combine_alerts(texts: list[str], title: str = "ExpressOPS MO Monitor") -> st
     for i, t in enumerate(texts, start=1):
         lines.append(f"{i}) {flatten(t)}")
     return "\n".join(lines)
-
-
-def sendkeys_multiline(text: str) -> str:
-    """
-    Escape a multi-line message for SendKeys, using Shift+Enter (+{ENTER}) for
-    the internal line breaks so the message is NOT sent early — a bare Enter
-    would post each line as its own message.
-    """
-    parts = [sendkeys_escape(ln) for ln in text.replace("\r", "").split("\n")]
-    return "+{ENTER}".join(parts)
 
 
 class WebexNotifier:
@@ -214,20 +188,24 @@ class WebexNotifier:
 
     # send_webex_desktop.ps1 exit codes
     _PS_ERRORS = {
-        2: "Webex did not reach the foreground — nothing typed (will retry)",
+        2: "Webex did not reach the foreground — nothing sent (will retry)",
         3: "no Webex window found — is the app running and signed in?",
         4: "bad arguments to the PowerShell helper",
+        6: ("compose box did not contain the message — nothing sent (will retry). "
+            "Usually the space was still switching; raise open_delay_seconds."),
     }
 
     def _send_desktop(self, text: str) -> bool:
         """
-        Open the space in the Webex desktop app and type the message.
+        Open the space in the Webex desktop app and post the message.
 
-        Delegated to send_webex_desktop.ps1, which forces the Webex window to
-        the foreground and VERIFIES it before typing. Without that check
-        SendKeys silently types into whatever has focus (e.g. the console that
-        launched us). A non-zero exit means nothing was typed, so the caller
-        keeps the message queued.
+        Delegated to send_webex_desktop.ps1, which forces the chat window to
+        the foreground, pastes the text, and reads the compose box back before
+        pressing Enter. Both checks are load-bearing: without the focus check
+        the keystrokes land in whatever else has focus (observed: the console
+        that launched us); without the read-back a still-switching space eats
+        the text and a blind Enter posts nothing. A non-zero exit means nothing
+        was sent, so the caller keeps the message queued.
         """
         if not self.space_link:
             self.log.error("[webex] desktop transport needs space_link (Copy space link)")
@@ -245,7 +223,7 @@ class WebexNotifier:
         cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                "-File", str(script),
                "-SpaceLink", self.space_link,
-               "-Message", sendkeys_escape(body),
+               "-Message", body,
                "-OpenDelay", str(self.open_delay),
                "-TypeDelay", str(self.type_delay)]
 
@@ -253,8 +231,8 @@ class WebexNotifier:
 
         # Exit 1 is PowerShell itself failing (e.g. a flaky Add-Type compile),
         # not a decision by our script — those are transient, so retry once
-        # immediately rather than waiting for the next 15-min run. Codes 2/3/4
-        # are deliberate refusals and must NOT be retried here.
+        # immediately rather than waiting for the next run. Codes 2/3/4/6 are
+        # deliberate refusals and must NOT be retried here.
         if proc.returncode == 1:
             self.log.warning("[webex] transient PowerShell failure — retrying once")
             time.sleep(3)
@@ -276,12 +254,14 @@ class WebexNotifier:
 
     def _send_desktop_many(self, texts: list[str]) -> int:
         """
-        Type several messages during ONE visit to the space.
+        Post several queued alerts during ONE visit to the space.
 
-        Returns how many were actually typed, so the caller dequeues exactly
-        those and retries the rest next run. The helper prints "SENT n" per
-        message, which is the only honest signal available — the desktop
-        transport cannot read the space back to confirm delivery.
+        Returns how many were actually sent, so the caller dequeues exactly
+        those and retries the rest next run. The helper prints "SENT n" once
+        per post and only after it has read the compose box back, so a success
+        here means the text really was in the box when Enter was pressed —
+        short of reading the space itself, that is as honest as this transport
+        gets.
         """
         if not texts:
             return 0
@@ -293,12 +273,11 @@ class WebexNotifier:
             self.log.error("[webex] helper script missing: %s", script)
             return 0
 
-        # Several alerts -> one grouped post (line breaks via Shift+Enter).
+        # Several alerts -> one grouped post. The payload is RAW text now: the
+        # helper pastes it from the clipboard rather than typing, so there is no
+        # SendKeys escaping to get wrong and emoji survive intact.
         combined = self.combine_alerts and len(texts) > 1
-        if combined:
-            payload = sendkeys_multiline(combine_alerts(texts))
-        else:
-            payload = sendkeys_escape(flatten(texts[0]))
+        payload = combine_alerts(texts) if combined else flatten(texts[0])
 
         tmp = Path(tempfile.gettempdir()) / f"eo_webex_{os.getpid()}.txt"
         tmp.write_text(payload, encoding="utf-8")
@@ -314,6 +293,13 @@ class WebexNotifier:
                 self.log.warning("[webex] transient PowerShell failure — retrying once")
                 time.sleep(3)
                 proc = subprocess.run(cmd, capture_output=True, timeout=300, check=False)
+
+            # Record what was delivered. Without this the log cannot be compared
+            # against the space, which is exactly what was needed to spot the
+            # two alerts lost on 13-Aug.
+            if proc.returncode == 0:
+                for t in texts:
+                    self.log.info("[webex] delivered: %s", flatten(t)[:200])
 
             stdout = (proc.stdout or b"").decode("utf-8", "replace")
             posts = len(re.findall(r"^SENT \d+", stdout, re.M))

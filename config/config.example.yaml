@@ -98,13 +98,17 @@ mo_ref_order_monitor:
     # desktop: Webex -> open the space -> space menu -> "Copy space link".
     space_link: ""                         # webexteams://im?space=... or https://eurl.io/...
     open_delay_seconds: 6                  # wait for the app to focus the space
-    type_delay_seconds: 2                  # settle before typing (raise if text truncates)
+    type_delay_seconds: 2                  # settle before pasting
+    # The helper pastes the message and reads the compose box back before
+    # pressing Enter, retrying the paste up to 3 times. If the log shows exit 6
+    # ("compose box never held the message"), the space is slow to switch on
+    # this machine — raise open_delay_seconds.
     # Undelivered alerts (laptop locked, Webex closed) are retried next run.
     queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
     max_age_hours: 12                      # drop queued alerts older than this (stale = noise)
-    # Several pending alerts are posted as ONE multi-line message (line breaks
-    # via Shift+Enter). Fewer Enter presses = fewer chances for the desktop
-    # transport to misfire, and the group sees one grouped notification.
+    # Several pending alerts are posted as ONE multi-line message. Fewer Enter
+    # presses = fewer chances for the desktop transport to misfire, and the
+    # group sees one grouped notification.
     combine_alerts: true
     webhook_url: ""                        # webhook transport only
     default_room_id: ""                    # bot transport only
