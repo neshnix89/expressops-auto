@@ -100,6 +100,10 @@ DEFAULT_WEBEX_TEMPLATES = {
                       "Ref order no: **{marker}**\n"
                       "Issue lasted **{issue_dwell}**\n"
                       "Container: [{container}]({url})"),
+    "issue_moved": ("🔁 **NEW ISSUE — MO {mo}** · {pn}\n"
+                    "**{prev_marker}** resolved after **{issue_dwell}**, "
+                    "now flagged at **{marker}**\n"
+                    "Container: [{container}]({url})"),
     "reopen": ("🟠 **MO {mo}** · {pn} — **RE-OPENED** (Sts {status})\n"
                "Ref order no: **{marker}**\n"
                "Container: [{container}]({url})"),
@@ -115,6 +119,8 @@ DESKTOP_WEBEX_TEMPLATES = {
     "issue_raised": "🔴 ISSUE — MO {mo} ({pn}) — Ref order no: {marker} — {container} {url}",
     "issue_cleared": ("🟢 RESOLVED — MO {mo} ({pn}) — Ref order no: {marker} — "
                       "issue lasted {issue_dwell} — {container} {url}"),
+    "issue_moved": ("🔁 NEW ISSUE — MO {mo} ({pn}) — {prev_marker} resolved after "
+                    "{issue_dwell}, now flagged at {marker} — {container} {url}"),
     "reopen": "🟠 MO {mo} ({pn}) RE-OPENED (Sts {status}) — Ref order no: {marker} — {container} {url}",
     "closed": "✅ MO {mo} ({pn}) CLOSED (Sts {status}) — total build time {total_dwell} — {container} {url}",
 }

@@ -42,9 +42,21 @@ _HEADING_RE = re.compile(r"h[1-6]\.\s")
 
 # An "issue" is flagged by production by appending IS to the ref order no
 # (case-insensitive, at the end) — e.g. "QM IS", "AOI-IS", "QMIS". Webex is
-# notified only when this issue state CHANGES (raised / cleared), never on
-# routine stage changes. Override via config `issue_regex`.
+# notified only when this issue state CHANGES, never on routine stage changes.
+# Override via config `issue_regex`.
+#
+# An issue belongs to the STAGE it is flagged on: "AOI-IS" and "PACK-IS" are two
+# different problems, not one long-running one. So the tracked identity is the
+# (stage, IS) pair — moving from "AOI-IS" to "PACK-IS" ends the AOI issue and
+# raises a packing one, and must notify.
 DEFAULT_ISSUE_REGEX = r"(?i)IS\s*$"
+
+# The trailing IS flag plus whatever separator production used to attach it.
+_ISSUE_SUFFIX_RE = re.compile(r"(?i)[\s._-]*IS\s*$")
+
+# Production is not consistent about separators or case ("AOI-IS", "aoi is"),
+# and neither variation means a new issue.
+_SEPARATORS_RE = re.compile(r"[\s._-]+")
 
 
 def marker_has_issue(marker: str, pattern: str | None = None) -> bool:
@@ -52,6 +64,26 @@ def marker_has_issue(marker: str, pattern: str | None = None) -> bool:
     if not marker:
         return False
     return bool(re.search(pattern or DEFAULT_ISSUE_REGEX, marker.strip()))
+
+
+def issue_stage(marker: str, pattern: str | None = None) -> str:
+    """
+    The stage an issue sits on, normalized for comparison: 'AOI-IS' -> 'AOI'.
+
+    Used to tell "same issue, still open" from "that one ended, here's a new one
+    at the next stage". A marker with no IS flag normalizes as-is; the caller
+    only compares stages between two IS-flagged markers.
+    """
+    s = (marker or "").strip()
+    if not s:
+        return ""
+    if marker_has_issue(s, pattern):
+        stripped = _ISSUE_SUFFIX_RE.sub("", s).strip()
+        # A custom issue_regex may not match this suffix shape. Keeping the full
+        # marker still detects a move, it just does not read as prettily.
+        if stripped:
+            s = stripped
+    return _SEPARATORS_RE.sub(" ", s).strip().upper()
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +146,7 @@ def new_state(mo_no: str) -> dict:
         "closed_published": False,
         "abandoned": False,
         "issue_active": False,         # IS flag currently on the ref order no
+        "issue_stage": "",             # which stage that open issue sits on
         "history": [],                 # completed stages (with work_seconds)
         "days": {},                    # 'YYYY-MM-DD' -> per-day aggregate
     }
@@ -153,20 +186,38 @@ def _close_stage(state: dict, end: datetime,
 # ---------------------------------------------------------------------------
 # State machine
 # ---------------------------------------------------------------------------
-def _issue_actions(state: dict, marker: str, issue_regex: str | None) -> list[Action]:
+def _issue_actions(state: dict, marker: str, issue_regex: str | None,
+                   prev_marker: str = "") -> list[Action]:
     """
-    Webex gating: notify ONLY when the IS issue flag on the ref order no
-    changes state. Routine stage changes stay silent.
-      no-IS -> IS : issue_raised
-      IS -> no-IS : issue_cleared
+    Webex gating: notify ONLY when the IS issue state on the ref order no
+    changes. Routine stage changes stay silent.
+      no-IS   -> IS(X)          : issue_raised
+      IS(X)   -> no-IS          : issue_cleared
+      IS(X)   -> IS(Y), X != Y  : issue_moved (X ended, Y raised — one post)
+      IS(X)   -> IS(X)          : silent, the same issue is still open
     """
     now_issue = marker_has_issue(marker, issue_regex)
     was_issue = bool(state.get("issue_active", False))
-    if now_issue == was_issue:
+    now_stage = issue_stage(marker, issue_regex) if now_issue else ""
+    # State written before issues were tracked per stage has no `issue_stage`;
+    # recover it from the marker the issue was last seen on so an upgrade in the
+    # middle of an open issue does not read as a move and fire a spurious alert.
+    prev_stage = state.get("issue_stage") or (
+        issue_stage(prev_marker, issue_regex) if was_issue else "")
+
+    if now_issue == was_issue and now_stage == prev_stage:
         return []
+
     state["issue_active"] = now_issue
-    return [Action("webex", reason="issue_raised" if now_issue else "issue_cleared",
-                   webex_marker=marker)]
+    state["issue_stage"] = now_stage
+
+    if now_issue and not was_issue:
+        reason = "issue_raised"
+    elif was_issue and not now_issue:
+        reason = "issue_cleared"
+    else:
+        reason = "issue_moved"
+    return [Action("webex", reason=reason, webex_marker=marker)]
 
 
 def apply_observation(state: dict, obs: Observation,
@@ -214,6 +265,8 @@ def apply_observation(state: dict, obs: Observation,
         # IS state so the next raise/clear transition is detected correctly.
         actions.append(Action("webex", reason="reopen", webex_marker=new_marker))
         state["issue_active"] = marker_has_issue(new_marker, issue_regex)
+        state["issue_stage"] = (issue_stage(new_marker, issue_regex)
+                                if state["issue_active"] else "")
         return actions
 
     # --- Active ---
@@ -248,7 +301,7 @@ def apply_observation(state: dict, obs: Observation,
             day["end_marker"] = marker
             state["last_poll_date"] = today
             actions.append(Action("publish", reason="change"))
-            actions.extend(_issue_actions(state, marker, issue_regex))
+            actions.extend(_issue_actions(state, marker, issue_regex, prev_marker))
         else:
             # Value can change IS-flag without changing stage (e.g. "QM" ->
             # "QM IS"); that is handled above. Nothing to do here for Webex.
@@ -292,6 +345,7 @@ def apply_observation(state: dict, obs: Observation,
         actions.append(Action("webex", reason="closed",
                               webex_marker=state.get("current_marker") or ""))
         state["issue_active"] = False
+        state["issue_stage"] = ""
     # else already closed -> stay silent.
 
     state["last_status"] = obs.status

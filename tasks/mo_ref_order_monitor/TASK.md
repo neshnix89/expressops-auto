@@ -40,8 +40,13 @@ total. `2d, 4h` = 2 working days, 4 working hours total — **not** a 9h
 conversion.
 
 ### 3. Webex alert — ISSUE-GATED, not on every change
+An issue belongs to the **stage it is flagged on**: `AOI-IS` and `PACK-IS` are two
+different problems. The tracked identity is the (stage, IS) pair, so:
 - no-IS → IS: **issue_raised** 🔴
 - IS → no-IS: **issue_cleared** 🟢 (reports how long the issue was open)
+- IS → IS on a **different** stage: **issue_moved** 🔁 — the old issue ended and a
+  new one was raised, in one post (reports how long the old one lasted)
+- IS → IS on the **same** stage (`AOI-IS` → `aoi is`): silent, still one issue
 - MO close: **closed** ✅ · re-open: **reopen** 🟠
 Routine stage changes send nothing. JIRA still records every change.
 Multiple pending alerts post as ONE grouped multi-line message.
