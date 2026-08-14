@@ -114,6 +114,10 @@ correct when nothing is running.
 
 ---
 
+> **PowerShell scripts must be launched with `powershell -ExecutionPolicy
+> Bypass -File ...`.** Typing `.\scripts\whatever.ps1` directly is blocked by
+> the machine's execution policy. The `.bat` files are unaffected.
+
 ## Step 4 — MO ref tracking (SECOND)
 
 Already scheduled by Step 2. Confirm it behaves:
@@ -128,7 +132,7 @@ no-op proves the shared history is being read. If it wants to publish a full set
 of tables, STOP — the state paths do not match and it would fight the primary.
 
 ```powershell
-.\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly
 ```
 
 Expect 09:15, battery-safe yes, catch-up yes.
@@ -169,7 +173,7 @@ One overlay only — never both. They publish the same Confluence attachment.
 ```powershell
 cd C:\Users\wneo\Documents\AI\expressops-auto
 python -m tasks.kpi_overlay.main --live --dry-run
-.\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"
 ```
 
 09:45 is 15 minutes after the primary's 09:30. The run lock handles overlap;
@@ -194,7 +198,7 @@ with a known PT→PRSG pair.
 
 ```powershell
 python -m tasks.mr_status_report.main --live --dry-run
-.\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"
 ```
 
 The dry run reads live data and builds the page **without publishing**. If EDM
@@ -220,7 +224,7 @@ With the shared baseline in place there is nothing to seed: it reads the one the
 primary already seeded.
 
 ```powershell
-.\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"
 ```
 
 ---

@@ -201,6 +201,14 @@ run_lock_ttl_minutes: 20</pre>
   "Locks held now: none" is correct when nothing is running.</p>
 </div>
 
+<div class="callout stop">
+  <span class="label">Running PowerShell scripts</span>
+  <p>Always launch them as
+  <code>powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...</code>.
+  Typing <code>.\scripts\name.ps1</code> on its own is blocked by the machine's
+  execution policy. The <code>.bat</code> files are not affected.</p>
+</div>
+
 <!-- ─────────────────────────────── -->
 <div class="step page-break">
   <div class="step-head"><span class="num">4</span>
@@ -220,7 +228,7 @@ python -m tasks.mo_ref_order_monitor.main --live --dry-run</pre>
     match and the two laptops would overwrite each other's JIRA tables.</p>
   </div>
 
-  <pre>.\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly</pre>
+  <pre>powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly</pre>
   <p class="done"><b>Expect:</b> 09:15 · runs on battery: yes · catches up missed slots: yes.</p>
 </div>
 
@@ -259,7 +267,7 @@ Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"</pre>
   <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
 python -m tasks.kpi_overlay.main --live --dry-run
 
-.\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"</pre>
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"</pre>
 </div>
 
 <!-- ─────────────────────────────── -->
@@ -280,7 +288,7 @@ python -m tasks.kpi_overlay.main --live --dry-run
 
   <pre>python -m tasks.mr_status_report.main --live --dry-run
 
-.\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"</pre>
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"</pre>
 
   <p class="done"><b>Note:</b> the dry run builds the page without publishing. If EDM is
   not working, the PE/TE release colouring comes out blank — that degrades the report
@@ -309,7 +317,7 @@ python -m tasks.costing_hs_code_trigger.main --live --dry-run</pre>
   <p>With the shared baseline in place there is nothing to seed — it reads the one the
   primary seeded months ago.</p>
 
-  <pre>.\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"</pre>
+  <pre>powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"</pre>
 </div>
 
 <!-- ─────────────────────────────── -->
