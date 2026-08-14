@@ -243,7 +243,7 @@ With the shared baseline in place there is nothing to seed: it reads the one the
 primary already seeded.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"
+powershell -ExecutionPolicy Bypass -Command ".\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes '10:00','13:15','16:30'"
 ```
 
 ---
