@@ -32,8 +32,23 @@ class M3Client:
                 import pyodbc
             except ImportError as exc:
                 raise missing_dependency("pyodbc") from exc
+            # Credentials may come from the DSN itself or from config.yaml.
+            #
+            # The DSN route stores them in HKLM in CLEARTEXT (the Oracle driver
+            # keeps them in the UserID attribute as "user/password"), readable
+            # by anyone on the machine, and editing a System DSN needs admin
+            # rights. Supplying UID/PWD here keeps them in the gitignored
+            # config.yaml instead and lets a machine work without touching the
+            # DSN at all. Left blank, behaviour is exactly as before.
+            uid = str(self.config.get("m3.user", "") or "").strip()
+            pwd = str(self.config.get("m3.password", "") or "").strip()
+            conn_str = f"DSN={self.config.m3_dsn}"
+            if uid:
+                conn_str += f";UID={uid}"
+                if pwd:
+                    conn_str += f";PWD={pwd}"
             try:
-                self._conn = pyodbc.connect(f"DSN={self.config.m3_dsn}")
+                self._conn = pyodbc.connect(conn_str)
             except pyodbc.Error as exc:
                 raise odbc_error(exc, self.config.m3_dsn) from exc
         return self._conn

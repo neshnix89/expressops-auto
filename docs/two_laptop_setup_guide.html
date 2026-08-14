@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Two-Laptop Setup Guide</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 14mm; }
+  :root {
+    --ink: #16191d;
+    --muted: #5b6672;
+    --rule: #d9dee4;
+    --accent: #1a5fb4;
+    --stop-bg: #fff4f2;
+    --stop-br: #c0392b;
+    --ok-bg: #f1f8f2;
+    --ok-br: #2c7a3f;
+    --code-bg: #f4f6f8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    color: var(--ink);
+    font-size: 10.2pt;
+    line-height: 1.5;
+    margin: 0;
+  }
+  h1 {
+    font-size: 21pt; margin: 0 0 2mm; letter-spacing: -0.2pt;
+  }
+  .sub { color: var(--muted); font-size: 10.5pt; margin: 0 0 6mm; }
+  h2 {
+    font-size: 13pt; margin: 0 0 3mm;
+    padding-bottom: 1.5mm; border-bottom: 2px solid var(--ink);
+  }
+  h3 { font-size: 10.8pt; margin: 5mm 0 2mm; }
+  p { margin: 0 0 3mm; }
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.2mm; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--code-bg); padding: 0.4mm 1mm; border-radius: 2px;
+    font-size: 9pt;
+  }
+  pre {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--code-bg);
+    border-left: 3px solid var(--accent);
+    padding: 2.5mm 3mm; margin: 0 0 3mm;
+    font-size: 8.4pt; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-all;
+    border-radius: 0 3px 3px 0;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 4mm; font-size: 9.4pt; }
+  th, td { border: 1px solid var(--rule); padding: 1.8mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #eef1f4; font-weight: 600; }
+
+  /* ---- step layout ---- */
+  .step { margin: 0 0 7mm; break-inside: avoid; }
+  .step-head {
+    display: flex; align-items: baseline; gap: 3mm;
+    border-bottom: 1px solid var(--rule); padding-bottom: 1.5mm; margin-bottom: 3mm;
+  }
+  .num {
+    background: var(--ink); color: #fff; font-weight: 700;
+    min-width: 9mm; height: 9mm; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11pt; flex: none;
+  }
+  .step-title { font-size: 13pt; font-weight: 700; margin: 0; flex: 1; }
+  .where {
+    font-size: 8.2pt; font-weight: 700; letter-spacing: 0.4pt;
+    text-transform: uppercase; padding: 0.8mm 2mm; border-radius: 2px;
+    color: #fff; flex: none;
+  }
+  .where.primary { background: #1a5fb4; }
+  .where.second  { background: #6b3fa0; }
+  .where.both    { background: #4b5563; }
+
+  .callout {
+    border-left: 3px solid; padding: 2.5mm 3mm; margin: 0 0 3mm; break-inside: avoid;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .stop { background: var(--stop-bg); border-color: var(--stop-br); }
+  .stop .label { color: var(--stop-br); font-weight: 700; }
+  .ok { background: var(--ok-bg); border-color: var(--ok-br); }
+  .ok .label { color: var(--ok-br); font-weight: 700; }
+  .label { display: block; font-size: 8.4pt; letter-spacing: 0.5pt;
+           text-transform: uppercase; margin-bottom: 1mm; }
+
+  .done { color: var(--muted); font-size: 9pt; }
+  .done b { color: var(--ink); }
+  .page-break { break-before: page; }
+  .footer-note { color: var(--muted); font-size: 8.6pt; border-top: 1px solid var(--rule);
+                 padding-top: 2mm; margin-top: 6mm; }
+  .tick { font-family: Consolas, monospace; letter-spacing: 1pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>Two-Laptop Setup — Step by Step</h1>
+<p class="sub">Express OPS NPI automation · both laptops run everything, either one covers the other<br>
+Prepared 14 Aug 2026 · follow the steps in order</p>
+
+<table>
+  <tr><th style="width:22%"></th><th style="width:39%">Primary</th><th style="width:39%">Second</th></tr>
+  <tr><td><b>Windows account</b></td><td>TMOGHANAN</td><td>WNEO</td></tr>
+  <tr><td><b>PC number</b></td><td>—</td><td>2201SGN733</td></tr>
+  <tr><td><b>Folder</b></td><td>C:\Users\tmoghanan\Documents\AI\expressops-auto</td><td>C:\Users\wneo\Documents\AI\expressops-auto</td></tr>
+  <tr><td><b>Python</b></td><td>…\AppData\Local\Programs\Python\Python312\python.exe</td><td><code>python</code> (C:\tools\python3)</td></tr>
+</table>
+
+<div class="callout ok">
+  <span class="label">Already verified on the second laptop</span>
+  <p>M3/ODS connects and all six tables are readable · JIRA authenticates as his own
+  account (26 containers visible) · shared folder readable <b>and writable</b>, with the
+  primary's 20 state files visible · Webex desktop running. <b>17 of 17 checks passed.</b></p>
+</div>
+
+<div class="callout stop">
+  <span class="label">Temporary arrangement — do not forget</span>
+  <p>IT configured the second laptop's ODSSG DSN with the <b>primary's</b> Oracle
+  credentials. Every M3 read from that machine is recorded as TMOGHANAN, and when the
+  new password policy reaches that account <b>both laptops stop at the same time</b>.
+  The application account requested from IT Singapore replaces this.</p>
+</div>
+
+<div class="callout stop">
+  <span class="label">Do this first, in every PowerShell window</span>
+  <p><code>python</code> alone works on the SECOND laptop but hits the Microsoft Store
+  stub on the PRIMARY ("Python was not found"). Paste the line for the machine you are
+  on, then every command in this guide works unchanged:</p>
+  <pre>#  PRIMARY
+$PY = "C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
+
+#  SECOND
+$PY = "python"</pre>
+  <p>Check with <code>&amp; $PY --version</code> — it should print Python 3.12.x.</p>
+  <p><b>PowerShell scripts</b> must be launched as
+  <code>powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...</code>; typing
+  <code>.\scripts\name.ps1</code> is blocked by the execution policy. The
+  <code>.bat</code> files are not affected.</p>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">1</span>
+    <span class="step-title">Ship the current code</span>
+    <span class="where primary">Primary</span></div>
+
+  <pre>cd C:\Users\tmoghanan\Documents\AI\expressops-auto
+sync_now.bat
+
+robocopy "C:\Users\tmoghanan\Documents\AI\expressops-auto" "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" /MIR /XD .git logs outputs /XF config.yaml /NFL /NDL</pre>
+
+  <p><code>/XF config.yaml</code> keeps your JIRA token off the shared drive.</p>
+  <p class="done"><b>Expect:</b> robocopy ends with a summary table and <b>exit code 1</b>.
+  That means "files were copied" — it is success. Only 8 or above is a failure.</p>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">2</span>
+    <span class="step-title">Rewrite the config</span>
+    <span class="where second">Second</span></div>
+
+  <p>His config was written before the shared-locking work, so it is missing four
+  things. The installer leaves an existing config alone, so it must be told to replace it
+  with <code>-Force</code>.</p>
+
+  <pre>powershell -ExecutionPolicy Bypass -File "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto\scripts\install_second_laptop.ps1" -FromPath "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" -FleetWide -Force</pre>
+
+  <table>
+    <tr><th style="width:38%">It asks for</th><th>Answer</th></tr>
+    <tr><td>JIRA PAT</td><td><b>His own</b> — JIRA → Profile → Personal Access Tokens</td></tr>
+    <tr><td>Webex space link</td><td>Webex → the space → Copy space link</td></tr>
+    <tr><td>Confluence PAT</td><td><b>His own</b> — Confluence → Profile → Personal Access Tokens</td></tr>
+    <tr><td>M3/ODS Oracle username</td><td><b>LEAVE BLANK</b> — press Enter</td></tr>
+  </table>
+
+  <div class="callout stop">
+    <span class="label">Leave the M3 username blank</span>
+    <p>Blank means "use the DSN's own credentials", which is exactly what IT configured
+    yesterday. Typing anything here overrides a working setup and breaks M3 again.</p>
+  </div>
+
+  <p><b>Then verify:</b></p>
+  <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
+.\check_access.bat</pre>
+
+  <p class="done"><b>Expect:</b> three sections that were missing before —
+  <b>4b Confluence</b>, <b>4c EDM</b>, <b>5b shared run locks</b>.</p>
+
+  <div class="callout stop">
+    <span class="label">Stop if</span>
+    <p>Section 5b says <code>shared_dir</code> is EMPTY. Everything after this depends on
+    it. Re-run the installer and make sure <code>-Force</code> is included.</p>
+  </div>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">3</span>
+    <span class="step-title">Turn on active/active</span>
+    <span class="where primary">Primary</span></div>
+
+  <p>Open <code>config\config.yaml</code> in Notepad and add these two lines at the top
+  level (single quotes, so the backslashes stay as they are):</p>
+
+  <pre>shared_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering'
+run_lock_ttl_minutes: 20</pre>
+
+  <p>Then move the costing baseline onto the share, so both machines honour one baseline:</p>
+
+  <pre>copy outputs\costing_hs_code_trigger_baseline.json "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\"</pre>
+
+  <pre>.\check_access.bat</pre>
+  <p class="done"><b>Expect:</b> section 5b shows the shared folder reachable.
+  "Locks held now: none" is correct when nothing is running.</p>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step page-break">
+  <div class="step-head"><span class="num">4</span>
+    <span class="step-title">MO ref tracking</span>
+    <span class="where second">Second</span></div>
+
+  <p>Step 2 already registered this one. Confirm it behaves before trusting it.</p>
+
+  <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
+&amp; $PY -m tasks.mo_ref_order_monitor.main --live --dry-run</pre>
+
+  <div class="callout stop">
+    <span class="label">The check that matters</span>
+    <p>The summary must say <b>published=0</b>. Every MO is already published from the
+    primary, so doing nothing proves this machine is reading the shared history.
+    <b>If it wants to publish a full set of tables, stop</b> — the state paths do not
+    match and the two laptops would overwrite each other's JIRA tables.</p>
+  </div>
+
+  <pre>powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly</pre>
+  <p class="done"><b>Expect:</b> 09:15 · runs on battery: yes · catches up missed slots: yes.</p>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">5</span>
+    <span class="step-title">KPI overlay</span>
+    <span class="where both">Both</span></div>
+
+  <p>Three KPI jobs exist and <b>two of them do the same work</b>:</p>
+
+  <table>
+    <tr><th style="width:32%">Scheduled task</th><th style="width:24%">Runs from</th><th>What it is</th></tr>
+    <tr><td>LiveKPI_Daily · 09:28</td><td>AI\LiveKPI_Overlay\</td><td>the original daily overlay</td></tr>
+    <tr><td>ExpressOps KPI Overlay · 09:30</td><td>expressops-auto\</td><td>the same job, migrated, plus Trutnov</td></tr>
+    <tr><td>ExpressOPS KPI Weekly · Mon 10:00</td><td>AI\ExpressOPS_KPI\</td><td><b>retired</b> — Tableau replaces it</td></tr>
+  </table>
+
+  <h3>5a · Decide which one wins <span class="where primary">Primary</span></h3>
+  <pre>cd C:\Users\tmoghanan\Documents\AI\expressops-auto
+&amp; $PY -m tasks.kpi_overlay.main --live --dry-run</pre>
+  <p>Read-only — it computes everything and uploads nothing. If the container and pill
+  counts match what the board shows today, the migrated version is a faithful replacement:</p>
+
+  <pre>Enable-ScheduledTask  -TaskName "ExpressOps KPI Overlay"
+Disable-ScheduledTask -TaskName LiveKPI_Daily
+Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"</pre>
+
+  <div class="callout stop">
+    <span class="label">One overlay only</span>
+    <p>Never leave both enabled. They publish the <b>same</b> Confluence attachment, so
+    whichever finishes last wins and the other's work is thrown away.</p>
+  </div>
+
+  <h3>5b · Second laptop <span class="where second">Second</span></h3>
+  <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
+&amp; $PY -m tasks.kpi_overlay.main --live --dry-run
+
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"</pre>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">6</span>
+    <span class="step-title">MR status report</span>
+    <span class="where second">Second</span></div>
+
+  <p>EDM needs a setup step, not an access request. His account can already see EDM
+  through single sign-on, but the Oracle logon trigger rejects connections by
+  <i>program name</i> — so Python has to run as <code>EDMAdmin.exe</code>.</p>
+
+  <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
+.\setup_edmadmin.bat</pre>
+
+  <p>Safe to run more than once. It creates EDMAdmin.exe inside the Python folder,
+  writes the path into config.yaml, and tests it with a known document pair.</p>
+
+  <pre>&amp; $PY -m tasks.mr_status_report.main --live --dry-run
+
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"</pre>
+
+  <p class="done"><b>Note:</b> the dry run builds the page without publishing. If EDM is
+  not working, the PE/TE release colouring comes out blank — that degrades the report
+  rather than breaking it, so it is worth fixing but does not block the schedule.</p>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step">
+  <div class="step-head"><span class="num">7</span>
+    <span class="step-title">Costing / HS Code trigger</span>
+    <span class="where second">Second</span></div>
+
+  <p><b>This task posts comments into JIRA.</b> Check the baseline before scheduling it.</p>
+
+  <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
+&amp; $PY -m tasks.costing_hs_code_trigger.main --live --dry-run</pre>
+
+  <div class="callout stop">
+    <span class="label">Read the "baseline file:" line in the output</span>
+    <p>It must point at the <b>Y: drive</b>. If it points anywhere under
+    <code>outputs\</code>, then <code>shared_dir</code> is not set — go back to Step 2.
+    Running it in that state would post costing comments on <b>every container in the
+    existing backlog</b>, tagging real people.</p>
+  </div>
+
+  <p>With the shared baseline in place there is nothing to seed — it reads the one the
+  primary seeded months ago.</p>
+
+  <pre>powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"</pre>
+</div>
+
+<!-- ─────────────────────────────── -->
+<div class="step page-break">
+  <div class="step-head"><span class="num">8</span>
+    <span class="step-title">Final check</span>
+    <span class="where both">Both</span></div>
+
+  <table>
+    <tr><th style="width:34%">Task</th><th style="width:33%">Primary</th><th style="width:33%">Second</th></tr>
+    <tr><td>MO_RefOrder_Monitor</td><td>08:00, every 30 min</td><td>09:15, every 30 min</td></tr>
+    <tr><td>CostingHSCode</td><td>09:45 · 13:00 · 16:15</td><td>10:00 · 13:15 · 16:30</td></tr>
+    <tr><td>MR_Status_Report</td><td>10:00</td><td>10:15</td></tr>
+    <tr><td>KPI overlay</td><td>09:30</td><td>09:45</td></tr>
+  </table>
+
+  <p>Run on both machines:</p>
+  <pre>Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } |
+  ForEach-Object { "{0,-28} {1}" -f $_.TaskName, $_.State }</pre>
+
+  <p class="done"><b>Expect:</b> every task listed as <b>Ready</b>. Nothing needs disabling
+  on either machine — that is the point of the arrangement.</p>
+</div>
+
+<h2>Why both machines can run the same task</h2>
+<ul>
+  <li><b>A run lock.</b> Before writing anything, each task creates a lock file in the
+  shared folder. One machine wins; the other writes "the other laptop is covering it"
+  in its log and stops. A lock left behind by a laptop that was closed mid-run is taken
+  over after 20 minutes, so nothing can jam permanently.</li>
+  <li><b>Shared state.</b> The MO monitor's history and alert queue, and the costing
+  baseline, all live on the Y: drive rather than on either laptop.</li>
+  <li><b>JIRA as the shared record.</b> The costing task recognises its own hidden
+  footers in the comments, which both machines can see.</li>
+  <li><b>If the Y: drive is unreachable</b>, tasks run anyway and say so in the log.
+  A missed report is worse than a rare duplicate, and a machine that cannot see the
+  share cannot coordinate with the other one in any case.</li>
+</ul>
+
+<h2>Daily check while covering</h2>
+<pre>Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } |
+  ForEach-Object { $i = Get-ScheduledTaskInfo $_.TaskName
+    "{0,-24} last={1} result={2}" -f $_.TaskName, $i.LastRunTime, $i.LastTaskResult }</pre>
+
+<p><code>result=0</code> means success. Logs are in the <code>logs\</code> folder.</p>
+
+<p>For the MO monitor, <code>attempt 1: MATCH</code> in
+<code>mo_ref_order_monitor_run.log</code> means Webex delivery is healthy. Repeated
+<code>attempt 2</code> or <code>attempt 3</code> means that laptop is slow to switch
+Webex spaces — raise <code>open_delay_seconds</code> in its config.yaml from 6 to 10.</p>
+
+<div class="callout ok">
+  <span class="label">If anything ever looks wrong</span>
+  <p><b>JIRA is the source of truth</b>, not Webex. If an alert seems to be missing,
+  check the Work Container before assuming the MO has not moved.</p>
+</div>
+
+<p class="footer-note">Source: <code>docs/TWO_LAPTOP_OPERATION.md</code> in the
+expressops-auto repository. If the steps and the repository ever disagree, the
+repository is newer.</p>
+
+</body>
+</html>

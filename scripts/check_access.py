@@ -62,6 +62,23 @@ def redact(v) -> str:
     return f"SET ({len(s)} chars)" if s.strip() else "EMPTY"
 
 
+def _dsn_userid(dsn: str) -> str:
+    """The DSN's stored UserID, or "" — WITHOUT printing any password."""
+    if os.name != "nt":
+        return ""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-OdbcDsn -Name '{dsn}').Attribute['UserID']"],
+            capture_output=True, timeout=60, check=False)
+        val = (out.stdout or b"").decode("utf-8", "replace").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+    # The Oracle driver stores "user/password" in this one field, so never echo
+    # it whole — the account name is the diagnostic, the password is not.
+    return val.split("/", 1)[0].strip() + (" (+password)" if "/" in val else "") if val else ""
+
+
 def main() -> int:  # noqa: C901 — a flat list of checks reads better than nesting
     print(f"expressops access check — {datetime.now():%Y-%m-%d %H:%M:%S}")
     print(f"machine : {socket.gethostname()}")
@@ -86,6 +103,9 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
         print(f"       jira.base_url : {cfg.jira_base_url}")
         print(f"       jira.pat      : {redact(cfg.jira_pat)}")
         print(f"       m3.dsn        : {cfg.m3_dsn}   schema: {cfg.m3_schema}")
+        m3user = str(cfg.get("m3.user", "") or "").strip()
+        print("       m3.user       : " +
+              (m3user or "EMPTY (using the DSN's own credentials)"))
     except Exception as exc:  # noqa: BLE001
         check("config/config.yaml loads", False, str(exc)[:150])
         print("\n  Cannot continue without config. Run the installer first.")
@@ -159,6 +179,17 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
                 hint = "invalid username/password"
             elif "IM002" in msg:
                 hint = "DSN not defined on this machine"
+            if "28000" in msg or "ORA-01017" in msg.upper():
+                # Seen for real: an identical DSN on two machines, one with
+                # "user/password" in UserID and one with it blank. Identical
+                # Oracle privileges, and only the second fails.
+                dsn_user = _dsn_userid(cfg.m3_dsn)
+                print(f"       DSN UserID    : {dsn_user or 'EMPTY'}")
+                if not dsn_user and not str(cfg.get("m3.user", "") or "").strip():
+                    print("       -> NO credentials anywhere: the DSN stores none and "
+                          "config.yaml sets none.")
+                    print("          Fix WITHOUT IT: put your own Oracle account in "
+                          "config.yaml as m3.user / m3.password.")
             check(f"connect DSN={cfg.m3_dsn}", False, (hint or msg[:150]),
                   it_ask=f"grant this Windows account read access to M3/ODS via "
                          f"ODBC DSN '{cfg.m3_dsn}' (Oracle). It authenticates but "

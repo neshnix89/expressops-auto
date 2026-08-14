@@ -24,6 +24,16 @@ m3:
   dsn: "ODSSG"
   schema: "PFODS"
   # Note: No timeout parameter supported for this DSN
+  #
+  # Oracle credentials. Leave BLANK to use whatever the DSN itself stores.
+  # Set them here when the DSN has no credentials (a fresh machine shows an
+  # empty UserID attribute and fails with ORA-01017) or when you would rather
+  # not have them in the registry: a System DSN keeps "user/password" in HKLM
+  # in cleartext, readable by anyone on the machine, and editing it needs admin
+  # rights. config.yaml is gitignored and user-scoped.
+  # Use each person's OWN Oracle account — never copy someone else's.
+  user: ""
+  password: ""
 
 # EDM Oracle
 edm:
