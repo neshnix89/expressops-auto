@@ -232,6 +232,28 @@ repo root / scripts/
 - Logs: `logs\mo_ref_order_monitor_run.log` (appended) and
   `logs\mo_ref_order_monitor.log` (**overwritten each run** — last run only).
 
+## KNOWN EXPIRY RISK — M3 credentials (raised 13-Aug-2026)
+
+IT (Mannheim global password policy) is **removing stored Oracle credentials
+from ODBC DSNs**. A newly-built laptop already has `ODSSG` with a blank
+`UserID` — by design, not a misconfiguration — and the same will be applied to
+the existing primary laptop.
+
+**When it reaches `TMOGHANAN`, every M3-dependent task stops** with
+ORA-01017 until a replacement authentication method is in place. That is the
+one dependency here with an externally-imposed deadline nobody on this side
+controls. Track the date.
+
+Replacement options, in order of preference:
+1. **OS / Windows authentication** — nothing stored, nothing to rotate. Already
+   proven here: `core/edm.py` connects to EDM Oracle with `externalauth=True`.
+2. **Oracle Wallet / external password store** — needs no code change either:
+   `M3Client` already connects as plain `DSN=ODSSG` with no username when
+   `m3.user` is blank, which is exactly what a wallet expects.
+3. **Application-supplied credentials** — `m3.user` / `m3.password` in
+   config.yaml (supported since 13-Aug). Works, but it is still a stored
+   credential and may not satisfy the policy's intent. Do not lead with it.
+
 ## Open items
 - [ ] **IT ticket I2607-2336** — Webex bot / Incoming Webhooks approval. Once
       granted, `transport: "webhook"` is a one-line change and removes the whole
