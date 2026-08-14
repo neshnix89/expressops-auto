@@ -57,6 +57,10 @@ CODE_MARKERS = [
     ("compose-box read-back", "tasks/mo_ref_order_monitor/send_webex_desktop.ps1",
      "compose box never held the message"),
     ("paste (no SendKeys escaping)", "tasks/mo_ref_order_monitor/webex.py", "RAW text"),
+    # 14-Aug: MO 7003944044 went AOI-IS -> PACK-IS and alerted nothing, because
+    # IS was a single on/off latch and it was already on. If this reads OLD, an
+    # issue moving between stages is still silent on this machine.
+    ("per-stage issue tracking", "tasks/mo_ref_order_monitor/logic.py", "issue_moved"),
 ]
 
 
