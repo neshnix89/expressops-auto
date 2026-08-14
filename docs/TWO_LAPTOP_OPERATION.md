@@ -37,6 +37,29 @@ this — see "Known expiry risk" in `tasks/mo_ref_order_monitor/TASK.md`.
 
 ---
 
+## Before any step — set `$PY` in the PowerShell window
+
+`python` on its own works on the SECOND laptop but hits the Microsoft Store
+stub on the PRIMARY ("Python was not found"). Paste the line for the machine
+you are on, once per window, and every command below works unchanged:
+
+```powershell
+# PRIMARY
+$PY = "C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
+
+# SECOND
+$PY = "python"
+```
+
+Check it: `& $PY --version` should print `Python 3.12.x`.
+
+PowerShell scripts must be launched as
+`powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...` — typing
+`.\scripts\name.ps1` directly is blocked by the execution policy. The `.bat`
+files are unaffected.
+
+---
+
 ## Step 1 — Ship the current code (PRIMARY)
 
 ```powershell
@@ -114,17 +137,13 @@ correct when nothing is running.
 
 ---
 
-> **PowerShell scripts must be launched with `powershell -ExecutionPolicy
-> Bypass -File ...`.** Typing `.\scripts\whatever.ps1` directly is blocked by
-> the machine's execution policy. The `.bat` files are unaffected.
-
 ## Step 4 — MO ref tracking (SECOND)
 
 Already scheduled by Step 2. Confirm it behaves:
 
 ```powershell
 cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.mo_ref_order_monitor.main --live --dry-run
+& $PY -m tasks.mo_ref_order_monitor.main --live --dry-run
 ```
 
 **Expect `published=0`.** Every MO is already published from the primary, so a
@@ -153,7 +172,7 @@ Three KPI jobs exist and two of them do the same work:
 
 ```powershell
 cd C:\Users\tmoghanan\Documents\AI\expressops-auto
-python -m tasks.kpi_overlay.main --live --dry-run
+& $PY -m tasks.kpi_overlay.main --live --dry-run
 ```
 
 Read-only — computes everything, uploads nothing. If the container and pill
@@ -172,7 +191,7 @@ One overlay only — never both. They publish the same Confluence attachment.
 
 ```powershell
 cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.kpi_overlay.main --live --dry-run
+& $PY -m tasks.kpi_overlay.main --live --dry-run
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"
 ```
 
@@ -197,7 +216,7 @@ must sit beside `python3xx.dll`), writes the path into config.yaml, and verifies
 with a known PT→PRSG pair.
 
 ```powershell
-python -m tasks.mr_status_report.main --live --dry-run
+& $PY -m tasks.mr_status_report.main --live --dry-run
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"
 ```
 
@@ -213,7 +232,7 @@ This one POSTS JIRA COMMENTS. Read the baseline note before scheduling it.
 
 ```powershell
 cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.costing_hs_code_trigger.main --live --dry-run
+& $PY -m tasks.costing_hs_code_trigger.main --live --dry-run
 ```
 
 Check the log line `baseline file: ...`. It MUST point at the Y: drive. If it

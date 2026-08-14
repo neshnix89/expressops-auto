@@ -124,6 +124,23 @@ Prepared 14 Aug 2026 · follow the steps in order</p>
   The application account requested from IT Singapore replaces this.</p>
 </div>
 
+<div class="callout stop">
+  <span class="label">Do this first, in every PowerShell window</span>
+  <p><code>python</code> alone works on the SECOND laptop but hits the Microsoft Store
+  stub on the PRIMARY ("Python was not found"). Paste the line for the machine you are
+  on, then every command in this guide works unchanged:</p>
+  <pre>#  PRIMARY
+$PY = "C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
+
+#  SECOND
+$PY = "python"</pre>
+  <p>Check with <code>&amp; $PY --version</code> — it should print Python 3.12.x.</p>
+  <p><b>PowerShell scripts</b> must be launched as
+  <code>powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...</code>; typing
+  <code>.\scripts\name.ps1</code> is blocked by the execution policy. The
+  <code>.bat</code> files are not affected.</p>
+</div>
+
 <!-- ─────────────────────────────── -->
 <div class="step">
   <div class="step-head"><span class="num">1</span>
@@ -201,14 +218,6 @@ run_lock_ttl_minutes: 20</pre>
   "Locks held now: none" is correct when nothing is running.</p>
 </div>
 
-<div class="callout stop">
-  <span class="label">Running PowerShell scripts</span>
-  <p>Always launch them as
-  <code>powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...</code>.
-  Typing <code>.\scripts\name.ps1</code> on its own is blocked by the machine's
-  execution policy. The <code>.bat</code> files are not affected.</p>
-</div>
-
 <!-- ─────────────────────────────── -->
 <div class="step page-break">
   <div class="step-head"><span class="num">4</span>
@@ -218,7 +227,7 @@ run_lock_ttl_minutes: 20</pre>
   <p>Step 2 already registered this one. Confirm it behaves before trusting it.</p>
 
   <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.mo_ref_order_monitor.main --live --dry-run</pre>
+&amp; $PY -m tasks.mo_ref_order_monitor.main --live --dry-run</pre>
 
   <div class="callout stop">
     <span class="label">The check that matters</span>
@@ -249,7 +258,7 @@ python -m tasks.mo_ref_order_monitor.main --live --dry-run</pre>
 
   <h3>5a · Decide which one wins <span class="where primary">Primary</span></h3>
   <pre>cd C:\Users\tmoghanan\Documents\AI\expressops-auto
-python -m tasks.kpi_overlay.main --live --dry-run</pre>
+&amp; $PY -m tasks.kpi_overlay.main --live --dry-run</pre>
   <p>Read-only — it computes everything and uploads nothing. If the container and pill
   counts match what the board shows today, the migrated version is a faithful replacement:</p>
 
@@ -265,7 +274,7 @@ Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"</pre>
 
   <h3>5b · Second laptop <span class="where second">Second</span></h3>
   <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.kpi_overlay.main --live --dry-run
+&amp; $PY -m tasks.kpi_overlay.main --live --dry-run
 
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"</pre>
 </div>
@@ -286,7 +295,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName 
   <p>Safe to run more than once. It creates EDMAdmin.exe inside the Python folder,
   writes the path into config.yaml, and tests it with a known document pair.</p>
 
-  <pre>python -m tasks.mr_status_report.main --live --dry-run
+  <pre>&amp; $PY -m tasks.mr_status_report.main --live --dry-run
 
 powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"</pre>
 
@@ -304,7 +313,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName 
   <p><b>This task posts comments into JIRA.</b> Check the baseline before scheduling it.</p>
 
   <pre>cd C:\Users\wneo\Documents\AI\expressops-auto
-python -m tasks.costing_hs_code_trigger.main --live --dry-run</pre>
+&amp; $PY -m tasks.costing_hs_code_trigger.main --live --dry-run</pre>
 
   <div class="callout stop">
     <span class="label">Read the "baseline file:" line in the output</span>
