@@ -36,6 +36,7 @@ TASK_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TASK_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from core import runlock
 from core.config_loader import load_config
 from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
@@ -58,7 +59,19 @@ MOCK_DIR = TASK_DIR / "mock_data"
 # automation was first switched on. They are skipped forever so the operator
 # never retroactively nags an existing backlog. Lives under the gitignored
 # outputs/ dir so it persists across `sync_now.bat` pulls (which keep outputs).
-BASELINE_PATH = PROJECT_ROOT / "outputs" / f"{TASK_NAME}_baseline.json"
+BASELINE_NAME = f"{TASK_NAME}_baseline.json"
+BASELINE_PATH = PROJECT_ROOT / "outputs" / BASELINE_NAME   # local default
+
+
+def _resolve_baseline(config) -> Path:
+    """
+    Baseline location. With `shared_dir` set, it lives on the shared drive so
+    BOTH laptops honour one go-live baseline. A machine with its own empty copy
+    would nag the entire pre-existing backlog on its first run — the baseline is
+    the one piece of state that cannot be recovered from JIRA.
+    """
+    shared = config.get("shared_dir", "") if config else ""
+    return (Path(shared) / BASELINE_NAME) if shared else BASELINE_PATH
 
 # Same scope the other SG SMT PCBA tasks use — a single source of truth for
 # "which containers are in play".
@@ -155,26 +168,28 @@ def resolve_container(
 # ── Orchestration ────────────────────────────────────────────────────
 
 
-def load_baseline(logger) -> set[str]:
+def load_baseline(logger, path: Path | None = None) -> set[str]:
     """Read the go-live baseline key set (empty when the file is absent)."""
-    if not BASELINE_PATH.exists():
+    path = path or BASELINE_PATH
+    if not path.exists():
         return set()
     try:
-        with open(BASELINE_PATH, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("could not read baseline %s: %s", BASELINE_PATH, exc)
+        logger.warning("could not read baseline %s: %s", path, exc)
         return set()
     keys = data.get("keys", []) if isinstance(data, dict) else data
     return {str(k) for k in keys if k}
 
 
-def save_baseline(keys: set[str], logger) -> None:
+def save_baseline(keys: set[str], logger, path: Path | None = None) -> None:
     """Persist the baseline key set to the gitignored outputs/ dir."""
-    BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(BASELINE_PATH, "w", encoding="utf-8") as f:
+    path = path or BASELINE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump({"keys": sorted(keys)}, f, indent=2)
-    logger.info("baseline saved: %d key(s) -> %s", len(keys), BASELINE_PATH)
+    logger.info("baseline saved: %d key(s) -> %s", len(keys), path)
 
 
 def _parse_today(value: str | None) -> date:
@@ -254,7 +269,9 @@ def run(
         _warn_blank_usernames(people, logger)
 
     # Normal runs honour the go-live baseline; seeding builds it.
-    baseline = set() if seed_baseline else load_baseline(logger)
+    baseline_path = _resolve_baseline(config)
+    logger.info("baseline file: %s", baseline_path)
+    baseline = set() if seed_baseline else load_baseline(logger, baseline_path)
     if not seed_baseline:
         logger.info("baseline: %d container(s) will be skipped", len(baseline))
 
@@ -268,8 +285,18 @@ def run(
 
     if seed_baseline:
         return _run_seed(
-            jira, keys, people, task_config, today, logger,
+            jira, keys, people, task_config, today, logger, baseline_path,
         )
+
+    # Both laptops schedule this so either can cover. The marker footers in JIRA
+    # already stop a container being triggered twice, but two machines posting in
+    # the same minute would both see "no marker yet" and both comment. The lock
+    # closes that window. An unreachable share logs and continues: a missed
+    # reminder is worse than a rare double.
+    if not (dry_run or config.is_mock):
+        if not runlock.acquire(TASK_NAME, config.get("shared_dir", ""), logger,
+                               ttl_minutes=float(config.get("run_lock_ttl_minutes", 20))):
+            return 0
 
     counts = {"trigger": 0, "remind": 0, "waiting": 0,
               "complete": 0, "not_ready": 0}
@@ -307,13 +334,18 @@ def _run_seed(
     task_config: dict[str, Any],
     today: date,
     logger,
+    baseline_path: Path | None = None,
 ) -> int:
     """
     Seed the go-live baseline: record every container that WOULD trigger right
     now (so it is never nagged) and post nothing. Unions with any existing
     baseline so re-running is safe. This is the one-time switch-on step.
+
+    With `shared_dir` configured this writes the SHARED baseline, so seeding on
+    one laptop switches both on — otherwise the second machine still believes
+    the whole backlog is new.
     """
-    existing = load_baseline(logger)
+    existing = load_baseline(logger, baseline_path)
     would_trigger: set[str] = set()
 
     for key in keys:
@@ -329,14 +361,14 @@ def _run_seed(
             would_trigger.add(key)
 
     merged = existing | would_trigger
-    save_baseline(merged, logger)
+    save_baseline(merged, logger, baseline_path)
 
     new_count = len(would_trigger - existing)
     print("=" * 78)
     print(f"Baseline seeded — {len(would_trigger)} container(s) currently ready "
           f"marked as backlog (skip forever).")
     print(f"  new this run: {new_count}   total in baseline: {len(merged)}")
-    print(f"  file: {BASELINE_PATH}")
+    print(f"  file: {baseline_path or BASELINE_PATH}")
     print("These containers will NOT be triggered. Only containers that become "
           "ready from now on will be.")
     return 0

@@ -1,7 +1,10 @@
-# Leave handover — running the automations from the second laptop
+# Two-laptop operation (active/active)
 
-Written for the week TM is away. Two machines exist; the safe arrangement is
-**one machine runs each task**, not both.
+**Both laptops run everything, all the time.** Either one covers when the other
+is off, asleep, on leave or broken — no handover step, nothing to remember
+before going away.
+
+This replaces the earlier one-machine-at-a-time rule.
 
 | | Primary | Second |
 |---|---|---|
@@ -10,21 +13,27 @@ Written for the week TM is away. Two machines exist; the safe arrangement is
 
 ---
 
-## Why not simply run both
+## How both can run safely
 
-Only `mo_ref_order_monitor` was built for two machines: its history and alert
-queue live on the shared Y: drive, so whichever laptop polls first sees what the
-other did.
+Set `shared_dir` to the SAME network folder in both `config.yaml` files. Then:
 
-**Every other task keeps its state locally.** Two machines running
-`costing_hs_code_trigger` means each has its own record of who has replied
-"Done", so both post their own comments — the same people tagged twice, and a
-reminder loop that never converges. `mr_status_report` and `kpi_overlay` both
-republish a shared Confluence target; two writers race, and the loser's update
-is silently overwritten.
+* **A run lock** — before writing, each task atomically creates
+  `<shared_dir>\locks\<task>.lock`. Exactly one machine wins; the other logs
+  "the other laptop is covering it" and exits cleanly. A lock older than
+  `run_lock_ttl_minutes` is treated as abandoned and taken over, so a laptop
+  closed mid-run cannot wedge the schedule.
+* **Shared state** — `mo_ref_order_monitor` already keeps its history and alert
+  queue there. The costing task's go-live baseline now lives there too, so
+  seeding on one laptop switches both on.
+* **JIRA as the shared record** — the costing task recognises its own
+  `#Ref: CostHS-Trigger#` footers in the comments, which every machine sees.
 
-Offsetting the times does not fix this. It only means the duplicate arrives
-fifteen minutes later.
+If the shared folder is unreachable, tasks run **unlocked** and say so in the
+log. That is deliberate: a missed report is worse than a rare double-write, and
+a machine that cannot see the share cannot coordinate anyway.
+
+Schedules stay offset by ~15 minutes regardless — the lock handles overlap, but
+not overlapping is cheaper than resolving it.
 
 ---
 
@@ -33,14 +42,14 @@ fifteen minutes later.
 Primary (existing), and the second laptop offset by +15 minutes so the two never
 run in the same minute:
 
-| Task | Primary | Second | Shared state? |
+| Task | Primary | Second | Both run? |
 |---|---|---|---|
-| `MO_RefOrder_Monitor` | 08:00, every 30 min | 09:15, every 30 min | **Yes — both may run** |
-| `CostingHSCode` | 09:45, 13:00, 16:15 | 10:00, 13:15, 16:30 | No — one only |
-| `MR_Status_Report` | 10:00 | 10:15 | No — one only |
-| `KPI_Overlay` (repo) | 09:30 | 09:45 | No — one only |
-| `LiveKPI_Daily` (legacy) | 09:28 | — not portable — | No — one only |
-| `ExpressOPS KPI Weekly` (legacy) | Mon 10:00 | — not portable — | No — one only |
+| `MO_RefOrder_Monitor` | 08:00, every 30 min | 09:15, every 30 min | Yes — shared state |
+| `CostingHSCode` | 09:45, 13:00, 16:15 | 10:00, 13:15, 16:30 | Yes — locked |
+| `MR_Status_Report` | 10:00 | 10:15 | Yes — locked |
+| `KPI_Overlay` (repo) | 09:30 | 09:45 | Yes — locked |
+| `LiveKPI_Daily` (legacy) | 09:28 | — not portable — | Retire once the repo version is verified |
+| `ExpressOPS KPI Weekly` (legacy) | Mon 10:00 | — | **Retired — Tableau replaces it** |
 
 ---
 
@@ -58,34 +67,37 @@ They cannot be installed on the second laptop from this repo.
 * **The daily overlay has a migrated replacement** — `tasks/kpi_overlay`, which
   also covers Trutnov. Verify it, then run the repo version and retire the
   legacy one.
-* **The weekly KPI pipeline has no replacement yet.** Either leave the primary
-  laptop powered on with that task enabled, or accept that it does not publish
-  that week. Decide deliberately — it is the one job with no handover path.
+* **The weekly KPI pipeline is retired** — Tableau covers it now. Disable
+  `ExpressOPS KPI Weekly` on the primary; nothing needs to replace it.
 
 ---
 
-## Before leaving — on the PRIMARY
+## One-time setup — on the PRIMARY
 
 ```powershell
 cd C:\Users\tmoghanan\Documents\AI\expressops-auto
 
-# 1. Verify the repo KPI overlay matches the legacy one BEFORE swapping.
+# 1. Turn on active/active: add to config.yaml (single quotes, literal backslashes)
+#    shared_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering'
+#    run_lock_ttl_minutes: 20
+
+# 2. Move the go-live baseline onto the share so BOTH machines honour it.
+copy outputs\costing_hs_code_trigger_baseline.json "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\"
+
+# 3. Verify the repo KPI overlay before retiring the legacy one
 #    (read-only: computes everything, uploads nothing)
 python -m tasks.kpi_overlay.main --live --dry-run
 
-# 2. Hand the write tasks over.
-Disable-ScheduledTask -TaskName CostingHSCode_BK_0945
-Disable-ScheduledTask -TaskName CostingHSCode_BK_1300
-Disable-ScheduledTask -TaskName CostingHSCode_BK_1615
-Disable-ScheduledTask -TaskName MR_Status_Report
+# 4. One overlay only — the repo version replaces the legacy one
+Enable-ScheduledTask  -TaskName "ExpressOps KPI Overlay"
 Disable-ScheduledTask -TaskName LiveKPI_Daily
-Disable-ScheduledTask -TaskName "ExpressOps KPI Overlay"
 
-# 3. The weekly has no replacement — disable ONLY if the machine stays off.
-# Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"
-
-# 4. Leave MO_RefOrder_Monitor ENABLED. It is shared-state safe.
+# 5. Retired: Tableau covers this now
+Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"
 ```
+
+**Nothing to disable before leave.** Both machines keep running; the lock
+decides who does the work each slot.
 
 Confirm nothing was missed:
 
@@ -137,12 +149,16 @@ refuses to schedule it, which is correct.
 
 ### First run of the costing task on a new machine
 
-Its state starts empty, so **seed the baseline before the first scheduled run**
-or it will comment on every container that is already ready:
+With `shared_dir` set, the machine reads the baseline the primary already
+seeded — nothing to do. **Without it**, its baseline starts empty and the first
+run comments on every container that is already ready, so seed it first:
 
 ```powershell
 python -m tasks.costing_hs_code_trigger.main --live --seed-baseline
 ```
+
+Confirm which file it is using — the run logs `baseline file: <path>`. A path
+under `outputs\` means this machine is NOT sharing the baseline.
 
 ---
 
@@ -164,26 +180,17 @@ the container before assuming the MO has not moved.
 
 ---
 
-## On return — reverse it
+## On return
 
-Re-enable on the primary, disable on the second, in that order. Leave a gap of
-one scheduled slot between the two so no task runs twice in the same window.
+Nothing. Both machines have been running the whole time.
+
+## Who did what
+
+Every task logs which machine took the lock. To see what is held right now:
 
 ```powershell
-# PRIMARY
-Enable-ScheduledTask -TaskName CostingHSCode_BK_0945
-Enable-ScheduledTask -TaskName CostingHSCode_BK_1300
-Enable-ScheduledTask -TaskName CostingHSCode_BK_1615
-Enable-ScheduledTask -TaskName MR_Status_Report
-Enable-ScheduledTask -TaskName LiveKPI_Daily          # or the repo KPI_Overlay, not both
-
-# SECOND
-.\scripts\setup_schedule.ps1 -TaskName CostingHSCode    -Disable
-.\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Disable
-.\scripts\setup_schedule.ps1 -TaskName KPI_Overlay      -Disable
+python -c "import sys;sys.path.insert(0,'.');from core.runlock import lock_status;from core.config_loader import load_config;print(chr(10).join(lock_status(load_config().get('shared_dir','')) or ['none held']))"
 ```
 
-The costing task's local state on the second laptop records what it posted while
-covering. The primary does not know about those comments — but the trigger and
-reminder markers are written into the JIRA comments themselves, so the primary
-reads them back and does not re-post. No reseeding needed on return.
+`check_access.bat` reports the same thing under section 5b, along with whether
+the shared folder is reachable at all.

@@ -247,6 +247,19 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
                       it_ask=f"grant WRITE access to {p} (and its parent) — the "
                              f"automation stores per-MO state and the alert queue there")
 
+    # ── 5b. Active/active locking ────────────────────────────────────
+    head("5b. SHARED RUN LOCKS (two laptops running the same tasks)")
+    shared = cfg.get("shared_dir", "")
+    if not str(shared).strip():
+        check("shared_dir configured", False,
+              "EMPTY — tasks run UNLOCKED; two machines could double-post")
+        print("       -> set shared_dir to the same network path on BOTH laptops")
+    elif check(f"reach {shared}", Path(shared).exists(),
+               it_ask=f"map the network drive holding {shared}"):
+        from core.runlock import lock_status
+        held = lock_status(shared)
+        print("       locks held now: " + (", ".join(held) if held else "none"))
+
     # ── 6. Webex desktop ─────────────────────────────────────────────
     head("6. WEBEX (desktop transport)")
     link = cfg.get("mo_ref_order_monitor.webex.space_link", "")

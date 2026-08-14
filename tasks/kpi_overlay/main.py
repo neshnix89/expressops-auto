@@ -32,6 +32,7 @@ TASK_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TASK_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from core import runlock
 from core.config_loader import load_config
 from core.confluence import ConfluenceClient
 from core.errors import FriendlyError, handle_friendly
@@ -121,6 +122,16 @@ def run(mode: str, dry_run: bool = False, verbose: bool = False) -> int:
     logger.info("KPI overlay pipeline starting (%s mode)", config.mode)
     today = date.today()
     logger.info("  Date: %s", today)
+
+    # Both laptops run this so either can cover. The overlay is a full
+    # recompute-and-replace, so a double run is not wrong — but two machines
+    # uploading the same attachment in the same minute is a race with no winner
+    # worth having, and the loser's upload can land second with stale data.
+    if not (dry_run or config.is_mock):
+        if not runlock.acquire(TASK_NAME, config.get("shared_dir", ""), logger,
+                               ttl_minutes=float(config.get("run_lock_ttl_minutes", 20))):
+            logger.info("the other laptop is publishing the overlay now — skipping")
+            return 0
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
 

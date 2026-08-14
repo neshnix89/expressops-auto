@@ -53,6 +53,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
+from core import runlock
 from core.config_loader import load_config  # noqa: E402
 from tasks.mr_status_report.handover import (  # noqa: E402
     fetch_handover_states, handover_status,
@@ -1214,6 +1215,18 @@ def run(dry_run=False, allow_no_edm=False, recover_ticks=False, allow_stale_page
     log.info("  NEW RUN: Pilot Run & DMR - MR Tracking Report" + ("  [DRY-RUN]" if dry_run else ""))
     log.info(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log.info("=" * 70)
+
+    # Both laptops run this so either can cover. This is a read-modify-write
+    # against one Confluence page — it reads the manual columns (MR Status,
+    # Remarks, close ticks) and republishes them. Two machines interleaving
+    # those steps means one machine's read predates the other's write, and a
+    # manual edit made in between is silently discarded.
+    if not dry_run:
+        if not runlock.acquire("mr_status_report", CFG.get("shared_dir", "") if CFG else "",
+                               log, ttl_minutes=float(
+                                   (CFG.get("run_lock_ttl_minutes", 25) if CFG else 25))):
+            log.info("the other laptop is publishing the MR report now — skipping")
+            return
 
     # 1. Read Confluence (source of truth for manual fields + completed history)
     log.info("Reading Confluence page...")

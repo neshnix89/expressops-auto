@@ -126,6 +126,21 @@ anthropic:
   api_key: "YOUR_ANTHROPIC_API_KEY"
   model: "claude-sonnet-4-20250514"
 
+# ACTIVE/ACTIVE — two laptops running the same automations
+# Point BOTH machines at the same network folder and each task takes a lock
+# there before it writes. Either laptop then covers when the other is off,
+# asleep or broken, without two machines posting the same JIRA comment or
+# racing the same Confluence page.
+#   * blank  -> no locking (single-machine setup)
+#   * unreachable at run time -> the task logs a warning and runs anyway, because
+#     a missed report is worse than a rare double-write
+# The costing task's go-live baseline is also stored here, so seeding on one
+# laptop switches both on. Use single quotes so backslashes stay literal.
+shared_dir: ''
+# Above the worst-case runtime of the slowest task, not the average: a lock this
+# old is treated as abandoned and taken over.
+run_lock_ttl_minutes: 20
+
 # Logging
 logging:
   level: "INFO"
