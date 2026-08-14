@@ -123,15 +123,46 @@ def odbc_error(exc: Exception, dsn: str) -> FriendlyError:
             f"ODBC DSN '{dsn}' not found on this machine",
             "open Windows 'ODBC Data Sources (64-bit)' and confirm the DSN exists",
         )
+    # Seen when a client program is blocked from reaching the listener at all —
+    # observed from PowerShell/.NET on a machine where Python connects fine, so
+    # it points at program-level filtering, not at the account.
+    if "ORA-12546" in upper or "TNS:PERMISSION DENIED" in upper:
+        return FriendlyError(
+            f"blocked before login reaching M3 via DSN '{dsn}' (ORA-12546)",
+            "this is network/program-level, not the Oracle account — the same "
+            "DSN may work from a different program on the same machine",
+        )
     if "08001" in upper or "SERVER IS NOT" in upper or "COULD NOT OPEN" in upper:
         return FriendlyError(
             f"cannot reach M3 via DSN '{dsn}'",
             "check VPN/network; M3 ODBC uses Windows integrated auth",
         )
-    if "28000" in upper or "LOGIN FAILED" in upper:
+    # A password that EXPIRES is the likeliest way this breaks months from now,
+    # long after anyone remembers how it was set up. Name it precisely.
+    if "ORA-28001" in upper or "PASSWORD HAS EXPIRED" in upper:
         return FriendlyError(
-            f"M3 login failed via DSN '{dsn}'",
-            "confirm your Windows account has M3 read access",
+            f"the M3/ODS Oracle password has EXPIRED (DSN '{dsn}')",
+            "reset it with IT, then update m3.password in config.yaml "
+            "(or the DSN's UserID if the credentials live there)",
+        )
+    if "ORA-28002" in upper or "GRACE PERIOD" in upper:
+        return FriendlyError(
+            f"the M3/ODS Oracle password expires SOON (DSN '{dsn}') — still working",
+            "reset it before it lapses, then update m3.password in config.yaml",
+        )
+    if "ORA-28000" in upper or "ACCOUNT IS LOCKED" in upper:
+        return FriendlyError(
+            f"the M3/ODS Oracle account is LOCKED (DSN '{dsn}')",
+            "ask IT to unlock it — repeated wrong passwords lock the account",
+        )
+    if "ORA-01017" in upper or "28000" in upper or "LOGIN FAILED" in upper:
+        # NOT a privileges problem: this is authentication. Insufficient rights
+        # would surface as ORA-00942/ORA-01031 AFTER a successful login. Saying
+        # so here saved a round-trip with IT once already.
+        return FriendlyError(
+            f"M3 login rejected via DSN '{dsn}' — wrong or missing credentials",
+            "this is authentication, not privileges. Check the DSN's UserID "
+            "attribute, or set m3.user / m3.password in config.yaml",
         )
     return FriendlyError(f"M3 ODBC error: {type(exc).__name__}: {exc}")
 
