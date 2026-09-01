@@ -53,6 +53,29 @@ def flatten(text: str) -> str:
     return "  |  ".join(parts)
 
 
+def age_prefix(queued_at: str | None, now: datetime | None = None,
+               threshold_hours: float = 2.0) -> str:
+    """
+    "(delayed 62h) " for an alert that waited, "" for a prompt one.
+
+    A late alert is still useful — an issue raised on Friday evening matters on
+    Monday — but it must not read as breaking news. The reader needs to know
+    they are seeing history.
+    """
+    if not queued_at:
+        return ""
+    try:
+        waited = ((now or datetime.now()) - datetime.fromisoformat(queued_at))
+    except ValueError:
+        return ""
+    hours = waited.total_seconds() / 3600
+    if hours < threshold_hours:
+        return ""
+    if hours < 24:
+        return f"(delayed {hours:.0f}h) "
+    return f"(delayed {hours / 24:.0f}d) "
+
+
 def combine_alerts(texts: list[str], title: str = "ExpressOPS MO Monitor") -> str:
     """
     Fold several queued alerts into ONE multi-line message.
@@ -136,8 +159,12 @@ class WebexNotifier:
         if not q:
             return (0, 0)
 
-        # Drop stale alerts. An issue notification surfacing a day late (laptop
-        # left locked over a weekend) is noise, not information.
+        # Drop only ANCIENT alerts. The desktop transport cannot type into a
+        # locked screen, so anything raised after hours waits for the next
+        # unlock — over a weekend that is 60+ hours. A 12h cutoff destroyed two
+        # real alerts (28-Aug 16:56 and 31-Aug 18:31) before anyone could have
+        # seen them. Late is worse than prompt, but far better than never: a
+        # delayed alert is delivered with its age attached (see _age_prefix).
         if self.max_age_hours:
             cutoff = datetime.now() - timedelta(hours=self.max_age_hours)
             fresh = []
@@ -158,13 +185,15 @@ class WebexNotifier:
             # One visit to the space for the whole batch: re-opening the deep
             # link per message re-renders the compose box, and text typed into
             # a mid-render box is silently lost (observed: 3 "sent", 1 arrived).
-            sent = self._send_desktop_many([i.get("text", "") for i in q])
+            sent = self._send_desktop_many(
+                [age_prefix(i.get("queued_at")) + i.get("text", "") for i in q])
             remaining = q[sent:]
         else:
             remaining = []
             sent = 0
             for item in q:
-                if self.send_one(item.get("marker", ""), item.get("text", "")):
+                body = age_prefix(item.get("queued_at")) + item.get("text", "")
+                if self.send_one(item.get("marker", ""), body):
                     sent += 1
                 else:
                     remaining.append(item)
@@ -196,6 +225,9 @@ class WebexNotifier:
         7: ("the clipboard is not usable from this session — nothing sent. "
             "Another app may be holding it, or the task is running without a "
             "desktop (uncheck 'Run whether user is logged on or not')."),
+        8: ("the workstation is LOCKED — nothing sent, alert stays queued and "
+            "goes out at the first run after unlock. Expected out of hours; "
+            "only the webhook/bot transport can post to a locked machine."),
     }
 
     def _send_desktop(self, text: str) -> bool:

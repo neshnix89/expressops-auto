@@ -164,14 +164,23 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    that used to clip the opening characters of a typed message; the primer was
    dropped by accident in the switch to pasting and had to be restored.
    Verified working 13-Aug 15:12 — first attempt, no retries.
-8. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
+9. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
    every `exit <code>` after one is dead code and PowerShell returns 1. Exit
    codes must be written to stderr by hand or the caller cannot tell a refusal
    from a crash — and Python retried the refusal, having been told it was
    transient.
-6. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
+6. **A locked screen cannot be typed into, and out-of-hours alerts wait.**
+   The desktop transport needs an unlocked session. An alert raised at 18:31 or
+   on a Friday sits queued until someone unlocks — 60+ hours over a weekend.
+   The original 12h `max_age_hours` therefore DESTROYED two real alerts
+   (28-Aug 16:56, 31-Aug 18:31) before anybody could have seen them. Now: 72h
+   default, a lock is detected up front (exit 8, no misleading "focus held by
+   ''"), and a late alert is delivered prefixed `(delayed 14h)` so it reads as
+   history rather than news. Only the webhook/bot transport can post to a
+   locked machine — one more reason to chase I2607-2336.
+7. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
    `|` splits the row. `VHRORN` is free text, so every cell is sanitised.
-7. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
+8. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
    emoji and `( ) % [ ]`, and Shift+Enter for internal line breaks. The payload
    is now RAW text — do not re-introduce escaping, or the braces get pasted
    verbatim.

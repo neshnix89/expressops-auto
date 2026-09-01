@@ -325,7 +325,7 @@ mo_ref_order_monitor:
     open_delay_seconds: 6
     type_delay_seconds: 2
     queue_file: '$queueFile'
-    max_age_hours: 12
+    max_age_hours: 72
 "@
     New-Item -ItemType Directory -Force -Path (Split-Path $cfgPath) | Out-Null
     Set-Content -Path $cfgPath -Value $cfg -Encoding UTF8
