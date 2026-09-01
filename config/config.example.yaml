@@ -24,6 +24,16 @@ m3:
   dsn: "ODSSG"
   schema: "PFODS"
   # Note: No timeout parameter supported for this DSN
+  #
+  # Oracle credentials. Leave BLANK to use whatever the DSN itself stores.
+  # Set them here when the DSN has no credentials (a fresh machine shows an
+  # empty UserID attribute and fails with ORA-01017) or when you would rather
+  # not have them in the registry: a System DSN keeps "user/password" in HKLM
+  # in cleartext, readable by anyone on the machine, and editing it needs admin
+  # rights. config.yaml is gitignored and user-scoped.
+  # Use each person's OWN Oracle account — never copy someone else's.
+  user: ""
+  password: ""
 
 # EDM Oracle
 edm:
@@ -105,7 +115,11 @@ mo_ref_order_monitor:
     # this machine — raise open_delay_seconds.
     # Undelivered alerts (laptop locked, Webex closed) are retried next run.
     queue_file: "outputs/mo_ref_order_monitor_webex_queue.json"
-    max_age_hours: 12                      # drop queued alerts older than this (stale = noise)
+    # Drop queued alerts older than this. The desktop transport cannot type
+    # into a locked screen, so an alert raised after hours waits for the next
+    # unlock — 60+ hours over a weekend. 12h destroyed two real alerts before
+    # anyone could see them. Late alerts are delivered marked '(delayed 14h)'.
+    max_age_hours: 72
     # Several pending alerts are posted as ONE multi-line message. Fewer Enter
     # presses = fewer chances for the desktop transport to misfire, and the
     # group sees one grouped notification.

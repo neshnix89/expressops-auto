@@ -28,6 +28,7 @@ Exit codes:
     4  bad arguments
     6  compose box never held the message after 3 paste attempts (nothing sent)
     7  the clipboard is not usable from this session (nothing sent)
+    8  the workstation is locked (nothing sent; expected out of hours)
 
 Usage:
     powershell -NoProfile -ExecutionPolicy Bypass -File send_webex_desktop.ps1 `
@@ -169,6 +170,15 @@ function Get-WebexChatWindow {
                     @{ Expression = { $_.Area }; Descending = $true }
     if (-not $ranked) { return $null }
     return @($ranked)[0]
+}
+
+# 0) A LOCKED workstation cannot be typed into at all. Detect it up front and
+#    say so, rather than opening the space, failing the focus check, and
+#    reporting "focus held by ''" — which reads like a bug instead of a laptop
+#    sitting locked at 18:31. LogonUI.exe is present exactly while the lock or
+#    sign-in screen is up.
+if (Get-Process LogonUI -ErrorAction SilentlyContinue) {
+    Fail "workstation is LOCKED - nothing sent; the alert stays queued for the first run after unlock" 8
 }
 
 # 1) Ask the OS to open the space in the Webex app.

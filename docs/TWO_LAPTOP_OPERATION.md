@@ -1,105 +1,263 @@
-# Two-laptop operation (active/active)
+# Two-laptop operation — step-by-step setup
 
 **Both laptops run everything, all the time.** Either one covers when the other
-is off, asleep, on leave or broken — no handover step, nothing to remember
-before going away.
+is off, asleep, on leave or broken. There is no handover step and nothing to
+remember before going away.
 
-This replaces the earlier one-machine-at-a-time rule.
+Work through this in order. Each step says what to run, what you should see,
+and when to stop.
 
 | | Primary | Second |
 |---|---|---|
 | Windows account | `TMOGHANAN` | `WNEO` |
+| PC# | | `2201SGN733` |
 | Install path | `C:\Users\tmoghanan\Documents\AI\expressops-auto` | `C:\Users\wneo\Documents\AI\expressops-auto` |
+| Python | `C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe` | `C:\tools\python3\python.exe` (on PATH as `python`) |
 
 ---
 
-## How both can run safely
+## Where things stand (14-Aug-2026)
 
-Set `shared_dir` to the SAME network folder in both `config.yaml` files. Then:
+Verified on the second laptop by `check_access.bat` — 17 of 17 passed:
 
-* **A run lock** — before writing, each task atomically creates
-  `<shared_dir>\locks\<task>.lock`. Exactly one machine wins; the other logs
-  "the other laptop is covering it" and exits cleanly. A lock older than
-  `run_lock_ttl_minutes` is treated as abandoned and taken over, so a laptop
-  closed mid-run cannot wedge the schedule.
-* **Shared state** — `mo_ref_order_monitor` already keeps its history and alert
-  queue there. The costing task's go-live baseline now lives there too, so
-  seeding on one laptop switches both on.
-* **JIRA as the shared record** — the costing task recognises its own
-  `#Ref: CostHS-Trigger#` footers in the comments, which every machine sees.
+* M3/ODS connects, all six tables readable (IT configured the `ODSSG` DSN)
+* JIRA authenticates as **his own** account, 26 containers visible
+* Shared folder reachable **and writable**, 20 existing state files visible
+* Webex desktop running
 
-If the shared folder is unreachable, tasks run **unlocked** and say so in the
-log. That is deliberate: a missed report is worse than a rare double-write, and
-a machine that cannot see the share cannot coordinate anyway.
+What is NOT done yet: his checkout predates the shared-locking work, so his
+`config.yaml` has no `shared_dir`, no Confluence PAT, no `pages` block and no
+costing block. Step 2 fixes all four at once.
 
-Schedules stay offset by ~15 minutes regardless — the lock handles overlap, but
-not overlapping is cheaper than resolving it.
+**Interim to remember:** IT configured his DSN with the PRIMARY's Oracle
+credentials. Every M3 read from his laptop is therefore attributed to
+`TMOGHANAN`, and when the password policy reaches that account BOTH machines
+fail together. The application account requested from IT Singapore replaces
+this — see "Known expiry risk" in `tasks/mo_ref_order_monitor/TASK.md`.
 
 ---
 
-## Schedules
+## Before any step — set `$PY` in the PowerShell window
 
-Primary (existing), and the second laptop offset by +15 minutes so the two never
-run in the same minute:
+`python` on its own works on the SECOND laptop but hits the Microsoft Store
+stub on the PRIMARY ("Python was not found"). Paste the line for the machine
+you are on, once per window, and every command below works unchanged:
 
-| Task | Primary | Second | Both run? |
-|---|---|---|---|
-| `MO_RefOrder_Monitor` | 08:00, every 30 min | 09:15, every 30 min | Yes — shared state |
-| `CostingHSCode` | 09:45, 13:00, 16:15 | 10:00, 13:15, 16:30 | Yes — locked |
-| `MR_Status_Report` | 10:00 | 10:15 | Yes — locked |
-| `KPI_Overlay` (repo) | 09:30 | 09:45 | Yes — locked |
-| `LiveKPI_Daily` (legacy) | 09:28 | — not portable — | Retire once the repo version is verified |
-| `ExpressOPS KPI Weekly` (legacy) | Mon 10:00 | — | **Retired — Tableau replaces it** |
+```powershell
+# PRIMARY
+$PY = "C:\Users\tmoghanan\AppData\Local\Programs\Python\Python312\python.exe"
 
----
-
-## The two legacy KPI jobs
-
-`LiveKPI_Daily` and `ExpressOPS KPI Weekly` run from folders OUTSIDE this repo:
-
-```
-C:\Users\tmoghanan\Documents\AI\LiveKPI_Overlay\run_live_kpi.bat
-C:\Users\tmoghanan\Documents\AI\ExpressOPS_KPI\run_kpi.bat
+# SECOND
+$PY = "python"
 ```
 
-They cannot be installed on the second laptop from this repo.
+Check it: `& $PY --version` should print `Python 3.12.x`.
 
-* **The daily overlay has a migrated replacement** — `tasks/kpi_overlay`, which
-  also covers Trutnov. Verify it, then run the repo version and retire the
-  legacy one.
-* **The weekly KPI pipeline is retired** — Tableau covers it now. Disable
-  `ExpressOPS KPI Weekly` on the primary; nothing needs to replace it.
+PowerShell scripts must be launched as
+`powershell -ExecutionPolicy Bypass -File .\scripts\name.ps1 ...` — typing
+`.\scripts\name.ps1` directly is blocked by the execution policy. The `.bat`
+files are unaffected.
 
 ---
 
-## One-time setup — on the PRIMARY
+## Step 1 — Ship the current code (PRIMARY)
 
 ```powershell
 cd C:\Users\tmoghanan\Documents\AI\expressops-auto
+sync_now.bat
+robocopy "C:\Users\tmoghanan\Documents\AI\expressops-auto" "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" /MIR /XD .git logs outputs /XF config.yaml /NFL /NDL
+```
 
-# 1. Turn on active/active: add to config.yaml (single quotes, literal backslashes)
-#    shared_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering'
-#    run_lock_ttl_minutes: 20
+`/XF config.yaml` keeps your JIRA PAT off the shared drive. robocopy exits 1 on
+success (1 = files copied); only 8+ is a failure.
 
-# 2. Move the go-live baseline onto the share so BOTH machines honour it.
+---
+
+## Step 2 — Rewrite the second laptop's config (SECOND)
+
+The installer leaves an existing config.yaml alone, so it must be told to
+replace it.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto\scripts\install_second_laptop.ps1" -FromPath "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" -FleetWide -Force
+```
+
+It prompts for four things:
+
+| Prompt | Answer |
+|---|---|
+| JIRA PAT | **His own** (JIRA → Profile → Personal Access Tokens) |
+| Webex space link | Webex → the space → Copy space link |
+| Confluence PAT | **His own** (Confluence → Profile → Personal Access Tokens) |
+| M3/ODS Oracle username | **LEAVE BLANK** — IT already configured the DSN |
+
+Leaving the M3 fields blank is deliberate: blank means "use the DSN's own
+credentials", which is exactly the setup IT just completed.
+
+The dry run at the end should now PASS (it failed before M3 was fixed), and the
+installer then registers `MO_RefOrder_Monitor` at 09:15 automatically.
+
+**Verify:**
+
+```powershell
+cd C:\Users\wneo\Documents\AI\expressops-auto
+.\check_access.bat
+```
+
+You should now see sections that were missing before: **4b Confluence**,
+**4c EDM**, **5b shared run locks**. Stop here if 5b reports `shared_dir` empty
+— the rest of this document depends on it.
+
+---
+
+## Step 3 — Turn on active/active (PRIMARY)
+
+Add to `config\config.yaml` (single quotes so the backslashes stay literal):
+
+```yaml
+shared_dir: 'Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering'
+run_lock_ttl_minutes: 20
+```
+
+Then move the costing go-live baseline onto the share, so both machines honour
+one baseline instead of the second one nagging the whole backlog:
+
+```powershell
 copy outputs\costing_hs_code_trigger_baseline.json "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\"
+```
 
-# 3. Verify the repo KPI overlay before retiring the legacy one
-#    (read-only: computes everything, uploads nothing)
-python -m tasks.kpi_overlay.main --live --dry-run
+**Verify:**
 
-# 4. One overlay only — the repo version replaces the legacy one
+```powershell
+.\check_access.bat
+```
+
+Section 5b should show the shared folder reachable. Locks held: `none` is
+correct when nothing is running.
+
+---
+
+## Step 4 — MO ref tracking (SECOND)
+
+Already scheduled by Step 2. Confirm it behaves:
+
+```powershell
+cd C:\Users\wneo\Documents\AI\expressops-auto
+& $PY -m tasks.mo_ref_order_monitor.main --live --dry-run
+```
+
+**Expect `published=0`.** Every MO is already published from the primary, so a
+no-op proves the shared history is being read. If it wants to publish a full set
+of tables, STOP — the state paths do not match and it would fight the primary.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MO_RefOrder_Monitor -ShowOnly
+```
+
+Expect 09:15, battery-safe yes, catch-up yes.
+
+---
+
+## Step 5 — KPI overlay
+
+### 5a. Decide which overlay wins (PRIMARY)
+
+Three KPI jobs exist and two of them do the same work:
+
+| Task | Runs | What it is |
+|---|---|---|
+| `LiveKPI_Daily` 09:28 | `AI\LiveKPI_Overlay\` | the ORIGINAL daily overlay |
+| `ExpressOps KPI Overlay` 09:30 | `expressops-auto\` | the SAME job, migrated here, plus Trutnov |
+| `ExpressOPS KPI Weekly` Mon 10:00 | `AI\ExpressOPS_KPI\` | **RETIRED — Tableau replaces it** |
+
+```powershell
+cd C:\Users\tmoghanan\Documents\AI\expressops-auto
+& $PY -m tasks.kpi_overlay.main --live --dry-run
+```
+
+Read-only — computes everything, uploads nothing. If the container and pill
+counts match what the board shows today, the repo version is a faithful
+replacement:
+
+```powershell
 Enable-ScheduledTask  -TaskName "ExpressOps KPI Overlay"
 Disable-ScheduledTask -TaskName LiveKPI_Daily
-
-# 5. Retired: Tableau covers this now
 Disable-ScheduledTask -TaskName "ExpressOPS KPI Weekly"
 ```
 
-**Nothing to disable before leave.** Both machines keep running; the lock
-decides who does the work each slot.
+One overlay only — never both. They publish the same Confluence attachment.
 
-Confirm nothing was missed:
+### 5b. Second laptop
+
+```powershell
+cd C:\Users\wneo\Documents\AI\expressops-auto
+& $PY -m tasks.kpi_overlay.main --live --dry-run
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName KPI_Overlay -Runner scheduled_kpi_overlay.bat -AtTimes "09:45"
+```
+
+09:45 is 15 minutes after the primary's 09:30. The run lock handles overlap;
+the offset means it rarely has to.
+
+---
+
+## Step 6 — MR status report (SECOND)
+
+EDM is a SETUP step, not an access request: his SSO account can already see EDM,
+but the Oracle logon trigger rejects connections by program name, so Python
+needs `EDMAdmin.exe`.
+
+```powershell
+cd C:\Users\wneo\Documents\AI\expressops-auto
+.\setup_edmadmin.bat
+```
+
+Idempotent. It creates `EDMAdmin.exe` inside the Python install directory (it
+must sit beside `python3xx.dll`), writes the path into config.yaml, and verifies
+with a known PT→PRSG pair.
+
+```powershell
+& $PY -m tasks.mr_status_report.main --live --dry-run
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat -AtTimes "10:15"
+```
+
+The dry run reads live data and builds the page **without publishing**. If EDM
+is not working the PE/TE release colouring is blank — that degrades the report
+rather than breaking it, so it is worth fixing but not a blocker.
+
+---
+
+## Step 7 — Costing / HS Code trigger (SECOND)
+
+This one POSTS JIRA COMMENTS. Read the baseline note before scheduling it.
+
+```powershell
+cd C:\Users\wneo\Documents\AI\expressops-auto
+& $PY -m tasks.costing_hs_code_trigger.main --live --dry-run
+```
+
+Check the log line `baseline file: ...`. It MUST point at the Y: drive. If it
+points under `outputs\`, `shared_dir` is not set — go back to Step 2, because
+this machine would otherwise comment on the entire existing backlog.
+
+With the shared baseline in place there is nothing to seed: it reads the one the
+primary already seeded.
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command ".\scripts\setup_schedule.ps1 -TaskName CostingHSCode -Runner run_costing_hs_code_trigger.bat -AtTimes '10:00','13:15','16:30'"
+```
+
+---
+
+## Final schedule
+
+| Task | Primary | Second |
+|---|---|---|
+| `MO_RefOrder_Monitor` | 08:00, every 30 min | 09:15, every 30 min |
+| `CostingHSCode` | 09:45, 13:00, 16:15 | 10:00, 13:15, 16:30 |
+| `MR_Status_Report` | 10:00 | 10:15 |
+| KPI overlay | 09:30 | 09:45 |
+
+Confirm on both machines:
 
 ```powershell
 Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } |
@@ -108,89 +266,37 @@ Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } 
 
 ---
 
-## On the SECOND laptop
+## How both machines can run the same task safely
 
-### Refresh config.yaml FIRST
+* **A run lock.** Before writing, each task atomically creates
+  `<shared_dir>\locks\<task>.lock`. One machine wins; the other logs "the other
+  laptop is covering it" and exits cleanly. A lock older than
+  `run_lock_ttl_minutes` is treated as abandoned and taken over, so a laptop
+  closed mid-run cannot wedge the schedule.
+* **Shared state.** The MO monitor's history and alert queue, and the costing
+  baseline, all live on the share.
+* **JIRA as the shared record.** The costing task recognises its own
+  `#Ref: CostHS-Trigger#` footers in the comments, which every machine sees.
 
-A config written by an earlier build of the installer has **no Confluence PAT,
-no `pages` block and no `costing_hs_code_trigger` block** — so the MR report and
-the KPI overlay cannot publish and the costing task tags nobody. The installer
-leaves an existing config.yaml alone, so it must be told to rewrite it:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto\scripts\install_second_laptop.ps1" -FromPath "Y:\88-Technology-Innovation-SEA\_Public\ePMC_PCBA_NPI_Run_Sched\e-File for NPI\Live MO status triggering\_install\expressops-auto" -FleetWide -Force
-```
-
-It prompts for the JIRA PAT (masked), the Webex space link, and the Confluence
-PAT. The dry run at the end still fails on M3 until access is granted — that is
-expected, and it correctly refuses to schedule the MO monitor.
-
-### Then
-
-```powershell
-cd C:\Users\wneo\Documents\AI\expressops-auto
-
-# Prove what this machine can actually reach first.
-.\check_access.bat
-
-# EDM is a SETUP step, not an access request: the Oracle logon trigger rejects
-# connections by program name, so Python needs EDMAdmin.exe even though the
-# account is fine via SSO.
-.\setup_edmadmin.bat
-
-.\scripts\setup_schedule.ps1 -TaskName CostingHSCode   -Runner run_costing_hs_code_trigger.bat -AtTimes "10:00","13:15","16:30"
-.\scripts\setup_schedule.ps1 -TaskName MR_Status_Report -Runner scheduled_mr_publish.bat        -AtTimes "10:15"
-.\scripts\setup_schedule.ps1 -TaskName KPI_Overlay      -Runner scheduled_kpi_overlay.bat       -AtTimes "09:45"
-```
-
-`MO_RefOrder_Monitor` is registered by the installer at 09:15 and stays
-blocked until M3 access is granted — the dry run fails and the installer
-refuses to schedule it, which is correct.
-
-### First run of the costing task on a new machine
-
-With `shared_dir` set, the machine reads the baseline the primary already
-seeded — nothing to do. **Without it**, its baseline starts empty and the first
-run comments on every container that is already ready, so seed it first:
-
-```powershell
-python -m tasks.costing_hs_code_trigger.main --live --seed-baseline
-```
-
-Confirm which file it is using — the run logs `baseline file: <path>`. A path
-under `outputs\` means this machine is NOT sharing the baseline.
+If the shared folder is unreachable, tasks run **unlocked** and say so in the
+log. That is deliberate: a missed report is worse than a rare double-write, and
+a machine that cannot see the share cannot coordinate anyway.
 
 ---
 
-## Daily checks while covering
+## Daily checks
 
 ```powershell
-# what ran, and did it succeed (result=0)
 Get-ScheduledTask | Where-Object { $_.TaskName -match 'KPI|MR|Costing|MO_Ref' } |
   ForEach-Object { $i = Get-ScheduledTaskInfo $_.TaskName
     "{0,-24} last={1} result={2}" -f $_.TaskName, $i.LastRunTime, $i.LastTaskResult }
 ```
 
-Logs live in `logs\`. For the MO monitor, `attempt 1: MATCH` in
-`mo_ref_order_monitor_run.log` means Webex delivery is healthy; repeated
-`attempt 2`/`3` means raise `open_delay_seconds` in `config.yaml`.
+`result=0` is success. Logs are in `logs\`.
+
+For the MO monitor, `attempt 1: MATCH` in `mo_ref_order_monitor_run.log` means
+Webex delivery is healthy; repeated `attempt 2`/`3` means raising
+`open_delay_seconds` in that machine's config.yaml.
 
 **JIRA is always the source of truth.** If a Webex alert looks missing, check
 the container before assuming the MO has not moved.
-
----
-
-## On return
-
-Nothing. Both machines have been running the whole time.
-
-## Who did what
-
-Every task logs which machine took the lock. To see what is held right now:
-
-```powershell
-python -c "import sys;sys.path.insert(0,'.');from core.runlock import lock_status;from core.config_loader import load_config;print(chr(10).join(lock_status(load_config().get('shared_dir','')) or ['none held']))"
-```
-
-`check_access.bat` reports the same thing under section 5b, along with whether
-the shared folder is reachable at all.

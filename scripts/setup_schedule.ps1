@@ -51,6 +51,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 function Say($m) { Write-Host "[schedule] $m" }
+
+# `powershell -File` collapses an array argument into ONE comma-joined string:
+#   -AtTimes "10:00","13:15","16:30"   arrives as   "10:00,13:15,16:30"
+# and New-ScheduledTaskTrigger then fails to parse it as a DateTime. Split it
+# back so the -File form and an in-shell array behave identically. (Same trap
+# as -PilotContainers in install_second_laptop.ps1.)
+$AtTimes = @($AtTimes |
+    ForEach-Object { $_ -split ',' } |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ })
+if (-not $AtTimes) { Write-Host "[schedule] ERROR: -AtTimes is empty" -ForegroundColor Red; exit 1 }
 function Die($m) { Write-Host "[schedule] ERROR: $m" -ForegroundColor Red; exit 1 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot

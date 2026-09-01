@@ -164,14 +164,23 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    that used to clip the opening characters of a typed message; the primer was
    dropped by accident in the switch to pasting and had to be restored.
    Verified working 13-Aug 15:12 — first attempt, no retries.
-8. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
+9. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
    every `exit <code>` after one is dead code and PowerShell returns 1. Exit
    codes must be written to stderr by hand or the caller cannot tell a refusal
    from a crash — and Python retried the refusal, having been told it was
    transient.
-6. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
+6. **A locked screen cannot be typed into, and out-of-hours alerts wait.**
+   The desktop transport needs an unlocked session. An alert raised at 18:31 or
+   on a Friday sits queued until someone unlocks — 60+ hours over a weekend.
+   The original 12h `max_age_hours` therefore DESTROYED two real alerts
+   (28-Aug 16:56, 31-Aug 18:31) before anybody could have seen them. Now: 72h
+   default, a lock is detected up front (exit 8, no misleading "focus held by
+   ''"), and a late alert is delivered prefixed `(delayed 14h)` so it reads as
+   history rather than news. Only the webhook/bot transport can post to a
+   locked machine — one more reason to chase I2607-2336.
+7. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
    `|` splits the row. `VHRORN` is free text, so every cell is sanitised.
-7. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
+8. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
    emoji and `( ) % [ ]`, and Shift+Enter for internal line breaks. The payload
    is now RAW text — do not re-introduce escaping, or the braces get pasted
    verbatim.
@@ -231,6 +240,28 @@ repo root / scripts/
   show as `SET (n chars)`.
 - Logs: `logs\mo_ref_order_monitor_run.log` (appended) and
   `logs\mo_ref_order_monitor.log` (**overwritten each run** — last run only).
+
+## KNOWN EXPIRY RISK — M3 credentials (raised 13-Aug-2026)
+
+IT (Mannheim global password policy) is **removing stored Oracle credentials
+from ODBC DSNs**. A newly-built laptop already has `ODSSG` with a blank
+`UserID` — by design, not a misconfiguration — and the same will be applied to
+the existing primary laptop.
+
+**When it reaches `TMOGHANAN`, every M3-dependent task stops** with
+ORA-01017 until a replacement authentication method is in place. That is the
+one dependency here with an externally-imposed deadline nobody on this side
+controls. Track the date.
+
+Replacement options, in order of preference:
+1. **OS / Windows authentication** — nothing stored, nothing to rotate. Already
+   proven here: `core/edm.py` connects to EDM Oracle with `externalauth=True`.
+2. **Oracle Wallet / external password store** — needs no code change either:
+   `M3Client` already connects as plain `DSN=ODSSG` with no username when
+   `m3.user` is blank, which is exactly what a wallet expects.
+3. **Application-supplied credentials** — `m3.user` / `m3.password` in
+   config.yaml (supported since 13-Aug). Works, but it is still a stored
+   credential and may not satisfy the policy's intent. Do not lead with it.
 
 ## Open items
 - [ ] **IT ticket I2607-2336** — Webex bot / Incoming Webhooks approval. Once

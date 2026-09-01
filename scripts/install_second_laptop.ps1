@@ -222,6 +222,17 @@ if ((Test-Path $cfgPath) -and -not $Force) {
     $confSecure = Read-Host "  Confluence PAT (for the MR Status Report; blank to skip)" -AsSecureString
     $confPat = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
         [Runtime.InteropServices.Marshal]::SecureStringToBSTR($confSecure))
+    # A fresh machine's ODSSG DSN usually has an EMPTY UserID, which fails with
+    # ORA-01017 even when the Oracle account is perfectly fine. Editing a System
+    # DSN needs admin rights; putting the credentials here does not.
+    Write-Host "  (leave both blank if this machine's ODSSG DSN already has credentials)"
+    $m3User = Read-Host "  M3/ODS Oracle username (YOUR OWN account, e.g. wneo)"
+    $m3Pwd = ""
+    if ($m3User) {
+        $m3Secure = Read-Host "  M3/ODS Oracle password" -AsSecureString
+        $m3Pwd = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+            [Runtime.InteropServices.Marshal]::SecureStringToBSTR($m3Secure))
+    }
     $webexOn   = if ([string]::IsNullOrWhiteSpace($spaceLink)) { "false" } else { "true" }
 
     $stateDir = Join-Path $SharedBase "state"
@@ -250,6 +261,10 @@ confluence:
 m3:
   dsn: "ODSSG"
   schema: "PFODS"
+  # Blank = use whatever the DSN stores. Set = this machine supplies its own
+  # credentials, no DSN edit and no admin rights needed.
+  user: "$m3User"
+  password: "$m3Pwd"
 
 edm:
   python_exe: ""
@@ -310,7 +325,7 @@ mo_ref_order_monitor:
     open_delay_seconds: 6
     type_delay_seconds: 2
     queue_file: '$queueFile'
-    max_age_hours: 12
+    max_age_hours: 72
 "@
     New-Item -ItemType Directory -Force -Path (Split-Path $cfgPath) | Out-Null
     Set-Content -Path $cfgPath -Value $cfg -Encoding UTF8
