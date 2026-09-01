@@ -7,6 +7,17 @@ Singapore and Trutnov**, write `kpi_cache.json`, and upload it as a Confluence
 attachment. A Tampermonkey userscript ("JIRA KPI Overlay") downloads that cache
 and draws the coloured pills on the JIRA Kanban cards.
 
+### Data source (`--source`, default `kpi_overlay.source` in config.yaml)
+| Value | Where the numbers come from |
+|---|---|
+| `jira` *(default)* | Computed here from JIRA issues — `core/kpi_core.py` is the authority. |
+| `tableau` | Read already-computed from the Tableau fact tables (`Fact_pm_npi_wc_kpi`, `Fact_pm_npi_wp_kpi`) via `core/kpi_warehouse.py`. This machine only renders them, so the Kanban pills and the Tableau dashboard cannot drift apart. |
+| `both` | Compute both, publish `source_of_truth`, log every disagreement and write `outputs/kpi_source_diff.json`. The migration's evidence, and a standing regression check afterwards. |
+
+The cache shape is identical either way, so the userscript is unchanged.
+**Validation, credential placement and the switch-over runbook:**
+[`docs/KPI_TABLEAU_VALIDATION.md`](../../docs/KPI_TABLEAU_VALIDATION.md).
+
 ## Category
 General (KPI reporting)
 
@@ -85,6 +96,19 @@ Two corrections vs the legacy standalone `kpi_core.py`:
 `mock_data/containers.json` + `mock_data/children/<WC_KEY>.json` — one Singapore
 (USRE-1001) and one Trutnov (POSX-2002) container with identical WP dates, so the
 per-location target difference is visible (Logistics: SG Green vs Trutnov Red).
+
+## Acceptance Criteria — Tableau source (open)
+- [x] `--source jira|tableau|both`, default from config; JIRA stays the default.
+- [x] `python -m tasks.kpi_overlay.main --mock --source tableau` builds the same
+      cache shape from `mock_data/warehouse/*.json`.
+- [x] `python -m tasks.kpi_overlay.test_source_tableau` passes offline (column
+      resolution, config overrides, and that the diff detects an off-by-one, a
+      target mismatch and a scope mismatch).
+- [ ] `scripts/kpi_warehouse_discovery.py` finds a working route on the laptop
+      and the real column names are pinned in `kpi_warehouse.columns`.
+- [ ] `scripts/validate_kpi_vs_tableau.py --live` run and its diff explained
+      against the eleven divergence points in the validation doc.
+- [ ] A week of `--source both` before flipping `source: tableau`.
 
 ## Acceptance Criteria
 - [x] JQL includes both Singapore and Trutnov.

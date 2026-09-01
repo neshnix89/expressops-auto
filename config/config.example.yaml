@@ -57,6 +57,73 @@ tableau:
   content_url: ""          # default site
   verify_ssl: false
 
+# KPI fact tables behind the Tableau "ExpressOps KPIs" workbook (#3651)
+# ---------------------------------------------------------------------------
+# THIS IS WHERE THE sync_user CREDENTIALS GO. config.yaml is gitignored and
+# user-scoped, so nothing here ever reaches GitHub. Never put them in a .bat,
+# a scheduled-task argument, or any file under scripts/.
+#
+# The three fact tables are the numbers Tableau itself renders:
+#   Fact_pm_npi_wc_kpi          one row per Work Container
+#   Fact_pm_npi_wp_kpi          one row per Work Package
+#   Fact_pm_npi_wc_wp_combined  WC joined to its WPs
+#
+# `driver` picks HOW they are read. Run
+#     python scripts\kpi_warehouse_discovery.py
+# on the company laptop first — it tries every route with these credentials and
+# tells you which one answers, plus the real column names to paste into
+# `columns` below if the defaults do not match.
+kpi_warehouse:
+  # auto        — try tableau_vds, then odbc, then odbc_direct (use for discovery)
+  # tableau_vds — Tableau VizQL Data Service against the published data sources
+  # odbc        — a Windows ODBC DSN (like M3's ODSSG) + user/password
+  # odbc_direct — a full ODBC connection string (no DSN needed)
+  driver: "auto"
+
+  # ── sync_user credentials (from the BI team's email) ──
+  user: ""
+  password: ""
+
+  # ── driver: tableau_vds ──
+  # Reuses tableau.base_url / api_version / content_url / verify_ssl above.
+  # auth: "pat"      -> tableau.pat_name + tableau.pat_secret (existing token)
+  # auth: "password" -> the user/password above (only works if the Tableau site
+  #                     accepts local logins; SSO-only sites reject it)
+  tableau_auth: "pat"
+  # Published data source luids, from docs/WORKLOG.md discovery (2026-05-29).
+  datasource_luids:
+    wc:       "2c72b33f-dca7-4f80-85b3-41220c5bc355"
+    wp:       "456b9a94-7d61-4dc3-98e7-05555c873f85"
+    combined: "eb8a2c04-ca2c-4484-9f7c-1318b61542e7"
+
+  # ── driver: odbc / odbc_direct ──
+  # The warehouse behind Tableau is a database; if sync_user is a DB account,
+  # this is the route. Ask the BI team for host/port/service (or an existing
+  # DSN name) — the email did not include them, so discovery has to find them.
+  dsn: ""                       # e.g. "ODSSG" — an existing 64-bit System DSN
+  connection_string: ""         # odbc_direct only, e.g.
+                                # "DRIVER={Oracle in OraClient19Home1};DBQ=host:1521/SVC"
+  schema: ""                    # e.g. "PFDWH" — leave blank for the user's default
+  tables:
+    wc:       "Fact_pm_npi_wc_kpi"
+    wp:       "Fact_pm_npi_wp_kpi"
+    combined: "Fact_pm_npi_wc_wp_combined"
+
+  # ── column mapping ──
+  # The client resolves each logical field by trying the candidate names in
+  # core/kpi_warehouse.py (case- and underscore-insensitive). Only add an entry
+  # here when discovery shows a column the defaults miss; an entry here wins.
+  #   columns:
+  #     wc:
+  #       issue_key: "wc_issue_key"
+  #       elapsed:   "wc_running_duration_workdays"
+  columns: {}
+
+  # Fact tables are refreshed on a schedule. If the newest as-of date in the
+  # snapshot is older than this many hours, the overlay logs a loud warning
+  # rather than silently publishing stale pills. 0 disables the check.
+  max_staleness_hours: 30
+
 # Webex (Cisco public cloud — webexapis.com, independent of corp network)
 # Used by mo_ref_order_monitor to notify build-progress groups.
 webex:
@@ -134,6 +201,23 @@ mo_ref_order_monitor:
     # markdown for the API transports). Multi-line bodies are flattened to one
     # line for "desktop" because Enter sends the message.
     messages: {}
+
+# Live JIRA Kanban KPI overlay (tasks/kpi_overlay)
+kpi_overlay:
+  # Where the numbers come from:
+  #   jira    — compute elapsed/target/colour here from JIRA issues (the
+  #             original behaviour; core/kpi_core.py is the authority)
+  #   tableau — read the already-computed KPIs out of the Tableau fact tables
+  #             (kpi_warehouse above); this machine only renders them
+  #   both    — compute BOTH, publish `source_of_truth`, and log every
+  #             disagreement. Run this for a week before switching to tableau.
+  source: "jira"
+  # Which side wins when source: both. Only meaningful for "both".
+  source_of_truth: "tableau"
+  # source: both — abort the upload if more than this share of containers
+  # disagree (0.0-1.0). Guards against publishing a broken cache the day the
+  # warehouse schema changes. 1.0 = never abort.
+  max_disagreement: 1.0
 
 # Anthropic API (for AI-powered analysis)
 anthropic:

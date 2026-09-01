@@ -1,0 +1,57 @@
+{
+  "_comment": "Frozen snapshot of the three KPI fact tables, captured 2026-09-01 from the JIRA mock so --mock --source tableau and --mock --source both run end to end on this machine. Column names are the discovery-observed captions; the numbers are a snapshot, so the elapsed values drift against the (date.today()-driven) JIRA mock as time passes. Replace with real rows via scripts/kpi_warehouse_discovery.py --save-mock.",
+  "table": "Fact_pm_npi_wc_kpi",
+  "columns": [
+    "wc_issue_key",
+    "wc_summary",
+    "wc_status",
+    "wc_assignee",
+    "wc_npi_location",
+    "wc_order_type",
+    "project_number",
+    "wc_npi_start",
+    "wc_running_duration_workdays",
+    "wc_duration_workdays",
+    "target_line",
+    "wc_target_hit",
+    "wc_parked_status",
+    "wc_resolution",
+    "wc_resolution_date"
+  ],
+  "rows": [
+    {
+      "wc_issue_key": "USRE-1001",
+      "wc_summary": "SG SMT PCBA Pilot Run - Demo Container",
+      "wc_status": "In Progress",
+      "wc_assignee": "Nesh (Demo)",
+      "wc_npi_location": "Singapore",
+      "wc_order_type": "Pilot Run",
+      "project_number": "PTSG-AAM4",
+      "wc_npi_start": "2026-06-01",
+      "wc_running_duration_workdays": 64,
+      "wc_duration_workdays": null,
+      "target_line": 24,
+      "wc_target_hit": 0,
+      "wc_parked_status": "",
+      "wc_resolution": null,
+      "wc_resolution_date": null
+    },
+    {
+      "wc_issue_key": "POSX-2002",
+      "wc_summary": "Trutnov SMT PCBA Pilot Run - Demo Container",
+      "wc_status": "In Progress",
+      "wc_assignee": "Trutnov PIC (Demo)",
+      "wc_npi_location": "Trutnov",
+      "wc_order_type": "Pilot Run",
+      "project_number": "PTCZ-BB12",
+      "wc_npi_start": "2026-06-01",
+      "wc_running_duration_workdays": 65,
+      "wc_duration_workdays": null,
+      "target_line": 21,
+      "wc_target_hit": 0,
+      "wc_parked_status": "",
+      "wc_resolution": null,
+      "wc_resolution_date": null
+    }
+  ]
+}

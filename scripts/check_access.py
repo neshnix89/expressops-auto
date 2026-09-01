@@ -310,6 +310,52 @@ def main() -> int:  # noqa: C901 — a flat list of checks reads better than nes
     else:
         print("  (skipped — not Windows)")
 
+    # ── 7. KPI warehouse (Tableau fact tables) ───────────────────────
+    # Only the credential/route question is asked here; the full schema dump
+    # lives in scripts/kpi_warehouse_discovery.py. This section exists so a
+    # missing warehouse grant lands in the SAME IT ticket as everything else.
+    head("7. KPI WAREHOUSE (Tableau fact tables — kpi_overlay --source tableau)")
+    wh = cfg.get("kpi_warehouse", {}) or {}
+    source = str(cfg.get("kpi_overlay.source", "jira") or "jira")
+    print(f"       kpi_overlay.source : {source}")
+    if source == "jira":
+        print("  (overlay still computes from JIRA — the checks below are "
+              "informational)")
+    have_creds = bool(str(wh.get("user") or "").strip()
+                      and str(wh.get("password") or "").strip())
+    check("kpi_warehouse.user / .password set", have_creds,
+          f"user={wh.get('user') or 'EMPTY'}, password={redact(wh.get('password'))}",
+          it_ask="(no IT action — put the sync_user credentials from the BI "
+                 "team's email into config/config.yaml under kpi_warehouse)")
+    try:
+        from core.config_loader import load_config as _load
+        from core.kpi_warehouse import KpiWarehouseClient
+        # Force live: this section is a reachability check, and config.yaml may
+        # still say mode: mock, which would send the client at mock fixtures.
+        client = KpiWarehouseClient(_load(mode_override="live"), logger=None)
+        try:
+            table = client.table("wc", limit=1)
+            check("Fact_pm_npi_wc_kpi readable", True,
+                  f"via {table.source}, {len(table.columns)} columns")
+            missing = [f for f in ("issue_key", "elapsed")
+                       if f not in table.mapping]
+            check("required columns resolve", not missing,
+                  f"unresolved: {', '.join(missing)}" if missing else "issue_key, elapsed",
+                  it_ask="" if not missing else
+                         "(no IT action — map the columns in config.yaml under "
+                         "kpi_warehouse.columns.wc; run "
+                         "scripts/kpi_warehouse_discovery.py for the real names)")
+        finally:
+            client.close()
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "message", None) or str(exc)
+        check("Fact_pm_npi_wc_kpi readable", False, detail[:200],
+              it_ask="read access for sync_user to the NPI KPI fact tables "
+                     "(Fact_pm_npi_wc_kpi, Fact_pm_npi_wp_kpi, "
+                     "Fact_pm_npi_wc_wp_combined) from this machine — and the "
+                     "database host/port or an ODBC DSN to reach them with")
+        print("       run scripts/kpi_warehouse_discovery.py for the full report")
+
     # ── Summary ──────────────────────────────────────────────────────
     head("SUMMARY")
     failed = [r for r in results if not r[1]]
