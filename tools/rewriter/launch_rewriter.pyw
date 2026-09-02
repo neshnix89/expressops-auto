@@ -143,5 +143,26 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def _report(exc: BaseException) -> None:
+    """Write the traceback next to this file and show it, since pythonw has no console."""
+    import traceback
+
+    log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rewriter.log")
+    text = traceback.format_exc()
+    try:
+        with open(log, "a", encoding="utf-8") as fh:
+            fh.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n" + text + "\n")
+    except OSError:
+        pass
+    if os.name == "nt":
+        ctypes.windll.user32.MessageBoxW(0, f"{exc}\n\nDetails in {log}", "Rewrite Desk failed", 0x10)
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - surface anything, pythonw hides errors
+        _report(exc)
+        sys.exit(1)
