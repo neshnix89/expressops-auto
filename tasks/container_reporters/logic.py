@@ -19,8 +19,12 @@ from typing import Any
 
 from core.kpi_core import (
     CF_NPI_LOCATION, CF_ORDER_TYPE, CF_PRODUCT_TYPE, CF_PROJECT_ID,
-    _get_field_value, to_date,
+    CF_REQUEST_TYPE, _get_field_value, to_date,
 )
+
+# What the container issue type is called in JIRA. Anything else coming back
+# from a query that asks for exactly this is worth a warning, not a silent row.
+WC_ISSUE_TYPE = "Work Container"
 
 # Same three clauses the KPI overlay filters on.
 BASE_CLAUSES = [
@@ -33,15 +37,21 @@ SCOPES = ("resolved", "open", "all")
 
 # JIRA fields the export needs. `reporter` is a system field, not a customfield.
 FIELDS = [
-    "key", "summary", "status", "resolution", "resolutiondate", "created",
-    "reporter", "assignee",
-    CF_NPI_LOCATION, CF_ORDER_TYPE, CF_PRODUCT_TYPE, CF_PROJECT_ID,
+    "key", "summary", "issuetype", "parent", "status", "resolution",
+    "resolutiondate", "created", "reporter", "assignee",
+    CF_NPI_LOCATION, CF_ORDER_TYPE, CF_PRODUCT_TYPE, CF_REQUEST_TYPE,
+    CF_PROJECT_ID,
 ]
 
+# issueType/parentKey are carried so "is this row a container or a work
+# package?" is answerable from the sheet instead of by argument. A Work
+# Container has issueType "Work Container" and no parent; a Work Package
+# would show its own type and its container's key.
 CSV_COLUMNS = [
-    "issueKey", "reporter", "reporterUser", "reporterEmail",
-    "resolvedDate", "resolvedTimestamp", "resolution", "status",
-    "location", "orderType", "created", "ptDocument", "summary",
+    "issueKey", "issueType", "parentKey", "reporter", "reporterUser",
+    "reporterEmail", "resolvedDate", "resolvedTimestamp", "resolution",
+    "status", "location", "orderType", "requestType", "created",
+    "ptDocument", "summary",
 ]
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -113,8 +123,13 @@ def issue_row(issue: dict[str, Any]) -> dict[str, str]:
     status = fields.get("status") or {}
     resolution = fields.get("resolution") or {}
 
+    issue_type = fields.get("issuetype") or {}
+    parent = fields.get("parent") or {}
+
     return {
         "issueKey": issue.get("key", ""),
+        "issueType": issue_type.get("name", "") if isinstance(issue_type, dict) else "",
+        "parentKey": parent.get("key", "") if isinstance(parent, dict) else "",
         "reporter": display,
         "reporterUser": user,
         "reporterEmail": email,
@@ -124,6 +139,7 @@ def issue_row(issue: dict[str, Any]) -> dict[str, str]:
         "status": status.get("name", "") if isinstance(status, dict) else "",
         "location": _get_field_value(fields, CF_NPI_LOCATION, "") or "",
         "orderType": _get_field_value(fields, CF_ORDER_TYPE, "") or "",
+        "requestType": _get_field_value(fields, CF_REQUEST_TYPE, "") or "",
         "created": str(created_d) if created_d else "",
         "ptDocument": _get_field_value(fields, CF_PROJECT_ID, "") or "",
         "summary": (fields.get("summary") or "").replace("\n", " ").strip(),
@@ -163,6 +179,18 @@ def filter_rows(rows: list[dict[str, str]], scope: str = "resolved",
                 continue
         out.append(row)
     return out
+
+
+def non_containers(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Rows that are not container-level: a different issue type, or a parent.
+
+    The JQL asks for ``issuetype = "Work Container"`` so this should always be
+    empty. It is checked anyway — a renamed issue type or a JIRA-side hierarchy
+    change would otherwise slide Work Packages into the export unnoticed.
+    """
+    return [r for r in rows
+            if (r.get("issueType") and r["issueType"] != WC_ISSUE_TYPE)
+            or r.get("parentKey")]
 
 
 def count_by(rows: list[dict[str, str]], column: str) -> list[tuple[str, int]]:

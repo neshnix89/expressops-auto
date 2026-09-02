@@ -42,8 +42,8 @@ from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
 from tasks.container_reporters.logic import (
-    CSV_COLUMNS, FIELDS, SCOPES,
-    build_jql, build_rows, check_date, count_by, filter_rows,
+    CSV_COLUMNS, FIELDS, SCOPES, WC_ISSUE_TYPE,
+    build_jql, build_rows, check_date, count_by, filter_rows, non_containers,
 )
 
 TASK_NAME = "container_reporters"
@@ -106,6 +106,21 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
         rows = filter_rows(rows, scope, since=since, until=until)
         logger.info("  %d after applying scope/date filter to the fixture", len(rows))
 
+    # Container level only — Work Packages are a different issue type and the
+    # JQL never asks for them. Prove it in the log rather than assuming it.
+    strays = non_containers(rows)
+    if strays:
+        logger.warning("  %d row(s) are NOT container-level (issue type is not "
+                       "'%s', or they have a parent) — check the JQL:",
+                       len(strays), WC_ISSUE_TYPE)
+        for row in strays[:10]:
+            logger.warning("    %s  type=%s  parent=%s",
+                           row["issueKey"], row["issueType"] or "(none)",
+                           row["parentKey"] or "(none)")
+    else:
+        logger.info("  All %d row(s) are '%s' with no parent — no Work Packages",
+                    len(rows), WC_ISSUE_TYPE)
+
     missing = [r["issueKey"] for r in rows if not r["reporter"]]
     if missing:
         logger.warning("  %d container(s) have no Reporter: %s",
@@ -121,6 +136,9 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
         logger.info("    %-30s %d", name, count)
     if len(by_reporter) > 15:
         logger.info("    ... and %d more", len(by_reporter) - 15)
+
+    logger.info("  By issue type: %s", ", ".join(
+        f"{t}={n}" for t, n in count_by(rows, "issueType")) or "none")
 
     logger.info("  By location: %s", ", ".join(
         f"{loc}={n}" for loc, n in count_by(rows, "location")) or "none")

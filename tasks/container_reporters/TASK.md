@@ -29,9 +29,21 @@ Optional CLI flags: `--scope`, `--since`, `--until`.
   Excel opens it correctly.
 - `logs/container_reporters.log` — the JQL, the counts, the per-reporter tally.
 
-Columns: `issueKey, reporter, reporterUser, reporterEmail, resolvedDate,
-resolvedTimestamp, resolution, status, location, orderType, created, ptDocument,
-summary`.
+Columns: `issueKey, issueType, parentKey, reporter, reporterUser, reporterEmail,
+resolvedDate, resolvedTimestamp, resolution, status, location, orderType,
+requestType, created, ptDocument, summary`.
+
+## Container level only
+The JQL asks for `issuetype = "Work Container"`, so Work Packages are never
+requested — they are a different issue type, fetched by the overlay through a
+separate `relation(..., "Project Children", level1)` query that this task does
+not run. Two things make that checkable instead of assumed:
+
+- `issueType` and `parentKey` are columns. A container reads
+  `Work Container` with an empty parent; a Work Package would show its own type
+  and its container's key, so one glance at the sheet settles it.
+- The run logs a tally by issue type, and any row that is not a parentless
+  `Work Container` is listed as a WARNING (`logic.non_containers`).
 
 ## Filtering — relationship to the KPI overlay
 The overlay's JQL (`tasks/kpi_overlay/main.py` `OPEN_WC_JQL`) is:
@@ -61,6 +73,9 @@ exactly the set that can never have a resolved date:
 ### JIRA Fields
 | Field | ID | Purpose |
 |-------|----|---------|
+| Issue Type | `issuetype` (system) | proof the row is container level |
+| Parent | `parent` (system) | blank on containers; set on Work Packages |
+| Request Type | `customfield_13903` | "NPI Request" etc. |
 | Reporter | `reporter` (system) | who raised the container — display name, username, email |
 | Resolved | `resolutiondate` (system) | the resolved date; date part + raw timestamp |
 | Resolution | `resolution` (system) | Done / Cancelled / … — distinguishes finished from dropped |
@@ -85,11 +100,14 @@ exactly the set that can never have a resolved date:
 
 ## Mock Data Needed
 - [x] `mock_data/containers.json` — 4 hand-written containers (SG + Trutnov, one
-  still open, one with no reporter) so every branch runs on the VPS.
+  still open, one with no reporter) plus one Work Package that the JQL would
+  never return, so the not-container-level warning path is exercised too.
 
 ## Acceptance Criteria
 - [x] `python -m tasks.container_reporters.main --mock` writes a 3-row CSV
       (default `resolved` scope drops the open container).
 - [x] `--scope all` includes the open container with a blank resolved date.
 - [x] A malformed `--since` fails with a one-line `[ERROR]`, no traceback.
+- [x] A Work Package in the result is logged as a WARNING and shows its type and
+      parent in the CSV.
 - [ ] Live run: row count matches the same JQL pasted into the JIRA issue search.
