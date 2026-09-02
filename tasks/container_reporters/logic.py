@@ -26,12 +26,31 @@ from core.kpi_core import (
 # from a query that asks for exactly this is worth a warning, not a silent row.
 WC_ISSUE_TYPE = "Work Container"
 
-# Same three clauses the KPI overlay filters on.
-BASE_CLAUSES = [
-    'issuetype = "Work Container"',
-    '"Product Type" = "SMT PCBA"',
-    '"NPI Location" in ("Singapore", "Trutnov")',
-]
+# ─── The two ways to say "these containers" ───
+#
+# board   — the containers behind the NPI Kanban board: the Project Parents of
+#           the work packages in saved filter 25423 (template clones that are
+#           Waiting / In Progress / Backlog). This is the board's own
+#           definition, so the export and the board agree by construction.
+#           Singapore only, per the board filter.
+# overlay — the plain issue-type query tasks/kpi_overlay/main.py runs
+#           (Work Container + SMT PCBA + SG/Trutnov). Independent of the board,
+#           so it also catches containers the board filter has dropped.
+SOURCES = ("board", "overlay")
+DEFAULT_SOURCE = "board"
+
+# Saved JIRA filter behind the board. Config `container_reporters.board_filter`
+# overrides it — filter IDs change when a board is rebuilt.
+BOARD_FILTER_ID = "25423"
+
+BOARD_LOCATIONS = ("Singapore",)
+OVERLAY_LOCATIONS = ("Singapore", "Trutnov")
+
+# The board filter selects OPEN work packages, so a container leaves the board
+# once every child is finished. Callers warn about this on --scope resolved.
+BOARD_IS_OPEN_WORK_ONLY = True
+
+PRODUCT_TYPE_CLAUSE = '"Product Type" = "SMT PCBA"'
 
 SCOPES = ("resolved", "open", "all")
 
@@ -67,34 +86,69 @@ def check_date(value: str | None, flag: str) -> str | None:
     return value
 
 
+def location_clause(locations: tuple[str, ...]) -> str:
+    """`= "X"` for one location, `in ("X", "Y")` for several."""
+    if len(locations) == 1:
+        return f'"NPI Location" = "{locations[0]}"'
+    joined = ", ".join(f'"{loc}"' for loc in locations)
+    return f'"NPI Location" in ({joined})'
+
+
+def base_clauses(source: str = DEFAULT_SOURCE,
+                 board_filter: str = BOARD_FILTER_ID,
+                 locations: tuple[str, ...] | None = None) -> list[str]:
+    """The container-population clauses, before scope and dates."""
+    if source not in SOURCES:
+        raise ValueError(f"unknown source {source!r} — use one of: {', '.join(SOURCES)}")
+
+    if source == "board":
+        first = (f'issue in relation("filter={board_filter}", "Project Parent", '
+                 "Tasks, Deviations, level1)")
+        locations = locations or BOARD_LOCATIONS
+    else:
+        first = 'issuetype = "Work Container"'
+        locations = locations or OVERLAY_LOCATIONS
+
+    return [first, PRODUCT_TYPE_CLAUSE, location_clause(locations)]
+
+
 def build_jql(scope: str = "resolved", since: str | None = None,
-              until: str | None = None) -> str:
-    """Build the container JQL for a scope and optional resolved-date window.
+              until: str | None = None, source: str = DEFAULT_SOURCE,
+              board_filter: str = BOARD_FILTER_ID,
+              locations: tuple[str, ...] | None = None) -> str:
+    """Build the container JQL for a source, scope and resolved-date window.
 
     scope:
       resolved — resolution is not EMPTY  (the default; these have a resolved date)
-      open     — resolution is EMPTY      (exactly the KPI overlay's set)
-      all      — no resolution clause     (resolved date is blank for open ones)
+      open     — resolution is EMPTY
+      all      — no resolution clause     (open containers keep a blank date)
 
-    ``since``/``until`` are inclusive bounds on ``resolutiondate`` (YYYY-MM-DD)
-    and only apply where a resolved date can exist.
+    ``since``/``until`` are inclusive bounds on ``resolutiondate`` (YYYY-MM-DD).
+    On ``all`` they are OR'd with ``resolution is EMPTY``: a NULL resolved date
+    fails any date comparison, so a bare bound would quietly delete every open
+    container from a scope that exists to include them.
     """
     if scope not in SCOPES:
         raise ValueError(f"unknown scope {scope!r} — use one of: {', '.join(SCOPES)}")
 
-    clauses = list(BASE_CLAUSES)
+    clauses = base_clauses(source, board_filter=board_filter, locations=locations)
     if scope == "resolved":
         clauses.append("resolution is not EMPTY")
     elif scope == "open":
         clauses.append("resolution is EMPTY")
 
     if scope != "open":
+        window = []
         if since:
-            clauses.append(f'resolutiondate >= "{since}"')
+            window.append(f'resolutiondate >= "{since}"')
         if until:
             # JQL compares against the timestamp, so "<= 2026-01-31" would drop
             # anything resolved during that day. Bound the end of the day.
-            clauses.append(f'resolutiondate <= "{until} 23:59"')
+            window.append(f'resolutiondate <= "{until} 23:59"')
+        if window and scope == "all":
+            clauses.append("(" + " AND ".join(window) + " OR resolution is EMPTY)")
+        else:
+            clauses.extend(window)
 
     order = "created ASC" if scope == "open" else "resolutiondate ASC"
     return " AND ".join(clauses) + f" ORDER BY {order}"

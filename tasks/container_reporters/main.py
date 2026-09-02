@@ -1,9 +1,12 @@
 """
 container_reporters — who reported each Work Container, and when it was resolved.
 
-A read-only JIRA pull: the same container population the KPI overlay draws its
-pills for (issuetype "Work Container", Product Type "SMT PCBA", NPI Location
-Singapore or Trutnov), exported as Reporter + Resolved date to CSV.
+A read-only JIRA pull of container-level issues, exported as Reporter +
+Resolved date to CSV. The population comes from ``--source``: the Kanban
+board's own filter (default) or the KPI overlay's issue-type query.
+
+Containers resolved before 2025-01-01 are excluded by default (--all-dates
+lifts that).
 
 Writes nothing back to JIRA and publishes nothing to Confluence.
 
@@ -12,7 +15,14 @@ Usage:
     python -m tasks.container_reporters.main --live                  # company laptop
     python -m tasks.container_reporters.main --live --since 2026-01-01
     python -m tasks.container_reporters.main --live --scope all
+    python -m tasks.container_reporters.main --live --source overlay --all-dates
     python -m tasks.container_reporters.main --live --show-jql --verbose
+
+Sources (--source):
+    board    (default) the containers behind the NPI Kanban board — the Project
+             Parents of saved filter 25423, Singapore, SMT PCBA
+    overlay  the plain issue-type query tasks/kpi_overlay/main.py runs
+             (Work Container + SMT PCBA + Singapore/Trutnov)
 
 Scopes:
     resolved  (default) containers that have a resolution — these have a resolved date
@@ -42,7 +52,8 @@ from core.errors import FriendlyError, handle_friendly
 from core.jira_client import JiraClient
 from core.logger import get_logger
 from tasks.container_reporters.logic import (
-    CSV_COLUMNS, FIELDS, SCOPES, WC_ISSUE_TYPE,
+    BOARD_FILTER_ID, BOARD_IS_OPEN_WORK_ONLY, CSV_COLUMNS, DEFAULT_SOURCE,
+    FIELDS, SCOPES, SOURCES, WC_ISSUE_TYPE,
     build_jql, build_rows, check_date, count_by, filter_rows, non_containers,
 )
 
@@ -50,6 +61,10 @@ TASK_NAME = "container_reporters"
 MOCK_DIR = TASK_DIR / "mock_data"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 CSV_FILE = OUTPUT_DIR / "container_reporters.csv"
+
+# Containers resolved before this are out of scope for the current reporting.
+# --since overrides it; --all-dates removes the floor entirely.
+DEFAULT_SINCE = "2025-01-01"
 
 
 def fetch_containers(jira: JiraClient, jql: str, logger) -> list[dict]:
@@ -71,16 +86,25 @@ def write_csv(rows: list[dict[str, str]], path: Path) -> None:
 
 
 def run(mode: str, scope: str = "resolved", since: str | None = None,
-        until: str | None = None, show_jql: bool = False,
+        until: str | None = None, source: str = DEFAULT_SOURCE,
+        all_dates: bool = False, show_jql: bool = False,
         verbose: bool = False) -> int:
     config = load_config(mode_override=mode)
     logger = get_logger(TASK_NAME, log_dir=config.log_dir,
                         level="DEBUG" if verbose else "INFO")
 
+    if since is None and not all_dates:
+        since = DEFAULT_SINCE
+    if all_dates:
+        since = None
+
+    board_filter = str(config.get("container_reporters.board_filter",
+                                  BOARD_FILTER_ID) or BOARD_FILTER_ID)
     try:
         since = check_date(since, "--since")
         until = check_date(until, "--until")
-        jql = build_jql(scope, since=since, until=until)
+        jql = build_jql(scope, since=since, until=until, source=source,
+                        board_filter=board_filter)
     except ValueError as exc:
         raise FriendlyError(str(exc)) from exc
 
@@ -88,12 +112,26 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
         logger.warning("--since/--until ignored: open containers have no resolved date")
 
     logger.info("=" * 60)
-    logger.info("Container reporter export starting (%s mode, scope=%s)",
-                config.mode, scope)
+    logger.info("Container reporter export starting (%s mode, source=%s, scope=%s)",
+                config.mode, source, scope)
+    if source == "board":
+        logger.info("  Board filter: filter=%s (Project Parent, level1)", board_filter)
     if since or until:
         logger.info("  Resolved between %s and %s", since or "(any)", until or "(any)")
     if show_jql or verbose:
         logger.info("  JQL: %s", jql)
+
+    # The board filter selects work packages that are still Waiting / In
+    # Progress / Backlog, so a container drops off the board as soon as its
+    # last WP finishes. Asking that population for RESOLVED containers is a
+    # narrow question by construction — say so before the row count surprises
+    # anyone.
+    if source == "board" and scope == "resolved" and BOARD_IS_OPEN_WORK_ONLY:
+        logger.info("  NOTE: the board filter only holds containers that still "
+                    "have an open work package, so a container resolved and "
+                    "fully closed out is not in this population. Use "
+                    "--source overlay for every resolved container, or "
+                    "--scope all to see the board as it stands.")
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
     issues = fetch_containers(jira, jql, logger)
@@ -102,7 +140,9 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
     rows = build_rows(issues)
     if config.is_mock:
         # The fixture is the full population; the scope/date window is applied
-        # here so --mock previews the same shape a live run would produce.
+        # here so --mock previews the same shape a live run would produce. The
+        # relation() clause cannot be emulated offline — mock proves the shape,
+        # not the membership.
         rows = filter_rows(rows, scope, since=since, until=until)
         logger.info("  %d after applying scope/date filter to the fixture", len(rows))
 
@@ -165,10 +205,18 @@ def main() -> int:
                        help="Read from mock_data/ (default)")
     group.add_argument("--live", action="store_const", const="live", dest="mode",
                        help="Hit live JIRA (company laptop only)")
+    parser.add_argument("--source", choices=SOURCES, default=DEFAULT_SOURCE,
+                        help="Which container population: 'board' (the Project "
+                             f"Parents of saved filter {BOARD_FILTER_ID}, "
+                             "Singapore) or 'overlay' (issue-type query, "
+                             f"SG+Trutnov). Default: {DEFAULT_SOURCE}")
     parser.add_argument("--scope", choices=SCOPES, default="resolved",
                         help="Which containers to export (default: resolved)")
     parser.add_argument("--since", default=None,
-                        help="Only containers resolved on/after this date (YYYY-MM-DD)")
+                        help="Only containers resolved on/after this date "
+                             f"(YYYY-MM-DD; default {DEFAULT_SINCE})")
+    parser.add_argument("--all-dates", action="store_true",
+                        help=f"No date floor at all (drops the {DEFAULT_SINCE} default)")
     parser.add_argument("--until", default=None,
                         help="Only containers resolved on/before this date (YYYY-MM-DD)")
     parser.add_argument("--show-jql", action="store_true",
@@ -178,6 +226,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return run(args.mode, scope=args.scope, since=args.since, until=args.until,
+                   source=args.source, all_dates=args.all_dates,
                    show_jql=args.show_jql, verbose=args.verbose)
     except FriendlyError as exc:
         return handle_friendly(exc)

@@ -15,7 +15,7 @@ On-demand — `run_container_reporters.bat` on the company laptop. Not scheduled
 - [ ] M3 ERP / EDM / Confluence — not used. This task writes nothing anywhere.
 
 ## Input
-Optional CLI flags: `--scope`, `--since`, `--until`.
+Optional CLI flags: `--source`, `--scope`, `--since`, `--until`, `--all-dates`.
 
 ## Logic
 1. Build the JQL (`logic.build_jql`) from the KPI-overlay container filter plus a
@@ -45,8 +45,34 @@ not run. Two things make that checkable instead of assumed:
 - The run logs a tally by issue type, and any row that is not a parentless
   `Work Container` is listed as a WARNING (`logic.non_containers`).
 
-## Filtering — relationship to the KPI overlay
-The overlay's JQL (`tasks/kpi_overlay/main.py` `OPEN_WC_JQL`) is:
+## Filtering
+
+### `--source board` (default) — the Kanban board's own population
+The board is driven by saved filter **25423**, which selects *work packages*
+(template clones, `project != 'Issue Template'`) whose status is Waiting,
+In Progress or Backlog. The export takes those WPs' **Project Parents** — the
+containers:
+
+```
+issue in relation("filter=25423", "Project Parent", Tasks, Deviations, level1)
+AND "Product Type" = "SMT PCBA"
+AND "NPI Location" = "Singapore"
+```
+
+Singapore only, because that is what the board filter says.
+
+**Consequence worth knowing:** filter 25423 holds only containers that still
+have an open work package. A container that is resolved *and* fully closed out
+has left the board, so it cannot appear — `--source board --scope resolved` is
+a narrow population by construction, and the run logs a NOTE saying so. Use
+`--source overlay` for every resolved container regardless of the board, or
+`--scope all` to export the board as it currently stands.
+
+The filter ID lives in config (`container_reporters.board_filter`), not in the
+code — board rebuilds change it.
+
+### `--source overlay` — the KPI overlay's issue-type query
+`tasks/kpi_overlay/main.py` `OPEN_WC_JQL` is:
 
 ```
 issuetype = "Work Container"
@@ -55,7 +81,7 @@ AND "NPI Location" in ("Singapore", "Trutnov")
 AND resolution is EMPTY
 ```
 
-This task keeps the first three clauses verbatim — same population, same two
+This source keeps the first three clauses verbatim — same population, same two
 locations — and varies only the last one, because `resolution is EMPTY` is
 exactly the set that can never have a resolved date:
 
@@ -65,8 +91,15 @@ exactly the set that can never have a resolved date:
 | `open`     | `resolution is EMPTY`      | the overlay's exact set; resolved date always blank |
 | `all`      | *(none)*                   | both, open rows sort last with a blank resolved date |
 
+### Dates
 `--since` / `--until` are inclusive bounds on `resolutiondate` (YYYY-MM-DD).
 `--until` is sent as `<= "<date> 23:59"` so the whole end day is included.
+**`--since` defaults to `2025-01-01`**; `--all-dates` removes the floor.
+
+On `--scope all` the window is OR'd with `resolution is EMPTY`
+(`(resolutiondate >= "..." OR resolution is EMPTY)`) — a NULL resolved date
+fails every date comparison, so a bare bound would silently delete the open
+containers that scope exists to include.
 
 ## Fields & Data Mapping
 
@@ -87,6 +120,9 @@ exactly the set that can never have a resolved date:
 | PTxx Document | `customfield_13907` | project reference |
 
 ## Edge Cases
+- **Board filter drift** — filter 25423 is a saved filter someone else owns. If
+  it is edited or rebuilt the population changes with no error here; the run
+  logs the filter ID so a surprising row count is traceable to it.
 - **Reporter missing** — deleted or inactive JIRA account. The row is kept with a
   blank reporter and the keys are logged as a WARNING; dropping the container
   would silently shrink the count.
@@ -111,3 +147,5 @@ exactly the set that can never have a resolved date:
 - [x] A Work Package in the result is logged as a WARNING and shows its type and
       parent in the CSV.
 - [ ] Live run: row count matches the same JQL pasted into the JIRA issue search.
+- [ ] Live run: `--source board --scope all` matches the container count on the
+      Kanban board itself.

@@ -317,3 +317,12 @@ costing_hs_code_trigger:
       {outstanding_lines}
 
       Kindly update and reply on this ticket once done.
+
+# Container reporter export (tasks/container_reporters)
+# Read-only JIRA pull of Reporter + Resolved date at container level.
+container_reporters:
+  # Saved JIRA filter behind the NPI Kanban board. The export takes the
+  # Project Parents (level1) of the work packages this filter returns, so the
+  # CSV and the board agree by construction. Filter IDs change when a board is
+  # rebuilt — update this, not the code, when that happens.
+  board_filter: "25423"

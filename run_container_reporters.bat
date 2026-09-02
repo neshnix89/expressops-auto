@@ -4,14 +4,15 @@ REM  CONTAINER REPORTERS — Reporter + Resolved date export.
 REM  Double-click this. It:
 REM    1. syncs the latest code from GitHub (no git needed)
 REM    2. cleans config.yaml (strip UTF-8 BOM if present)
-REM    3. reads live JIRA (read-only - writes nothing back) using
-REM       the same container filter as the KPI overlay
+REM    3. reads live JIRA (read-only - writes nothing back) for the
+REM       containers behind the NPI Kanban board (filter 25423)
 REM    4. opens outputs\container_reporters.csv in Excel
 REM
-REM  Default: containers that are RESOLVED, all dates.
+REM  Default: board containers, RESOLVED, resolved on/after 2025-01-01.
 REM  Pass extra flags straight through, e.g.:
-REM      run_container_reporters.bat --since 2026-01-01
 REM      run_container_reporters.bat --scope all
+REM      run_container_reporters.bat --since 2026-01-01 --until 2026-06-30
+REM      run_container_reporters.bat --source overlay --all-dates
 REM ============================================================
 setlocal
 set "ROOT=%~dp0"
