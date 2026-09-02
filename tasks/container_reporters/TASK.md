@@ -18,9 +18,11 @@ On-demand — `run_container_reporters.bat` on the company laptop. Not scheduled
 Optional CLI flags: `--source`, `--scope`, `--since`, `--until`, `--all-dates`.
 
 ## Logic
-1. Build the JQL (`logic.build_jql`) from the KPI-overlay container filter plus a
-   resolution clause chosen by `--scope`.
-2. `jira.search_all` with paging, requesting only the fields the CSV needs.
+1. Build the JQL for the chosen `--source` (`logic.build_jql`, or
+   `lineage_jql` + `parents_jql` for `template`) plus a resolution clause from
+   `--scope` and the resolved-date window.
+2. `jira.search_all` with paging, requesting only the fields the CSV needs;
+   `template` dedupes containers across key batches.
 3. Flatten each issue to a row (`logic.issue_row`), sorted by resolved date.
 4. Write `outputs/container_reporters.csv` and log a per-reporter tally.
 
@@ -47,7 +49,40 @@ not run. Two things make that checkable instead of assumed:
 
 ## Filtering
 
-### `--source board` (default) — the Kanban board's own population
+### `--source template` (default) — the NPI family, closed containers included
+Filter 25423 selects work packages whose status is Waiting / In Progress /
+Backlog. A container leaves that filter the moment its last work package
+finishes, so **a fully closed container can never appear in it**. This source is
+the same lineage with that one clause removed, run as two queries:
+
+1. **Lineage** — every work package cloned from the eight ITPL templates
+   (`logic.lineage_jql`, filter 25423's text minus the status clause):
+
+   ```
+   issue in relation("issue in relation('key in (ITPL-769, ITPL-760, ITPL-756,
+   ITPL-750, ITPL-746, ITPL-742, ITPL-1036, ITPL-1027)', 'Project Children',
+   Tasks, Deviations, level4)", "Project Children", 'Clone from Template',
+   level4) and project != 'Issue Template'
+   ```
+
+2. **Containers** — those work packages' Project Parents, batched 250 keys at a
+   time (`logic.parents_jql`), with the export's own filters applied:
+
+   ```
+   issue in relation("key in (<wp keys>)", "Project Parent", Tasks, Deviations, level1)
+   AND "Product Type" = "SMT PCBA" AND "NPI Location" = "Singapore"
+   AND resolution is not EMPTY AND resolutiondate >= "2025-01-01"
+   ```
+
+Two queries, not one, for two reasons: nesting the lineage relation() inside the
+Project-Parent relation() needs a third level of quoting and JQL has only `"`
+and `'`; and passing the WP *keys* to step 2 does not assume the `parent` field
+is populated — the WC/WP hierarchy here is a relation, not a subtask link.
+
+With the default `--scope resolved` this is exactly "containers in the board's
+filtering that are fully closed". `--scope all` gives the whole family.
+
+### `--source board` — the Kanban board's own population
 The board is driven by saved filter **25423**, which selects *work packages*
 (template clones, `project != 'Issue Template'`) whose status is Waiting,
 In Progress or Backlog. The export takes those WPs' **Project Parents** — the
@@ -61,15 +96,14 @@ AND "NPI Location" = "Singapore"
 
 Singapore only, because that is what the board filter says.
 
-**Consequence worth knowing:** filter 25423 holds only containers that still
-have an open work package. A container that is resolved *and* fully closed out
-has left the board, so it cannot appear — `--source board --scope resolved` is
-a narrow population by construction, and the run logs a NOTE saying so. Use
-`--source overlay` for every resolved container regardless of the board, or
-`--scope all` to export the board as it currently stands.
+`--source board --scope resolved` is therefore a narrow, odd population — a
+container that is closed while a work package is still open — and the run logs
+a NOTE pointing at `--source template`. `--source board --scope all` is the
+useful form: the board exactly as it stands.
 
-The filter ID lives in config (`container_reporters.board_filter`), not in the
-code — board rebuilds change it.
+The filter ID and the template keys live in config
+(`container_reporters.board_filter`, `.template_keys`), not in the code — board
+rebuilds change them.
 
 ### `--source overlay` — the KPI overlay's issue-type query
 `tasks/kpi_overlay/main.py` `OPEN_WC_JQL` is:
@@ -122,7 +156,12 @@ containers that scope exists to include.
 ## Edge Cases
 - **Board filter drift** — filter 25423 is a saved filter someone else owns. If
   it is edited or rebuilt the population changes with no error here; the run
-  logs the filter ID so a surprising row count is traceable to it.
+  logs the filter ID so a surprising row count is traceable to it. `--source
+  template` reads the template keys from config instead, so it is unaffected by
+  edits to the saved filter — and equally will not follow a template added to
+  it. The templates are logged every run.
+- **A container reachable from several work packages** — normal (a container has
+  ~9). Deduped by key across batches.
 - **Reporter missing** — deleted or inactive JIRA account. The row is kept with a
   blank reporter and the keys are logged as a WARNING; dropping the container
   would silently shrink the count.
@@ -149,3 +188,5 @@ containers that scope exists to include.
 - [ ] Live run: row count matches the same JQL pasted into the JIRA issue search.
 - [ ] Live run: `--source board --scope all` matches the container count on the
       Kanban board itself.
+- [ ] Live run: a container known to be fully closed (e.g. NPIOTHER-4681 and its
+      WPs NPIOTHER-4707..4714, all Done) appears under `--source template`.

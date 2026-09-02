@@ -2,8 +2,12 @@
 container_reporters — who reported each Work Container, and when it was resolved.
 
 A read-only JIRA pull of container-level issues, exported as Reporter +
-Resolved date to CSV. The population comes from ``--source``: the Kanban
-board's own filter (default) or the KPI overlay's issue-type query.
+Resolved date to CSV. The population comes from ``--source``: the NPI template
+family (default), the Kanban board's saved filter, or the KPI overlay's
+issue-type query.
+
+Default run = containers cloned from the NPI templates, SMT PCBA, Singapore,
+FULLY CLOSED (resolution set), resolved on/after 2025-01-01.
 
 Containers resolved before 2025-01-01 are excluded by default (--all-dates
 lifts that).
@@ -15,12 +19,18 @@ Usage:
     python -m tasks.container_reporters.main --live                  # company laptop
     python -m tasks.container_reporters.main --live --since 2026-01-01
     python -m tasks.container_reporters.main --live --scope all
+    python -m tasks.container_reporters.main --live --source board --scope all
     python -m tasks.container_reporters.main --live --source overlay --all-dates
     python -m tasks.container_reporters.main --live --show-jql --verbose
 
 Sources (--source):
-    board    (default) the containers behind the NPI Kanban board — the Project
-             Parents of saved filter 25423, Singapore, SMT PCBA
+    template (default) the same NPI family the board draws from, without the
+             board's open-status restriction: every work package cloned from
+             the eight ITPL templates, resolved back to its container. The only
+             source that can return a FULLY CLOSED container.
+    board    saved filter 25423 verbatim — the Project Parents of the template
+             clones that are Waiting / In Progress / Backlog. Matches the board,
+             and so holds only containers with open work left.
     overlay  the plain issue-type query tasks/kpi_overlay/main.py runs
              (Work Container + SMT PCBA + Singapore/Trutnov)
 
@@ -53,8 +63,9 @@ from core.jira_client import JiraClient
 from core.logger import get_logger
 from tasks.container_reporters.logic import (
     BOARD_FILTER_ID, BOARD_IS_OPEN_WORK_ONLY, CSV_COLUMNS, DEFAULT_SOURCE,
-    FIELDS, SCOPES, SOURCES, WC_ISSUE_TYPE,
-    build_jql, build_rows, check_date, count_by, filter_rows, non_containers,
+    FIELDS, SCOPES, SOURCES, TEMPLATE_KEYS, WC_ISSUE_TYPE,
+    build_jql, build_rows, check_date, chunk, count_by, filter_rows,
+    lineage_jql, non_containers, parents_jql,
 )
 
 TASK_NAME = "container_reporters"
@@ -67,13 +78,62 @@ CSV_FILE = OUTPUT_DIR / "container_reporters.csv"
 DEFAULT_SINCE = "2025-01-01"
 
 
+def load_mock_containers() -> list[dict]:
+    with open(MOCK_DIR / "containers.json", "r", encoding="utf-8") as f:
+        return json.load(f).get("issues", [])
+
+
 def fetch_containers(jira: JiraClient, jql: str, logger) -> list[dict]:
-    """Containers from live JIRA, or from mock_data/containers.json."""
+    """Containers from one JQL (board / overlay sources)."""
     if jira.config.is_mock:
-        path = MOCK_DIR / "containers.json"
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f).get("issues", [])
+        return load_mock_containers()
     return jira.search_all(jql, fields=FIELDS)
+
+
+def fetch_template_containers(jira: JiraClient, scope: str, since: str | None,
+                              until: str | None, template_keys: tuple[str, ...],
+                              logger) -> list[dict]:
+    """Two-step fetch for the ``template`` source.
+
+    1. every work package cloned from the NPI templates (filter 25423 without
+       its open-status clause);
+    2. those work packages' containers, batched, filtered to scope + dates.
+
+    Two queries rather than one because nesting the lineage relation() inside
+    the Project-Parent relation() would need a third level of quoting. Passing
+    the work-package KEYS to step 2 keeps every query one level deep, and does
+    not depend on the `parent` field being populated — the WC/WP hierarchy here
+    is a relation, not a subtask link.
+    """
+    if jira.config.is_mock:
+        return load_mock_containers()
+
+    lineage = lineage_jql(template_keys)
+    logger.info("  [1/2] Work packages cloned from %d template(s)...",
+                len(template_keys))
+    logger.debug("        %s", lineage)
+    wp_keys = sorted({i["key"] for i in jira.search_all(lineage, fields=["key"])})
+    logger.info("        %d work package(s)", len(wp_keys))
+    if not wp_keys:
+        logger.warning("        No work packages matched — check the template "
+                       "keys (container_reporters.template_keys)")
+        return []
+
+    batches = chunk(wp_keys)
+    logger.info("  [2/2] Their containers, in %d batch(es) of up to %d keys...",
+                len(batches), len(batches[0]))
+    seen: set[str] = set()
+    issues: list[dict] = []
+    for n, batch in enumerate(batches, 1):
+        found = jira.search_all(parents_jql(batch, scope, since=since, until=until),
+                                fields=FIELDS)
+        new = [i for i in found if i.get("key") and i["key"] not in seen]
+        seen.update(i["key"] for i in new)
+        issues.extend(new)
+        logger.debug("        batch %d/%d: %d hit(s), %d new (running total %d)",
+                     n, len(batches), len(found), len(new), len(issues))
+    logger.info("        %d distinct container(s)", len(issues))
+    return issues
 
 
 def write_csv(rows: list[dict[str, str]], path: Path) -> None:
@@ -100,11 +160,14 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
 
     board_filter = str(config.get("container_reporters.board_filter",
                                   BOARD_FILTER_ID) or BOARD_FILTER_ID)
+    template_keys = tuple(config.get("container_reporters.template_keys",
+                                     TEMPLATE_KEYS) or TEMPLATE_KEYS)
     try:
         since = check_date(since, "--since")
         until = check_date(until, "--until")
-        jql = build_jql(scope, since=since, until=until, source=source,
-                        board_filter=board_filter)
+        jql = None if source == "template" else build_jql(
+            scope, since=since, until=until, source=source,
+            board_filter=board_filter)
     except ValueError as exc:
         raise FriendlyError(str(exc)) from exc
 
@@ -116,10 +179,18 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
                 config.mode, source, scope)
     if source == "board":
         logger.info("  Board filter: filter=%s (Project Parent, level1)", board_filter)
+    elif source == "template":
+        logger.info("  Templates: %s", ", ".join(template_keys))
     if since or until:
         logger.info("  Resolved between %s and %s", since or "(any)", until or "(any)")
     if show_jql or verbose:
-        logger.info("  JQL: %s", jql)
+        if source == "template":
+            logger.info("  Lineage JQL: %s", lineage_jql(template_keys))
+            logger.info("  Container JQL (per batch): %s",
+                        parents_jql(["<work package keys>"], scope,
+                                    since=since, until=until))
+        else:
+            logger.info("  JQL: %s", jql)
 
     # The board filter selects work packages that are still Waiting / In
     # Progress / Backlog, so a container drops off the board as soon as its
@@ -127,14 +198,17 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
     # narrow question by construction — say so before the row count surprises
     # anyone.
     if source == "board" and scope == "resolved" and BOARD_IS_OPEN_WORK_ONLY:
-        logger.info("  NOTE: the board filter only holds containers that still "
-                    "have an open work package, so a container resolved and "
-                    "fully closed out is not in this population. Use "
-                    "--source overlay for every resolved container, or "
-                    "--scope all to see the board as it stands.")
+        logger.info("  NOTE: filter %s only holds containers that still have an "
+                    "open work package, so a fully closed container cannot "
+                    "appear here. --source template is the same NPI family "
+                    "without that restriction.", board_filter)
 
     jira = JiraClient(config, mock_data_dir=MOCK_DIR)
-    issues = fetch_containers(jira, jql, logger)
+    if source == "template":
+        issues = fetch_template_containers(jira, scope, since, until,
+                                           template_keys, logger)
+    else:
+        issues = fetch_containers(jira, jql, logger)
     logger.info("  JIRA returned %d container(s)", len(issues))
 
     rows = build_rows(issues)

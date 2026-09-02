@@ -26,23 +26,36 @@ from core.kpi_core import (
 # from a query that asks for exactly this is worth a warning, not a silent row.
 WC_ISSUE_TYPE = "Work Container"
 
-# ─── The two ways to say "these containers" ───
+# ─── The three ways to say "these containers" ───
 #
-# board   — the containers behind the NPI Kanban board: the Project Parents of
-#           the work packages in saved filter 25423 (template clones that are
-#           Waiting / In Progress / Backlog). This is the board's own
-#           definition, so the export and the board agree by construction.
-#           Singapore only, per the board filter.
-# overlay — the plain issue-type query tasks/kpi_overlay/main.py runs
-#           (Work Container + SMT PCBA + SG/Trutnov). Independent of the board,
-#           so it also catches containers the board filter has dropped.
-SOURCES = ("board", "overlay")
-DEFAULT_SOURCE = "board"
+# template — the same NPI family the board draws from, WITHOUT the board's
+#            open-status restriction: every work package cloned from the eight
+#            ITPL templates, resolved back to its container. This is the only
+#            source that can return a fully closed container, because filter
+#            25423 requires an open work package to include one at all.
+# board    — saved filter 25423 verbatim: the Project Parents of the template
+#            clones that are Waiting / In Progress / Backlog. Matches the board
+#            exactly, and therefore holds only containers with open work left.
+# overlay  — the plain issue-type query tasks/kpi_overlay/main.py runs
+#            (Work Container + SMT PCBA + SG/Trutnov). Independent of the
+#            templates, so it also catches containers cloned from elsewhere.
+SOURCES = ("template", "board", "overlay")
+DEFAULT_SOURCE = "template"
+
+# The eight NPI issue templates behind filter 25423. Config
+# `container_reporters.template_keys` overrides the list.
+TEMPLATE_KEYS = ("ITPL-769", "ITPL-760", "ITPL-756", "ITPL-750",
+                 "ITPL-746", "ITPL-742", "ITPL-1036", "ITPL-1027")
+
+# How many work-package keys go into one `key in (...)` clause. JIRA takes far
+# more than this, but a shorter query is a readable query in the log.
+KEY_CHUNK = 250
 
 # Saved JIRA filter behind the board. Config `container_reporters.board_filter`
 # overrides it — filter IDs change when a board is rebuilt.
 BOARD_FILTER_ID = "25423"
 
+TEMPLATE_LOCATIONS = ("Singapore",)
 BOARD_LOCATIONS = ("Singapore",)
 OVERLAY_LOCATIONS = ("Singapore", "Trutnov")
 
@@ -105,53 +118,113 @@ def base_clauses(source: str = DEFAULT_SOURCE,
         first = (f'issue in relation("filter={board_filter}", "Project Parent", '
                  "Tasks, Deviations, level1)")
         locations = locations or BOARD_LOCATIONS
+    elif source == "template":
+        # Filled in per chunk by parents_jql(); template runs as two queries.
+        first = None
+        locations = locations or TEMPLATE_LOCATIONS
     else:
         first = 'issuetype = "Work Container"'
         locations = locations or OVERLAY_LOCATIONS
 
-    return [first, PRODUCT_TYPE_CLAUSE, location_clause(locations)]
+    clauses = [PRODUCT_TYPE_CLAUSE, location_clause(locations)]
+    return clauses if first is None else [first, *clauses]
 
 
-def build_jql(scope: str = "resolved", since: str | None = None,
-              until: str | None = None, source: str = DEFAULT_SOURCE,
-              board_filter: str = BOARD_FILTER_ID,
-              locations: tuple[str, ...] | None = None) -> str:
-    """Build the container JQL for a source, scope and resolved-date window.
+def scope_and_date_clauses(scope: str = "resolved", since: str | None = None,
+                           until: str | None = None) -> list[str]:
+    """The resolution clause plus the resolved-date window, shared by sources.
 
-    scope:
-      resolved — resolution is not EMPTY  (the default; these have a resolved date)
-      open     — resolution is EMPTY
-      all      — no resolution clause     (open containers keep a blank date)
-
-    ``since``/``until`` are inclusive bounds on ``resolutiondate`` (YYYY-MM-DD).
-    On ``all`` they are OR'd with ``resolution is EMPTY``: a NULL resolved date
-    fails any date comparison, so a bare bound would quietly delete every open
-    container from a scope that exists to include them.
+    On ``all`` the window is OR'd with ``resolution is EMPTY``: a NULL resolved
+    date fails any date comparison, so a bare bound would quietly delete every
+    open container from the one scope that exists to include them.
     """
     if scope not in SCOPES:
         raise ValueError(f"unknown scope {scope!r} — use one of: {', '.join(SCOPES)}")
 
-    clauses = base_clauses(source, board_filter=board_filter, locations=locations)
+    clauses = []
     if scope == "resolved":
         clauses.append("resolution is not EMPTY")
     elif scope == "open":
         clauses.append("resolution is EMPTY")
 
-    if scope != "open":
-        window = []
-        if since:
-            window.append(f'resolutiondate >= "{since}"')
-        if until:
-            # JQL compares against the timestamp, so "<= 2026-01-31" would drop
-            # anything resolved during that day. Bound the end of the day.
-            window.append(f'resolutiondate <= "{until} 23:59"')
-        if window and scope == "all":
-            clauses.append("(" + " AND ".join(window) + " OR resolution is EMPTY)")
-        else:
-            clauses.extend(window)
+    if scope == "open":
+        return clauses
 
-    order = "created ASC" if scope == "open" else "resolutiondate ASC"
-    return " AND ".join(clauses) + f" ORDER BY {order}"
+    window = []
+    if since:
+        window.append(f'resolutiondate >= "{since}"')
+    if until:
+        # JQL compares against the timestamp, so "<= 2026-01-31" would drop
+        # anything resolved during that day. Bound the end of the day.
+        window.append(f'resolutiondate <= "{until} 23:59"')
+    if window and scope == "all":
+        clauses.append("(" + " AND ".join(window) + " OR resolution is EMPTY)")
+    else:
+        clauses.extend(window)
+    return clauses
+
+
+def order_by(scope: str) -> str:
+    return " ORDER BY created ASC" if scope == "open" else " ORDER BY resolutiondate ASC"
+
+
+def build_jql(scope: str = "resolved", since: str | None = None,
+              until: str | None = None, source: str = "board",
+              board_filter: str = BOARD_FILTER_ID,
+              locations: tuple[str, ...] | None = None) -> str:
+    """Single-query JQL for the ``board`` and ``overlay`` sources.
+
+    ``template`` needs two queries (lineage_jql then parents_jql) and is not
+    expressible here — nesting its relation() inside another relation() would
+    need a third level of quoting that JQL has no character left for.
+    """
+    if source == "template":
+        raise ValueError("the 'template' source runs lineage_jql + parents_jql, "
+                         "not build_jql")
+    clauses = base_clauses(source, board_filter=board_filter, locations=locations)
+    clauses += scope_and_date_clauses(scope, since=since, until=until)
+    return " AND ".join(clauses) + order_by(scope)
+
+
+def lineage_jql(template_keys: tuple[str, ...] = TEMPLATE_KEYS) -> str:
+    """Every work package cloned from the NPI templates, open or closed.
+
+    This is saved filter 25423's own text with one clause removed — the
+    ``status in (Waiting, "In Progress", Backlog)`` restriction. That clause is
+    what keeps a finished container off the board, so dropping it is exactly
+    what "the same filtering, but the closed ones" means.
+    """
+    keys = ", ".join(template_keys)
+    inner = (f"issue in relation('key in ({keys})', 'Project Children', "
+             "Tasks, Deviations, level4)")
+    return (f'issue in relation("{inner}", "Project Children", '
+            "'Clone from Template', level4) and project != 'Issue Template'")
+
+
+def parents_jql(wp_keys: list[str], scope: str = "resolved",
+                since: str | None = None, until: str | None = None,
+                locations: tuple[str, ...] | None = None) -> str:
+    """The containers of a batch of work packages, filtered to scope + dates.
+
+    Takes the WP keys rather than nesting :func:`lineage_jql` inside another
+    relation() — one level of quoting instead of three, and the log shows
+    exactly which issues each container came from.
+    """
+    if not wp_keys:
+        raise ValueError("parents_jql needs at least one work-package key")
+    keys = ", ".join(wp_keys)
+    clauses = [
+        f'issue in relation("key in ({keys})", "Project Parent", '
+        "Tasks, Deviations, level1)",
+        *base_clauses("template", locations=locations),
+    ]
+    clauses += scope_and_date_clauses(scope, since=since, until=until)
+    return " AND ".join(clauses) + order_by(scope)
+
+
+def chunk(items: list[str], size: int = KEY_CHUNK) -> list[list[str]]:
+    """Split a key list into JQL-sized batches."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def _user(field: dict[str, Any] | None) -> tuple[str, str, str]:

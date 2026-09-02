@@ -326,3 +326,9 @@ container_reporters:
   # CSV and the board agree by construction. Filter IDs change when a board is
   # rebuilt — update this, not the code, when that happens.
   board_filter: "25423"
+  # The NPI issue templates that filter sits on. --source template walks these
+  # to every cloned work package and back up to its container, which is how a
+  # FULLY CLOSED container is reachable at all — the saved filter itself only
+  # keeps containers that still have an open work package.
+  template_keys: ["ITPL-769", "ITPL-760", "ITPL-756", "ITPL-750",
+                  "ITPL-746", "ITPL-742", "ITPL-1036", "ITPL-1027"]
