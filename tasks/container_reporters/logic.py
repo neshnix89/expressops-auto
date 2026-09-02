@@ -81,7 +81,8 @@ FIELDS = [
 # would show its own type and its container's key.
 CSV_COLUMNS = [
     "issueKey", "issueType", "parentKey", "reporter", "reporterUser",
-    "reporterEmail", "resolvedDate", "resolvedTimestamp", "resolution",
+    "reporterEmail", "assignee", "assigneeUser", "assigneeEmail",
+    "resolvedDate", "resolvedTimestamp", "resolution",
     "status", "location", "orderType", "requestType", "created",
     "ptDocument", "summary",
 ]
@@ -242,6 +243,7 @@ def issue_row(issue: dict[str, Any]) -> dict[str, str]:
     """Flatten one container issue into the CSV row shape."""
     fields = issue.get("fields", {}) or {}
     display, user, email = _user(fields.get("reporter"))
+    a_display, a_user, a_email = _user(fields.get("assignee"))
 
     resolved_ts = fields.get("resolutiondate") or ""
     resolved_d = to_date(resolved_ts)
@@ -260,6 +262,9 @@ def issue_row(issue: dict[str, Any]) -> dict[str, str]:
         "reporter": display,
         "reporterUser": user,
         "reporterEmail": email,
+        "assignee": a_display,
+        "assigneeUser": a_user,
+        "assigneeEmail": a_email,
         "resolvedDate": str(resolved_d) if resolved_d else "",
         "resolvedTimestamp": resolved_ts,
         "resolution": resolution.get("name", "") if isinstance(resolution, dict) else "",

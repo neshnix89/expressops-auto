@@ -1,8 +1,9 @@
 # Task: Container Reporters (Reporter + Resolved date export)
 
 ## Purpose
-Pull the Reporter and the Resolved date for NPI Work Containers out of JIRA, using
-the same container filter the KPI overlay uses, and write them to a CSV.
+Pull the Reporter, Assignee and Resolved date for NPI Work Containers out of
+JIRA, using the container population behind the NPI Kanban board, and write
+them to a CSV.
 
 ## Category
 General
@@ -32,8 +33,9 @@ Optional CLI flags: `--source`, `--scope`, `--since`, `--until`, `--all-dates`.
 - `logs/container_reporters.log` — the JQL, the counts, the per-reporter tally.
 
 Columns: `issueKey, issueType, parentKey, reporter, reporterUser, reporterEmail,
-resolvedDate, resolvedTimestamp, resolution, status, location, orderType,
-requestType, created, ptDocument, summary`.
+assignee, assigneeUser, assigneeEmail, resolvedDate, resolvedTimestamp,
+resolution, status, location, orderType, requestType, created, ptDocument,
+summary`.
 
 ## Container level only
 The JQL asks for `issuetype = "Work Container"`, so Work Packages are never
@@ -144,6 +146,7 @@ containers that scope exists to include.
 | Parent | `parent` (system) | blank on containers; set on Work Packages |
 | Request Type | `customfield_13903` | "NPI Request" etc. |
 | Reporter | `reporter` (system) | who raised the container — display name, username, email |
+| Assignee | `assignee` (system) | who owns the container; blank when unassigned (counted in the log) |
 | Resolved | `resolutiondate` (system) | the resolved date; date part + raw timestamp |
 | Resolution | `resolution` (system) | Done / Cancelled / … — distinguishes finished from dropped |
 | Status | `status` (system) | current workflow status |

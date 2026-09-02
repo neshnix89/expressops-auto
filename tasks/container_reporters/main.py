@@ -1,8 +1,9 @@
 """
-container_reporters — who reported each Work Container, and when it was resolved.
+container_reporters — who reported and owns each Work Container, and when it
+was resolved.
 
 A read-only JIRA pull of container-level issues, exported as Reporter +
-Resolved date to CSV. The population comes from ``--source``: the NPI template
+Assignee + Resolved date to CSV. The population comes from ``--source``: the NPI template
 family (default), the Kanban board's saved filter, or the KPI overlay's
 issue-type query.
 
@@ -250,6 +251,10 @@ def run(mode: str, scope: str = "resolved", since: str | None = None,
         logger.info("    %-30s %d", name, count)
     if len(by_reporter) > 15:
         logger.info("    ... and %d more", len(by_reporter) - 15)
+
+    unassigned = sum(1 for r in rows if not r["assignee"])
+    if unassigned:
+        logger.info("  %d container(s) unassigned", unassigned)
 
     logger.info("  By issue type: %s", ", ".join(
         f"{t}={n}" for t, n in count_by(rows, "issueType")) or "none")
