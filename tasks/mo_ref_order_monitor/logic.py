@@ -147,6 +147,10 @@ def new_state(mo_no: str) -> dict:
         "abandoned": False,
         "issue_active": False,         # IS flag currently on the ref order no
         "issue_stage": "",             # which stage that open issue sits on
+        # Freshness of the last observation we ACCEPTED, so a replica serving an
+        # older row can be recognised and ignored — see stale_reason().
+        "last_change_no": None,        # VHCHNO, monotonic per MO in M3
+        "last_m3_modified": None,      # VHLMDT
         "history": [],                 # completed stages (with work_seconds)
         "days": {},                    # 'YYYY-MM-DD' -> per-day aggregate
     }
@@ -220,6 +224,48 @@ def _issue_actions(state: dict, marker: str, issue_regex: str | None,
     return [Action("webex", reason=reason, webex_marker=marker)]
 
 
+def _as_int(v) -> int | None:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def stale_reason(state: dict, obs: Observation) -> str:
+    """
+    Non-empty when this observation is OLDER than one already accepted.
+
+    `MWOHED_AP` is an ODS *replica*, and on 15-Sep it served rows that were
+    days behind what the previous poll had already read: six MOs came back with
+    a LOWER VHCHNO and an earlier VHLMDT at once. VHCHNO is M3's per-MO change
+    counter and only ever increases, so a decrease cannot be a real edit — it
+    means the query hit a lagging copy (the DSN is failover-enabled, so a
+    different node can answer).
+
+    Taken at face value that looks exactly like work being undone: status
+    90 -> 60 reads as a RE-OPEN, and `QM-IS` -> `QM` reads as an issue being
+    resolved. Six false alerts went to the group before anyone could see that
+    M3 itself had not changed.
+
+    A genuine re-open or stage change always carries a HIGHER change number, so
+    this check costs nothing real and only ever suppresses time travel.
+    """
+    seen_chg = _as_int(state.get("last_change_no"))
+    now_chg = _as_int(obs.change_no)
+    if seen_chg is not None and now_chg is not None and now_chg < seen_chg:
+        return (f"M3 returned change #{now_chg} but #{seen_chg} was already "
+                f"recorded — the ODS replica is serving an older row")
+
+    # Fall back to the modified date when the change number is missing or not
+    # numeric. Only a strictly EARLIER date counts: same-day edits are normal.
+    seen_mod = str(state.get("last_m3_modified") or "").strip()
+    now_mod = str(obs.last_modified or "").strip()
+    if (seen_chg is None or now_chg is None) and seen_mod and now_mod and now_mod < seen_mod:
+        return (f"M3 last-modified {now_mod} is older than the recorded "
+                f"{seen_mod} — the ODS replica is serving an older row")
+    return ""
+
+
 def apply_observation(state: dict, obs: Observation,
                       holidays: set | None = None,
                       issue_regex: str | None = None,
@@ -243,6 +289,11 @@ def apply_observation(state: dict, obs: Observation,
         state["order_type"] = obs.order_type
     if obs.responsible:
         state["responsible"] = obs.responsible
+    # Accepted: remember how fresh this row was, so a later older one is caught.
+    if obs.change_no:
+        state["last_change_no"] = obs.change_no
+    if obs.last_modified:
+        state["last_m3_modified"] = obs.last_modified
 
     today = obs.at.date().isoformat()
     active = is_active(obs.status)

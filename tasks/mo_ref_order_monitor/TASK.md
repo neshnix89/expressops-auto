@@ -83,6 +83,14 @@ Table `PFODS.MWOHED_AP` (123 cols). ODBC path confirmed; no H5 scraping needed.
 Real observed `VHRORN` values: `QM`, `WW`, `0536`, `AOI`, `TP-IS`, `PACK-IS`,
 `S.S-IS`, `GERALD`, `JIRA`, `BREAK`. Free text — treat as opaque, never parse.
 
+**The replica can go BACKWARDS.** On 15-Sep the 10:00 poll returned rows that
+were days older than the 09:30 poll for six MOs at once — lower `VHCHNO`,
+earlier `VHLMDT`. The DSN is failover-enabled (`Failover=T`, ServerName
+`SGPODS`), so a different node can answer and be behind. Read literally that is
+work being undone: sts 90→60 is a RE-OPEN, `QM-IS`→`QM` is an issue cleared.
+Six false alerts went out. `VHCHNO` only ever increases in M3, so any decrease
+is now treated as stale and the MO is skipped for that run (`stale_reason()`).
+
 **No per-field change history in M3.** `VHLMDT` only flags that the header
 changed at all, so the poller builds its own dwell history. `MWOHED_AP` is an
 ODS *replica* — a fresh P1 edit can lag; `VHLMDT`/`VHCHNO` are logged each poll
@@ -164,12 +172,18 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    that used to clip the opening characters of a typed message; the primer was
    dropped by accident in the switch to pasting and had to be restored.
    Verified working 13-Aug 15:12 — first attempt, no retries.
-9. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
+10. **`$ErrorActionPreference = "Stop"` makes `Write-Error` terminating**, so
    every `exit <code>` after one is dead code and PowerShell returns 1. Exit
    codes must be written to stderr by hand or the caller cannot tell a refusal
    from a crash — and Python retried the refusal, having been told it was
    transient.
-6. **A locked screen cannot be typed into, and out-of-hours alerts wait.**
+6. **Never trust a replica to move forwards.** `MWOHED_AP` served older rows
+   mid-morning on 15-Sep and the monitor published six regressions —
+   re-opens and issue-cleared alerts for MOs that had not changed in M3 at all.
+   The freshness fields were already being LOGGED for exactly this scenario;
+   they just were not being CHECKED. A monotonic counter is only a diagnostic
+   until something acts on it.
+7. **A locked screen cannot be typed into, and out-of-hours alerts wait.**
    The desktop transport needs an unlocked session. An alert raised at 18:31 or
    on a Friday sits queued until someone unlocks — 60+ hours over a weekend.
    The original 12h `max_age_hours` therefore DESTROYED two real alerts
@@ -178,9 +192,9 @@ Production is **fleet-wide** (`pilot_containers: []`) as of 13-Aug-2026.
    ''"), and a late alert is delivered prefixed `(delayed 14h)` so it reads as
    history rather than news. Only the webhook/bot transport can post to a
    locked machine — one more reason to chase I2607-2336.
-7. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
+8. **JIRA wiki markup in cells.** A leading `#` renders as a numbered list; bare
    `|` splits the row. `VHRORN` is free text, so every cell is sanitised.
-8. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
+9. **Pasting removed the escaping problem.** Typing needed SendKeys escaping for
    emoji and `( ) % [ ]`, and Shift+Enter for internal line breaks. The payload
    is now RAW text — do not re-introduce escaping, or the braces get pasted
    verbatim.
