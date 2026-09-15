@@ -43,7 +43,7 @@ from core.m3 import M3Client
 
 from tasks.mo_ref_order_monitor import state as state_store
 from tasks.mo_ref_order_monitor.logic import (
-    apply_observation, has_section, new_state, upsert_mo_section,
+    apply_observation, has_section, new_state, stale_reason, upsert_mo_section,
 )
 from tasks.mo_ref_order_monitor.m3_mo import fetch_mo_header
 from tasks.mo_ref_order_monitor.webex import WebexNotifier
@@ -327,6 +327,21 @@ def run(args: argparse.Namespace) -> int:
         # enters a value it registers as a normal change.
         if not obs.marker:
             obs.marker = no_status_label
+
+        # The ODS replica can serve a row OLDER than one already processed (a
+        # failover node, or a refresh mid-flight). Acting on it would undo real
+        # progress: status 90 -> 60 reads as a re-open, QM-IS -> QM as an issue
+        # cleared. On 15-Sep that produced six false alerts in one run. Skip the
+        # MO entirely — state untouched, nothing published, nothing alerted —
+        # and pick it up again when the replica catches up.
+        stale = stale_reason(state, obs)
+        if stale:
+            log.warning("MO %s: STALE M3 data, skipping this run — %s "
+                        "[M3 lastmod=%s chg#=%s by=%s]",
+                        mo_no, stale, obs.last_modified or "?",
+                        obs.change_no or "?", obs.changed_by or "?")
+            skipped += 1
+            continue
 
         actions = apply_observation(state, obs, issue_regex=issue_regex,
                                     baseline_closed=baseline_closed)
