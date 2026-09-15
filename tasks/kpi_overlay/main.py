@@ -360,20 +360,34 @@ def run(mode: str, source: str | None = None, dry_run: bool = False,
     logger.info("Cache written: %s (%d bytes)", CACHE_FILE, len(payload))
 
     if config.is_live:
+        # A failure here must EXIT NON-ZERO. The whole point of this task is the
+        # upload: computing the cache and not publishing it leaves the pills
+        # frozen at whatever was there before, with no error on the board. Under
+        # Task Scheduler an exit of 0 shows up as "result=0", so a silent return
+        # here means a job that looks healthy for weeks while doing nothing.
         page_id = config.pages.get("kpi_overlay_cache")
         if not page_id:
             logger.error(
-                "No pages.kpi_overlay_cache in config.yaml — cannot upload. "
-                "Add: pages.kpi_overlay_cache: 572629046"
+                "No pages.kpi_overlay_cache in config.yaml — cannot upload, so "
+                "the overlay pills will NOT update. Add to config.yaml:\n"
+                "  pages:\n    kpi_overlay_cache: 572629046"
             )
-        else:
-            logger.info("Uploading cache to Confluence page %s...", page_id)
+            return 1
+        logger.info("Uploading cache to Confluence page %s...", page_id)
+        try:
             confluence = ConfluenceClient(config, mock_data_dir=MOCK_DIR)
             confluence.upload_attachment(
                 page_id, ATTACHMENT_NAME, payload.encode("utf-8"),
                 content_type="application/json",
             )
-            logger.info("  Uploaded %s to page %s", ATTACHMENT_NAME, page_id)
+        except Exception as exc:  # noqa: BLE001 — report, never pretend success
+            logger.error("Upload to Confluence page %s FAILED: %s", page_id, exc)
+            logger.error("  The cache was computed but NOT published — the pills "
+                         "on the board still show the previous run. Check that "
+                         "this account can EDIT that page (read access is not "
+                         "enough) and that confluence.pat is set.")
+            return 1
+        logger.info("  Uploaded %s to page %s", ATTACHMENT_NAME, page_id)
     else:
         logger.info("Mock mode — skipping Confluence upload.")
 
