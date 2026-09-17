@@ -1,0 +1,5 @@
+Item number,Lot number,Warehouse,Location,Container
+70123456,LOT0001,SG1,A-01-01,
+70123457,LOT0002,SG1,A-01-02,
+,,,,
+70123458,,SG1,A-01-03,
