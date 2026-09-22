@@ -112,6 +112,13 @@ def run(mode: str, verbose: bool) -> int:
     logger.info("  %d open Work Container(s)", len(wc_issues))
 
     rows = []
+    # Every resolution value actually seen on a gate package, and how often.
+    # The accepted set (Done / Acknowledged / Won't Do) was chosen from how the
+    # process is described, not from the data; anything else in here silently
+    # holds a gate open forever, so it has to be looked at rather than assumed.
+    seen_resolutions: dict[str, int] = {}
+    gate_names = set(SMT_BUILD_GATE_WPS)
+
     for wc in wc_issues:
         key = wc["key"]
         try:
@@ -121,6 +128,12 @@ def run(mode: str, verbose: bool) -> int:
             continue
         if not wps:
             continue
+
+        for wp in wps:
+            if wp["summary"].strip().lower() not in gate_names:
+                continue
+            label = wp["resolution"] or "(unresolved)"
+            seen_resolutions[label] = seen_resolutions.get(label, 0) + 1
 
         before = old_gate(wps)
         after = compute_build_gate(wps)
@@ -164,6 +177,26 @@ def run(mode: str, verbose: bool) -> int:
         for r in sorted(changed, key=lambda r: r["verdict"]):
             print(f"  {r['key']:<16} {str(r['before'] or '-'):<12} "
                   f"{str(r['after'] or '-'):<12} {r['smt']:<8} {r['verdict']}")
+
+    print()
+    print("  RESOLUTIONS SEEN ON GATE PACKAGES — does each one release the gate?")
+    print(f"    {'RESOLUTION':<22} {'COUNT':>6}  RELEASES?")
+    for label, n in sorted(seen_resolutions.items(), key=lambda kv: -kv[1]):
+        if label == "(unresolved)":
+            verdict = "no - still open, correct"
+        elif closes_gate(label):
+            verdict = "yes"
+        else:
+            verdict = "NO  <-- holds the gate open forever"
+        print(f"    {label:<22} {n:>6}  {verdict}")
+    stranding = {l: n for l, n in seen_resolutions.items()
+                 if l != "(unresolved)" and not closes_gate(l)}
+    if stranding:
+        print()
+        print("    A package closed with one of the marked resolutions is finished as")
+        print("    far as the process is concerned, but the gate does not accept it, so")
+        print("    that container's SMT Build pill can never show a number again.")
+        print("    Decide whether these should count as 'off the table' too.")
 
     grey = [r for r in rows if r["verdict"] == "NOW GREY"]
     if grey:
