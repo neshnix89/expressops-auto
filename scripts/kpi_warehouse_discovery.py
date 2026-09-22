@@ -982,6 +982,8 @@ def tableau_probe_luids(session, base: str, api_v: str, site_id: str,
             continue
         if rm.status_code != 200:
             say(f"    VDS HTTP {rm.status_code} — {(rm.text or '')[:200]}")
+            resolved[luid] = {"name": name, "fields": [],
+                              "denied": rm.status_code in (401, 403)}
             continue
         payload = rm.json() or {}
         fields = payload.get("data") or payload.get("fields") or []
@@ -998,11 +1000,17 @@ def tableau_probe_luids(session, base: str, api_v: str, site_id: str,
             say(f"      {cap}")
         if len(captions) > 60:
             say(f"      ... and {len(captions) - 60} more")
-        resolved[luid] = {"name": name, "fields": captions}
+        resolved[luid] = {"name": name, "fields": captions, "denied": False}
 
     # Map what we found back onto wc / wp / combined by name, so the config
     # block can be pasted rather than reasoned about.
-    if resolved:
+    readable = {l: v for l, v in resolved.items() if not v.get("denied")}
+    if resolved and not readable:
+        say("")
+        say(f"  ALL {len(resolved)} data source(s) returned 403. They exist, they")
+        say("  are the right ones, and this account is not permitted to read them.")
+        say("  Nothing else here can be configured around that.")
+    if readable:
         say("")
         say("  ── READY TO PASTE INTO config/config.yaml ──")
         say("  kpi_warehouse:")
@@ -1010,15 +1018,15 @@ def tableau_probe_luids(session, base: str, api_v: str, site_id: str,
         say("    datasource_luids:")
         for key, table in DEFAULT_TABLES.items():
             want = table.lower()
-            hit = next((l for l, v in resolved.items()
+            hit = next((l for l, v in readable.items()
                         if (v["name"] or "").lower() == want), None)
             if hit is None:
-                hit = next((l for l, v in resolved.items()
+                hit = next((l for l, v in readable.items()
                             if want.replace("fact_pm_npi_", "") in (v["name"] or "").lower()),
                            None)
             say(f'      {key}: "{hit or "<none matched — pick from the list above>"}"'
                 + (f"   # {resolved[hit]['name']}" if hit else ""))
-        unmatched = [f"{v['name']} ({l})" for l, v in resolved.items()
+        unmatched = [f"{v['name']} ({l})" for l, v in readable.items()
                      if not any((v["name"] or "").lower() == tb.lower()
                                 for tb in DEFAULT_TABLES.values())]
         if unmatched:
@@ -1314,7 +1322,37 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
         captured = dump_tables(working[first], cfg, save_mock, sample)
 
     head("NEXT STEPS")
-    if not working:
+    # The denial case is specific enough to state as a request rather than a
+    # list of things to try. This report gets forwarded, so it should end with
+    # what someone else has to DO.
+    denied = {l: v for l, v in (tableau_info.get("live_datasources") or {}).items()
+              if v.get("denied")}
+    if denied and not working:
+        say("  DISCOVERY IS COMPLETE. The blocker is a permission, not a lookup.")
+        say("")
+        say("  The 'NPI ExpressOps KPIs' workbook (project Smart Factory Production)")
+        say(f"  is built on these {len(denied)} published data sources. They exist and")
+        say("  are current; this account is refused on every one:")
+        say("")
+        for luid, v in denied.items():
+            say(f"    {luid}   {v.get('name') or '(name withheld by permissions)'}")
+        say("")
+        say("  Tableau names two separate permissions, and BOTH are needed:")
+        say("    403004  'isn't authorized to query datasource'")
+        say("              -> View + Connect on the data source")
+        say("    403800  'does not have the API access permission'")
+        say("              -> the API access capability (VizQL Data Service)")
+        say("")
+        say("  ASK: grant the Tableau user in the 403 message above View, Connect")
+        say("  and API access on those data sources — or on the whole 'Smart")
+        say("  Factory Production' project, which is the same grant made once.")
+        say("")
+        say("  The alternative route is the database instead of Tableau: section 3d")
+        say("  shows Tableau reads this Oracle content from EDWH, which this laptop")
+        say("  already reaches via the DWHSALES/DWHWIS DSNs, but sync_user is")
+        say("  rejected there with ORA-01017. Either grant unblocks this; the")
+        say("  Tableau one is smaller and goes to the same team.")
+    elif not working:
         if cfg.get("user") and cfg.get("password"):
             say("  1. Credentials ARE set and section 1 confirms YAML did not")
             say("     mangle them — that is not the blocker.")
