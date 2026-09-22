@@ -57,7 +57,15 @@ _report_lines: list[str] = []
 
 
 def say(line: str = "") -> None:
-    print(line)
+    # The runners set PYTHONIOENCODING=utf-8, but run by hand on a cp1252
+    # console the box-drawing characters raise UnicodeEncodeError mid-report
+    # and take the whole discovery run with them. Degrade the CONSOLE line
+    # only; the saved report is written as UTF-8 and keeps full fidelity.
+    try:
+        print(line)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "ascii"
+        print(line.encode(enc, "replace").decode(enc, "replace"))
     _report_lines.append(line)
 
 
@@ -914,12 +922,16 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
 
     captured: dict = {}
     if working:
-        # Prefer the order the client itself prefers, so what discovery reports
-        # is what a real run will use.
-        for name in KpiWarehouseClient.AUTO_ORDER:
-            if name in working:
-                captured = dump_tables(working[name], cfg, save_mock, sample)
-                break
+        # `working` is filled in the same preference order try_routes attempts,
+        # and dicts keep insertion order, so its first key IS the preferred
+        # route. Do NOT reach for KpiWarehouseClient.AUTO_ORDER here: the
+        # Tableau route is reported as "tableau_vds (PAT)" / "(sync_user
+        # password)" so the report can say WHICH credential got in, and those
+        # labels never match AUTO_ORDER's bare "tableau_vds". Matching against
+        # it silently skipped section 5 for the one route we most expect to
+        # work, and StopIteration'd in NEXT STEPS below.
+        first = next(iter(working))
+        captured = dump_tables(working[first], cfg, save_mock, sample)
 
     head("NEXT STEPS")
     if not working:
@@ -957,8 +969,13 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
         say("     lists every database this laptop can already reach, so they can")
         say("     answer by pointing at one of them or naming a new one.")
     else:
-        used = next(n for n in KpiWarehouseClient.AUTO_ORDER if n in working)
-        say(f"  1. Set kpi_warehouse.driver: {used}  (stop paying for auto-probing)")
+        used = next(iter(working))
+        # The label carries which credential worked; driver: takes the bare name.
+        driver_value = used.split(" (")[0]
+        say(f"  1. Route that worked: {used}")
+        say(f"     Set kpi_warehouse.driver: {driver_value}  (stop auto-probing)")
+        if "sync_user password" in used:
+            say("     ...and kpi_warehouse.tableau_auth: password")
         say("  2. Paste any UNRESOLVED logical field from section 5 into")
         say("     kpi_warehouse.columns.<table> in config.yaml.")
         say("  3. Validate before switching:")
