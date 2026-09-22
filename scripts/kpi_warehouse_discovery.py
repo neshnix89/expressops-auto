@@ -606,12 +606,26 @@ def load_tns() -> tuple[dict, dict]:
 
 
 def match_host(host: str, entries: dict, mapping: dict) -> list[str]:
-    """Which local aliases/DSNs already point at this host."""
+    """Which local aliases/DSNs already point at what Tableau calls `host`.
+
+    Tableau's serverAddress for an Oracle connection is usually the TNS ALIAS
+    the workbook author typed ("EDWH"), not a resolved hostname. Matching only
+    on the hostname made a live run print "no local TNS alias points at this
+    host" for EDWH — a database this laptop reaches through two DSNs. So match
+    the alias name and the service name as well.
+    """
     if not host:
         return []
     h = host.strip().lower()
-    aliases = [a for a, e in entries.items()
-               if (e.get("host") or "").strip().lower() == h]
+    aliases = [
+        a for a, e in entries.items()
+        if h in {
+            (e.get("host") or "").strip().lower(),
+            a.strip().lower(),
+            (e.get("service") or "").strip().lower(),
+            (e.get("service") or "").strip().lower().removesuffix(".world"),
+        }
+    ]
     out = []
     for a in aliases:
         dsns = [d for d, al in mapping.items() if al.upper() == a]
@@ -762,6 +776,70 @@ def tableau_vds_probe(session, base: str, cfg: dict) -> None:
                 "says whether that is the luid, the payload shape, or licensing")
 
 
+WORKBOOK_REPO_ID = "3651"   # the "ExpressOps KPIs" workbook, from its URL
+
+
+def tableau_workbook_probe(session, base: str, api_v: str, site_id: str,
+                           cfg: dict) -> dict:
+    """Ask the ExpressOps KPIs workbook what it is actually connected to.
+
+    The three published data sources recorded in May are now 404 — deleted or
+    replaced. The workbook itself is still the thing Tableau renders, so its
+    own connections name the live database, schema and account. That is the
+    shortest path left to "where do the fact tables live".
+    """
+    head("3e. TABLEAU — the ExpressOps KPIs workbook's own connections")
+    out: dict = {}
+    try:
+        r = session.get(f"{base}/api/{api_v}/sites/{site_id}/workbooks",
+                        params={"pageSize": "1000"}, timeout=60)
+        r.raise_for_status()
+        books = r.json().get("workbooks", {}).get("workbook", [])
+    except Exception as exc:  # noqa: BLE001
+        say(f"  could not list workbooks: {type(exc).__name__}")
+        return out
+
+    # The numeric id in the URL is the repository id, not the REST luid; it only
+    # appears in webpageUrl. Fall back to the name if the URL shape changed.
+    wanted_url = f"/workbooks/{WORKBOOK_REPO_ID}"
+    hits = [w for w in books if str(w.get("webpageUrl", "")).endswith(wanted_url)]
+    if not hits:
+        hits = [w for w in books if "expressops" in str(w.get("name", "")).lower()]
+    if not hits:
+        say(f"  no workbook matching {wanted_url} or name ~ 'ExpressOps' among "
+            f"{len(books)} visible workbook(s)")
+        return out
+
+    tns_entries, tns_map = load_tns()
+    for wb in hits:
+        luid = wb.get("id")
+        say("")
+        say(f"  {wb.get('name')}   (project {(wb.get('project') or {}).get('name')})")
+        say(f"    luid    : {luid}")
+        say(f"    updated : {wb.get('updatedAt')}")
+        try:
+            cr = session.get(
+                f"{base}/api/{api_v}/sites/{site_id}/workbooks/{luid}/connections",
+                timeout=60)
+            cr.raise_for_status()
+            conns = cr.json().get("connections", {}).get("connection", [])
+        except Exception as exc:  # noqa: BLE001
+            say(f"    connections NOT READABLE: {type(exc).__name__}")
+            continue
+        out[str(wb.get("name"))] = conns
+        if not conns:
+            say("    no connections reported")
+        for c in conns:
+            server = str(c.get("serverAddress") or "")
+            say(f"    connection: type={c.get('type')} server={server}"
+                f":{c.get('serverPort')} db={c.get('databaseName') or '?'} "
+                f"as user={c.get('userName') or '?'}")
+            hits2 = match_host(server, tns_entries, tns_map)
+            if hits2:
+                say(f"      -> reachable from this laptop as {'; '.join(hits2)}")
+    return out
+
+
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
@@ -814,6 +892,7 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     say(f"  site_id={site_id}")
     found["by_luid"] = tableau_luid_lookup(session, base, api_v, site_id, cfg)
     tableau_vds_probe(session, base, cfg)
+    found["workbook"] = tableau_workbook_probe(session, base, api_v, site_id, cfg)
     head("3d. TABLEAU — data sources visible by name")
 
     try:
@@ -875,6 +954,9 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
                 "(host / port / account)")
             # Turn a bare hostname into something actionable: if this laptop
             # already has a TNS alias or DSN pointing at that host, say so.
+            if not server:
+                say("          (an extract — no live database behind it)")
+                continue
             hits = match_host(server, tns_entries, tns_map)
             if hits:
                 say(f"          this host is ALREADY known locally as: "
