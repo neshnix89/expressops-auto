@@ -848,7 +848,11 @@ query WorkbookLineage($luid: String!) {
     name
     upstreamDatasources { luid name }
     upstreamTables { name schema fullName }
-    upstreamDatabases { name connectionType hostName port }
+    upstreamDatabases {
+      name
+      connectionType
+      ... on DatabaseServer { hostName port }
+    }
   }
 }
 """
@@ -908,8 +912,10 @@ def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
             say("")
             say(f"  workbook: {wb.get('name')}")
             for ds in wb.get("upstreamDatasources") or []:
-                say(f"    published datasource: {ds.get('name')}")
+                say(f"    published datasource: {ds.get('name') or '(name not returned)'}")
                 say(f"      luid: {ds.get('luid')}")
+                if ds.get("luid"):
+                    out.setdefault("_luids", []).append(ds["luid"])
             for db in wb.get("upstreamDatabases") or []:
                 say(f"    upstream database: {db.get('name')} "
                     f"({db.get('connectionType')}) "
@@ -927,6 +933,90 @@ def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
         say("     from the defaults in section 1.")
         return out
     return out
+
+
+def tableau_probe_luids(session, base: str, api_v: str, site_id: str,
+                        luids: list[str]) -> dict:
+    """Name each live data source, read its fields, and emit the config block.
+
+    3f gives luids without names (the Metadata API returned name: null for
+    these). REST names them, and VDS read-metadata proves each one is actually
+    readable and lists its field captions — which is the column map the overlay
+    needs. Doing both here means the next run can go straight to section 5.
+    """
+    head("3g. THE WORKBOOK'S LIVE DATA SOURCES — named, and read")
+    resolved: dict = {}
+    for luid in luids:
+        say("")
+        say(f"  --- {luid} ---")
+        name = None
+        try:
+            r = session.get(
+                f"{base}/api/{api_v}/sites/{site_id}/datasources/{luid}", timeout=30)
+            if r.status_code == 200:
+                ds = (r.json() or {}).get("datasource", {})
+                name = ds.get("name")
+                say(f"    name    : {name}")
+                say(f"    type    : {ds.get('type')}   project: "
+                    f"{(ds.get('project') or {}).get('name')}")
+                say(f"    updated : {ds.get('updatedAt')}")
+            else:
+                say(f"    REST HTTP {r.status_code} — {(r.text or '')[:160]}")
+        except Exception as exc:  # noqa: BLE001
+            say(f"    REST failed: {type(exc).__name__}")
+
+        try:
+            rm = session.post(
+                f"{base}/api/v1/vizql-data-service/read-metadata",
+                json={"datasource": {"datasourceLuid": luid}}, timeout=60)
+        except Exception as exc:  # noqa: BLE001
+            say(f"    VDS failed: {type(exc).__name__}")
+            continue
+        if rm.status_code != 200:
+            say(f"    VDS HTTP {rm.status_code} — {(rm.text or '')[:200]}")
+            continue
+        payload = rm.json() or {}
+        fields = payload.get("data") or payload.get("fields") or []
+        captions = []
+        for f in fields:
+            if isinstance(f, dict):
+                cap = f.get("fieldCaption") or f.get("caption") or f.get("name")
+                if cap:
+                    captions.append(cap)
+            elif isinstance(f, str):
+                captions.append(f)
+        say(f"    VDS OK — {len(captions)} field(s)")
+        for cap in captions[:60]:
+            say(f"      {cap}")
+        if len(captions) > 60:
+            say(f"      ... and {len(captions) - 60} more")
+        resolved[luid] = {"name": name, "fields": captions}
+
+    # Map what we found back onto wc / wp / combined by name, so the config
+    # block can be pasted rather than reasoned about.
+    if resolved:
+        say("")
+        say("  ── READY TO PASTE INTO config/config.yaml ──")
+        say("  kpi_warehouse:")
+        say('    driver: "tableau_vds"')
+        say("    datasource_luids:")
+        for key, table in DEFAULT_TABLES.items():
+            want = table.lower()
+            hit = next((l for l, v in resolved.items()
+                        if (v["name"] or "").lower() == want), None)
+            if hit is None:
+                hit = next((l for l, v in resolved.items()
+                            if want.replace("fact_pm_npi_", "") in (v["name"] or "").lower()),
+                           None)
+            say(f'      {key}: "{hit or "<none matched — pick from the list above>"}"'
+                + (f"   # {resolved[hit]['name']}" if hit else ""))
+        unmatched = [f"{v['name']} ({l})" for l, v in resolved.items()
+                     if not any((v["name"] or "").lower() == tb.lower()
+                                for tb in DEFAULT_TABLES.values())]
+        if unmatched:
+            say("")
+            say(f"  not matched to wc/wp/combined: {'; '.join(unmatched)}")
+    return resolved
 
 
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
@@ -984,7 +1074,12 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     wb_info = tableau_workbook_probe(session, base, api_v, site_id, cfg)
     found["workbook"] = wb_info
     if wb_info.get("_luid"):
-        found["metadata"] = tableau_metadata_probe(session, base, wb_info["_luid"])
+        meta = tableau_metadata_probe(session, base, wb_info["_luid"])
+        found["metadata"] = meta
+        live = meta.get("_luids") or []
+        if live:
+            found["live_datasources"] = tableau_probe_luids(
+                session, base, api_v, site_id, live)
     head("3d. TABLEAU — data sources visible by name")
 
     try:
