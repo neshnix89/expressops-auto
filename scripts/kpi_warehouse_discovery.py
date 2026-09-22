@@ -78,7 +78,7 @@ def _err(exc: Exception) -> str:
 # 1 — config
 # ═══════════════════════════════════════════════════════════════
 
-def password_sanity(loaded: str) -> list[str]:
+def secret_sanity(loaded: str, section: str, key: str) -> list[str]:
     """Did the password in config.yaml survive YAML parsing intact?
 
     Never prints the password — only its length and character classes. The
@@ -92,11 +92,15 @@ def password_sanity(loaded: str) -> list[str]:
     ORA-01017s across four unrelated databases is exactly the shape that bug
     makes, so it has to be ruled out before anyone emails the BI team.
     """
+    import hashlib
     from core.config_loader import CONFIG_PATH
     notes: list[str] = []
     if not loaded:
         return notes
 
+    # A fingerprint, not the secret. Lets two runs be compared: if this line is
+    # identical after you swapped a token, the new one never reached the file.
+    fp = hashlib.sha256(loaded.encode("utf-8")).hexdigest()[:8]
     classes = []
     if any(c.islower() for c in loaded):
         classes.append("lower")
@@ -106,7 +110,8 @@ def password_sanity(loaded: str) -> list[str]:
         classes.append("digit")
     if any(not c.isalnum() for c in loaded):
         classes.append("symbol")
-    notes.append(f"{len(loaded)} chars, contains: {', '.join(classes) or 'nothing?'}")
+    notes.append(f"{len(loaded)} chars, contains: {', '.join(classes) or 'nothing?'}"
+                 f"   fingerprint sha256:{fp}")
     if loaded != loaded.strip():
         notes.append("!! it has leading/trailing WHITESPACE - quote it in config.yaml")
 
@@ -115,10 +120,10 @@ def password_sanity(loaded: str) -> list[str]:
     except OSError:
         return notes
 
-    block = re.search(r"(?ms)^kpi_warehouse:\s*\n(.*?)(?=^\S|\Z)", raw)
+    block = re.search(rf"(?ms)^{section}:\s*\n(.*?)(?=^\S|\Z)", raw)
     if not block:
         return notes
-    line = re.search(r"(?m)^\s+password:[ 	]*(.*)$", block.group(1))
+    line = re.search(rf"(?m)^\s+{key}:[ 	]*(.*)$", block.group(1))
     if not line:
         return notes
 
@@ -145,12 +150,17 @@ def report_config(cfg: dict, tcfg: dict) -> None:
     say(f"  driver              : {cfg.get('driver') or 'auto'}")
     say(f"  user                : {cfg.get('user') or '(blank)'}")
     say(f"  password            : {'set' if cfg.get('password') else '(blank)'}")
-    for note in password_sanity(str(cfg.get("password") or "")):
+    for note in secret_sanity(str(cfg.get("password") or ""), "kpi_warehouse", "password"):
         say(f"                        {note}")
     say(f"  tableau_auth        : {cfg.get('tableau_auth') or 'pat'}")
     say(f"  tableau.base_url    : {tcfg.get('base_url') or '(blank)'}")
     say(f"  tableau.pat_name    : {tcfg.get('pat_name') or '(blank)'}")
     say(f"  tableau.pat_secret  : {'set' if tcfg.get('pat_secret') else '(blank)'}")
+    for note in secret_sanity(str(tcfg.get("pat_secret") or ""), "tableau", "pat_secret"):
+        say(f"                        {note}")
+    say("                        NOTE: tableau.pat_name must match the token's")
+    say("                        name in Tableau EXACTLY. A new token with a new")
+    say("                        name and an unchanged pat_name here is a 401.")
     say(f"  dsn                 : {cfg.get('dsn') or '(blank)'}")
     say(f"  connection_string   : {'set' if cfg.get('connection_string') else '(blank)'}")
     say(f"  schema              : {cfg.get('schema') or '(blank)'}")
@@ -600,6 +610,78 @@ def match_host(host: str, entries: dict, mapping: dict) -> list[str]:
     return out
 
 
+# Tableau answers a failed signin with an error CODE and a detail message in the
+# body. The shared requests_error() helper folds all of that into "HTTP 401",
+# which is why three runs in a row told us nothing new. These codes are distinct
+# and actionable, so the raw body is worth one extra request.
+TABLEAU_401_CODES = {
+    "401000": "SIGNIN_ERROR — the site contentUrl is wrong for this server",
+    "401001": "LOGIN_FAILED — bad username/password, or bad PAT NAME/secret pair",
+    "401002": "UNAUTHORIZED_ACCESS — credentials accepted but not allowed here",
+}
+
+
+def tableau_signin_probe(cfg: dict, tcfg: dict) -> None:
+    """POST auth/signin directly and print what the server actually said."""
+    head("3-pre. TABLEAU SIGNIN — the server's own words")
+    base = str(tcfg.get("base_url", "")).rstrip("/")
+    api_v = str(tcfg.get("api_version", "3.25"))
+    site = tcfg.get("content_url", "") or ""
+    if not base:
+        say("  no tableau.base_url configured")
+        return
+    try:
+        import requests
+        import urllib3
+    except ImportError:
+        say("  requests is not installed")
+        return
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    bodies = []
+    if tcfg.get("pat_name") and tcfg.get("pat_secret"):
+        bodies.append((f"PAT name={tcfg['pat_name']!r}", {"credentials": {
+            "personalAccessTokenName": tcfg["pat_name"],
+            "personalAccessTokenSecret": tcfg["pat_secret"],
+            "site": {"contentUrl": site}}}))
+    if cfg.get("user") and cfg.get("password"):
+        bodies.append((f"user={cfg['user']!r}", {"credentials": {
+            "name": cfg["user"], "password": cfg["password"],
+            "site": {"contentUrl": site}}}))
+
+    say(f"  POST {base}/api/{api_v}/auth/signin   site contentUrl={site!r} "
+        f"({'Default site' if site == '' else 'named site'})")
+    for label, body in bodies:
+        try:
+            r = requests.post(f"{base}/api/{api_v}/auth/signin",
+                              json=body, timeout=30, verify=bool(tcfg.get("verify_ssl", False)),
+                              headers={"Accept": "application/json"})
+        except Exception as exc:  # noqa: BLE001
+            say(f"  {label}: could not reach the server — {type(exc).__name__}")
+            continue
+        say("")
+        say(f"  {label}  ->  HTTP {r.status_code}")
+        text = r.text or ""
+        for secret in (tcfg.get("pat_secret"), cfg.get("password")):
+            if secret:
+                text = text.replace(str(secret), "***")
+        code = re.search(r'code="(\d+)"', text) or re.search(r'"code"\s*:\s*"(\d+)"', text)
+        if code:
+            meaning = TABLEAU_401_CODES.get(code.group(1), "")
+            say(f"    error code {code.group(1)}" + (f"  = {meaning}" if meaning else ""))
+        detail = re.search(r"<detail>(.*?)</detail>", text, re.S)
+        if detail:
+            say(f"    detail: {detail.group(1).strip()[:300]}")
+        else:
+            say(f"    body: {text.strip()[:300] or '(empty)'}")
+
+    say("")
+    say("  If the code is 401001 with a PAT: the NAME and the SECRET must be from")
+    say("  the SAME token. Creating a token in Tableau shows its name once —")
+    say("  tableau.pat_name here must be that exact string, not 'Automation' by")
+    say("  habit.")
+
+
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
@@ -826,6 +908,7 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
         say("  Pass --try-dsns to log in to this machine's own DSNs as sync_user")
         say("  and look for the fact tables there. Left off by default because it")
         say("  attempts a real login against each database.")
+    tableau_signin_probe(cfg, tcfg)
     tableau_info = report_tableau_datasources(cfg, tcfg)
     working = try_routes(cfg, tcfg)
 
