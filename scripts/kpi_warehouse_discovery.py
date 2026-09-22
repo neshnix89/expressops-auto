@@ -575,6 +575,31 @@ def report_tns(unreadable: list[str], cfg: dict) -> dict:
 # 3 — Tableau: data sources and where their data actually lives
 # ═══════════════════════════════════════════════════════════════
 
+def load_tns() -> tuple[dict, dict]:
+    """(alias -> {host,port,service}, dsn -> alias). Reads files only, no auth."""
+    entries: dict = {}
+    for f in find_tnsnames():
+        try:
+            entries.update(parse_tnsnames(f.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue
+    return entries, dsn_aliases()
+
+
+def match_host(host: str, entries: dict, mapping: dict) -> list[str]:
+    """Which local aliases/DSNs already point at this host."""
+    if not host:
+        return []
+    h = host.strip().lower()
+    aliases = [a for a, e in entries.items()
+               if (e.get("host") or "").strip().lower() == h]
+    out = []
+    for a in aliases:
+        dsns = [d for d, al in mapping.items() if al.upper() == a]
+        out.append(f"{a}" + (f" (DSN {', '.join(dsns)})" if dsns else ""))
+    return out
+
+
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
@@ -662,12 +687,24 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
             say(f"        connections: NOT READABLE ({_err(exc)})")
             continue
         found["connections"][name] = conns
+        tns_entries, tns_map = load_tns()
         for c in conns:
+            server = str(c.get("serverAddress") or "")
             say(f"        connection: type={c.get('type')} "
-                f"server={c.get('serverAddress')}:{c.get('serverPort')} "
+                f"server={server}:{c.get('serverPort')} "
                 f"as user={c.get('userName')}")
             say("          ^ this is the database the ODBC route needs "
                 "(host / port / account)")
+            # Turn a bare hostname into something actionable: if this laptop
+            # already has a TNS alias or DSN pointing at that host, say so.
+            hits = match_host(server, tns_entries, tns_map)
+            if hits:
+                say(f"          this host is ALREADY known locally as: "
+                    f"{'; '.join(hits)}")
+                say("          -> set kpi_warehouse.driver: odbc and dsn to that DSN")
+            elif tns_entries:
+                say("          no local TNS alias points at this host — IT will "
+                    "need to add one, or use driver: odbc_direct")
 
     driver.close()
     return found
