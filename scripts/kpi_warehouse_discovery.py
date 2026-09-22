@@ -827,6 +827,8 @@ def tableau_workbook_probe(session, base: str, api_v: str, site_id: str,
             say(f"    connections NOT READABLE: {type(exc).__name__}")
             continue
         out[str(wb.get("name"))] = conns
+        out["_luid"] = luid
+        out["_project"] = (wb.get("project") or {}).get("name")
         if not conns:
             say("    no connections reported")
         for c in conns:
@@ -837,6 +839,93 @@ def tableau_workbook_probe(session, base: str, api_v: str, site_id: str,
             hits2 = match_host(server, tns_entries, tns_map)
             if hits2:
                 say(f"      -> reachable from this laptop as {'; '.join(hits2)}")
+    return out
+
+
+METADATA_QUERY = """
+query WorkbookLineage($luid: String!) {
+  workbooks(filter: {luid: $luid}) {
+    name
+    upstreamDatasources { luid name }
+    upstreamTables { name schema fullName }
+    upstreamDatabases { name connectionType hostName port }
+  }
+}
+"""
+
+METADATA_FALLBACK = """
+query WorkbookLineageBasic($luid: String!) {
+  workbooks(filter: {luid: $luid}) {
+    name
+    upstreamDatasources { luid name }
+  }
+}
+"""
+
+
+def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
+    """Ask the Metadata API what the workbook is really built on.
+
+    The workbook's four connections are all type=sqlproxy — Tableau's own proxy
+    to PUBLISHED data sources. REST will not name them from the connections
+    endpoint, and the luids recorded in May now 404, which means the data
+    sources were republished and carry NEW luids. The Metadata API walks the
+    lineage properly: workbook -> published data sources -> upstream tables ->
+    upstream database, which is both the new luids AND the Oracle host and
+    table names behind them.
+    """
+    head("3f. TABLEAU METADATA API — what the workbook is really built on")
+    url = f"{base}/api/metadata/graphql"
+    say(f"  POST {url}")
+    out: dict = {}
+    for label, query in (("full lineage", METADATA_QUERY),
+                         ("datasources only", METADATA_FALLBACK)):
+        try:
+            r = session.post(url, json={"query": query,
+                                        "variables": {"luid": workbook_luid}},
+                             timeout=90)
+        except Exception as exc:  # noqa: BLE001
+            say(f"  {label}: request failed — {type(exc).__name__}")
+            continue
+        if r.status_code != 200:
+            say(f"  {label}: HTTP {r.status_code}  {(r.text or '')[:300]}")
+            if r.status_code == 404:
+                say("    -> the Metadata API is not enabled on this server")
+                return out
+            continue
+        payload = r.json() or {}
+        if payload.get("errors"):
+            # A schema mismatch kills only the fields it does not know, so try
+            # the smaller query before giving up.
+            say(f"  {label}: GraphQL errors — "
+                f"{json.dumps(payload['errors'])[:300]}")
+            continue
+        books = (payload.get("data") or {}).get("workbooks") or []
+        if not books:
+            say(f"  {label}: no workbook returned for that luid")
+            continue
+        for wb in books:
+            say("")
+            say(f"  workbook: {wb.get('name')}")
+            for ds in wb.get("upstreamDatasources") or []:
+                say(f"    published datasource: {ds.get('name')}")
+                say(f"      luid: {ds.get('luid')}")
+            for db in wb.get("upstreamDatabases") or []:
+                say(f"    upstream database: {db.get('name')} "
+                    f"({db.get('connectionType')}) "
+                    f"host={db.get('hostName')} port={db.get('port')}")
+            tables = wb.get("upstreamTables") or []
+            if tables:
+                say(f"    upstream tables ({len(tables)}):")
+                for tb in tables[:40]:
+                    say(f"      {tb.get('fullName') or tb.get('name')}"
+                        f"   schema={tb.get('schema')}")
+            out = wb
+        say("")
+        say("  >> Put the luids above into kpi_warehouse.datasource_luids, and")
+        say("     the schema/table names into kpi_warehouse.tables if they differ")
+        say("     from the defaults in section 1.")
+        return out
     return out
 
 
@@ -892,7 +981,10 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     say(f"  site_id={site_id}")
     found["by_luid"] = tableau_luid_lookup(session, base, api_v, site_id, cfg)
     tableau_vds_probe(session, base, cfg)
-    found["workbook"] = tableau_workbook_probe(session, base, api_v, site_id, cfg)
+    wb_info = tableau_workbook_probe(session, base, api_v, site_id, cfg)
+    found["workbook"] = wb_info
+    if wb_info.get("_luid"):
+        found["metadata"] = tableau_metadata_probe(session, base, wb_info["_luid"])
     head("3d. TABLEAU — data sources visible by name")
 
     try:
@@ -915,6 +1007,21 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
         return low in wanted or any(w in low for w in ("npi", "kpi", "fact"))
 
     matches = [ds for ds in payload if interesting(ds.get("name", ""))]
+    # The renamed KPI data sources will still be sitting in the workbook's own
+    # project, so show everything there even if the name gives nothing away.
+    wb_project = (found.get("workbook") or {}).get("_project")
+    if wb_project:
+        in_project = [ds for ds in payload
+                      if (ds.get("project") or {}).get("name") == wb_project
+                      and ds not in matches]
+        if in_project:
+            say(f"  data sources in the workbook's project "
+                f"({wb_project}) — {len(in_project)}:")
+            for ds in sorted(in_project, key=lambda d: d.get("name", "")):
+                say(f"    - {ds.get('name')}")
+                say(f"        luid: {ds.get('id')}   type: {ds.get('type')}   "
+                    f"updated: {ds.get('updatedAt')}")
+            matches = matches + in_project
     say(f"  {len(payload)} data source(s) visible to this token; "
         f"{len(matches)} look KPI-related:")
     if not matches and payload:
