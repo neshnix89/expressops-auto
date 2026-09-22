@@ -908,6 +908,11 @@ def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
         if not books:
             say(f"  {label}: no workbook returned for that luid")
             continue
+        # Collect into a local list. `out = wb` at the bottom of this loop used
+        # to clobber the dict the luids were being appended to, so _luids came
+        # back empty and 3g silently never ran — with the luids printed on
+        # screen the whole time.
+        luids_found: list[str] = []
         for wb in books:
             say("")
             say(f"  workbook: {wb.get('name')}")
@@ -915,7 +920,7 @@ def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
                 say(f"    published datasource: {ds.get('name') or '(name not returned)'}")
                 say(f"      luid: {ds.get('luid')}")
                 if ds.get("luid"):
-                    out.setdefault("_luids", []).append(ds["luid"])
+                    luids_found.append(ds["luid"])
             for db in wb.get("upstreamDatabases") or []:
                 say(f"    upstream database: {db.get('name')} "
                     f"({db.get('connectionType')}) "
@@ -926,11 +931,14 @@ def tableau_metadata_probe(session, base: str, workbook_luid: str) -> dict:
                 for tb in tables[:40]:
                     say(f"      {tb.get('fullName') or tb.get('name')}"
                         f"   schema={tb.get('schema')}")
-            out = wb
+            out = dict(wb)
+        out["_luids"] = luids_found
+        if not luids_found:
+            say("")
+            say("  no upstream datasource luids came back — 3g cannot run")
         say("")
-        say("  >> Put the luids above into kpi_warehouse.datasource_luids, and")
-        say("     the schema/table names into kpi_warehouse.tables if they differ")
-        say("     from the defaults in section 1.")
+        say("  Names and upstream tables come back null for this token; 3g reads")
+        say("  them over REST instead, which does not need Metadata API rights.")
         return out
     return out
 
