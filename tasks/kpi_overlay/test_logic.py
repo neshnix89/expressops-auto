@@ -76,8 +76,13 @@ def test_closes_gate() -> None:
     check("Wont Do (no apostrophe) closes", closes_gate("Wont Do") is True)
     check("WON'T DO closes", closes_gate("WON'T DO") is True)
     check("unresolved does not close", closes_gate(None) is False)
+    # The accepted set is exactly these three by decision, not by oversight —
+    # widening it was offered on 2026-09-22 and declined. These two assertions
+    # exist so that stays a decision rather than drifting back.
     check("Cancelled does not close", closes_gate("Cancelled") is False,
           "only Done / Acknowledged / Won't Do were specified")
+    check("Duplicate does not close", closes_gate("Duplicate") is False,
+          "seen live on NPIOTHER-6325 / -6452; keeping it out is deliberate")
 
 
 def test_gate_is_the_latest_of_all_five() -> None:

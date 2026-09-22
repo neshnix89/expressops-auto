@@ -67,6 +67,13 @@ closed the pill shows grey "waiting" rather than a number.
 Previously the gate was only `max(Material, PCB)` and only accepted
 Done/Acknowledged, so a Won't Do Material left SMT Build waiting forever.
 
+**The accepted set is exactly those three (decided 2026-09-22).** Widening it to
+"any resolution" was offered and declined. Consequence, accepted knowingly:
+`NPIOTHER-6325` and `NPIOTHER-6452` carry a `TE - TechnPrep` resolved as
+**Duplicate**, which does not close the gate — both will show a grey SMT Build
+pill once their Material/PCB close. Re-run `scripts\smt_gate_impact.py --live`
+if it needs revisiting; it tallies every resolution seen on a gate package.
+
 Two deliberate asymmetries (`logic.compute_build_gate`):
 - Material and PCB must **exist** on the container or SMT Build is not anchored
   at all — the pre-existing guard, unchanged.

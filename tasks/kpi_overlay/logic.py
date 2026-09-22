@@ -59,6 +59,14 @@ SMT_BUILD_GATE_WPS = [
 # Resolutions that close a gate. Matched on a folded form so "Won't Do",
 # "Wont Do" and "WON'T DO" all count — JIRA resolution names are typed by
 # hand often enough that the apostrophe cannot be relied on.
+#
+# DELIBERATELY NOT WIDER (user decision, 2026-09-22). The first live run found
+# "Duplicate" on the TE - TechnPrep of NPIOTHER-6325 and NPIOTHER-6452, and
+# widening this set to "any resolution" was offered and declined. Those two
+# containers will therefore show a grey SMT Build pill once their Material/PCB
+# close, and that is the accepted behaviour — do not add Duplicate, Cancelled
+# or Rejected here without asking. scripts/smt_gate_impact.py lists every
+# resolution seen on a gate package if the question comes up again.
 GATE_RESOLUTIONS = {"done", "acknowledged", "wontdo"}
 
 # Material and PCB must EXIST for SMT Build to be anchored at all; that guard
