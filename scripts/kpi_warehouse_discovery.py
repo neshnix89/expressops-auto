@@ -41,6 +41,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from core.config_loader import load_config                      # noqa: E402
 from core.errors import FriendlyError, handle_friendly          # noqa: E402
 from core.kpi_warehouse import (                                # noqa: E402
+    DEFAULT_DATASOURCE_LUIDS,
     DEFAULT_TABLES,
     FIELD_CANDIDATES,
     KpiWarehouseClient,
@@ -690,6 +691,77 @@ def tableau_signin_probe(cfg: dict, tcfg: dict) -> None:
     say("  habit.")
 
 
+def tableau_luid_lookup(session, base: str, api_v: str, site_id: str,
+                        cfg: dict) -> dict:
+    """Ask for the three data sources BY LUID, not by name.
+
+    The name listing can come back empty for two very different reasons: the
+    data sources were renamed, or this token cannot see them. A direct GET on
+    the luid recorded in the May discovery tells those apart — 200 means it is
+    there and readable, 404 means gone or invisible, 403 means it exists and
+    this token is not allowed near it.
+    """
+    head("3b. TABLEAU — the three KPI data sources, looked up BY LUID")
+    luids = {**DEFAULT_DATASOURCE_LUIDS, **(cfg.get("datasource_luids") or {})}
+    out: dict = {}
+    for key, luid in luids.items():
+        say("")
+        say(f"  --- {key}  luid={luid} ---")
+        try:
+            r = session.get(
+                f"{base}/api/{api_v}/sites/{site_id}/datasources/{luid}", timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            say(f"    request failed: {type(exc).__name__}")
+            continue
+        say(f"    HTTP {r.status_code}")
+        if r.status_code != 200:
+            say(f"    {(r.text or '').strip()[:300]}")
+            if r.status_code == 404:
+                say("    -> renamed, deleted, or not visible to this token")
+            elif r.status_code == 403:
+                say("    -> it exists; this token is not permitted to read it")
+            out[key] = f"HTTP {r.status_code}"
+            continue
+        ds = (r.json() or {}).get("datasource", {})
+        say(f"    name    : {ds.get('name')}")
+        say(f"    type    : {ds.get('type')}   project: "
+            f"{(ds.get('project') or {}).get('name')}")
+        say(f"    updated : {ds.get('updatedAt')}")
+        out[key] = ds.get("name")
+    return out
+
+
+def tableau_vds_probe(session, base: str, cfg: dict) -> None:
+    """POST read-metadata and print the reply body.
+
+    A live run returned "400 Client Error:" with no message, because the shared
+    error helper keeps the status and discards the body — the same blindness
+    that cost three rounds on the signin. VDS explains itself in the body: not
+    licensed, not enabled, unknown datasource, malformed query. Those are four
+    different jobs.
+    """
+    head("3c. TABLEAU VizQL Data Service — read-metadata, with the reply")
+    luids = {**DEFAULT_DATASOURCE_LUIDS, **(cfg.get("datasource_luids") or {})}
+    url = f"{base}/api/v1/vizql-data-service/read-metadata"
+    say(f"  POST {url}")
+    for key, luid in luids.items():
+        try:
+            r = session.post(url, json={"datasource": {"datasourceLuid": luid}},
+                             timeout=60)
+        except Exception as exc:  # noqa: BLE001
+            say(f"  {key}: request failed — {type(exc).__name__}")
+            continue
+        say("")
+        say(f"  {key}  ->  HTTP {r.status_code}")
+        body = (r.text or "").strip()
+        say(f"    {body[:500] or '(empty body)'}")
+        if r.status_code == 404:
+            say("    -> VizQL Data Service is not enabled on this server")
+        elif r.status_code == 400:
+            say("    -> the server rejected the request itself; the body above "
+                "says whether that is the luid, the payload shape, or licensing")
+
+
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
@@ -740,6 +812,9 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     api_v = driver.api_v
     site_id = driver._site_id  # noqa: SLF001 — set during signin, no accessor
     say(f"  site_id={site_id}")
+    found["by_luid"] = tableau_luid_lookup(session, base, api_v, site_id, cfg)
+    tableau_vds_probe(session, base, cfg)
+    head("3d. TABLEAU — data sources visible by name")
 
     try:
         r = session.get(f"{base}/api/{api_v}/sites/{site_id}/datasources",
@@ -752,11 +827,24 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
         return found
 
     wanted = {v.lower() for v in DEFAULT_TABLES.values()}
-    say(f"  {len(payload)} data source(s) visible; the three KPI ones:")
-    for ds in payload:
+    # Widened after a live run: 341 data sources came back and the old filter
+    # ("exact name, or contains npi") matched NONE of them, printing a heading
+    # with nothing under it — which reads like "there are none" when it really
+    # meant "not under a name I guessed". kpi/fact catch the neighbours too.
+    def interesting(n: str) -> bool:
+        low = n.lower()
+        return low in wanted or any(w in low for w in ("npi", "kpi", "fact"))
+
+    matches = [ds for ds in payload if interesting(ds.get("name", ""))]
+    say(f"  {len(payload)} data source(s) visible to this token; "
+        f"{len(matches)} look KPI-related:")
+    if not matches and payload:
+        say("    NONE. This token can see plenty of data sources, just not these.")
+        say("    First 40 names, so the real spelling is visible:")
+        for ds in sorted(payload, key=lambda d: d.get("name", ""))[:40]:
+            say(f"      {ds.get('name')}   [{(ds.get('project') or {}).get('name')}]")
+    for ds in matches:
         name = ds.get("name", "")
-        if name.lower() not in wanted and "npi" not in name.lower():
-            continue
         luid = ds.get("id")
         say(f"    - {name}")
         say(f"        luid    : {luid}")
