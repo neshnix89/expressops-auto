@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -169,7 +170,7 @@ def probe_dsns(cfg: dict, only: str | None = None, every_driver: bool = False) -
     across a list is how accounts get locked.
     """
     head("2b. DSN PROBE — is the warehouse already reachable from this machine?")
-    found: dict = {"tried": [], "hits": {}}
+    found: dict = {"tried": [], "hits": {}, "unreadable": []}
 
     user = (cfg.get("user") or "").strip()
     password = (cfg.get("password") or "").strip()
@@ -228,7 +229,16 @@ def probe_dsns(cfg: dict, only: str | None = None, every_driver: bool = False) -
                 say("    login rejected (ORA-01017) — sync_user is not an account "
                     "on this database, or the password differs here")
                 continue
-            say(f"    cannot connect: {msg[:200]}")
+            # pyodbc + the Oracle ODBC driver mangle UTF-16 error text into
+            # "returned a result with an exception set", destroying the ORA-
+            # code. Flag it for the oracledb retry in 2c rather than guessing:
+            # ORA-01017 and ORA-28000 demand opposite responses.
+            if "ORA-" not in upper:
+                found["unreadable"].append(name)
+                say(f"    cannot connect, AND the error text is unreadable: {msg[:140]}")
+                say("      -> section 2c re-asks this one via oracledb")
+            else:
+                say(f"    cannot connect: {msg[:200]}")
             continue
 
         say("    LOGIN OK")
@@ -279,6 +289,222 @@ def probe_dsns(cfg: dict, only: str | None = None, every_driver: bool = False) -
         say("  the database host/port/service for sync_user, or for a DSN to be")
         say("  added — sections 1 and 4 of this report say exactly what was tried.")
     return found
+
+
+# ═══════════════════════════════════════════════════════════════
+# 2c — tnsnames.ora: what each DSN actually points at
+# ═══════════════════════════════════════════════════════════════
+#
+# Two problems this solves at once.
+#
+# First, the Oracle ODBC driver returns its error text as UTF-16 and pyodbc
+# mis-decodes it, so a failed connect can come back as the useless
+# "<class 'pyodbc.Error'> returned a result with an exception set" with the
+# ORA- code destroyed. That is not a cosmetic issue: ORA-01017 (not an account
+# here) and ORA-28000 (account LOCKED) need completely different responses, and
+# an unreadable error hides which one happened. `oracledb` is pure Python, is
+# already a dependency for EDM, and reports the code cleanly.
+#
+# Second, tnsnames.ora names the actual host, port and service behind every
+# alias. That is exactly the "where is the database" fact the BI email left
+# out, and reading it needs no credentials at all.
+
+TNS_ENTRY_RE = re.compile(r"([A-Za-z0-9_.\-]+(?:\s*,\s*[A-Za-z0-9_.\-]+)*)\s*=\s*\(")
+
+
+def parse_tnsnames(text: str) -> dict[str, dict]:
+    """alias -> {host, port, service}. Paren-depth scan, so nested ADDRESS
+    blocks are consumed with their parent instead of being read as aliases."""
+    text = re.sub(r"#[^\n]*", "", text)
+    out: dict[str, dict] = {}
+    i, n = 0, len(text)
+    while i < n:
+        m = TNS_ENTRY_RE.search(text, i)
+        if not m:
+            break
+        depth, j = 0, m.end() - 1
+        start = j
+        while j < n:
+            if text[j] == "(":
+                depth += 1
+            elif text[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        block = text[start:j + 1]
+        host = re.search(r"HOST\s*=\s*([^)\s]+)", block, re.I)
+        port = re.search(r"PORT\s*=\s*([^)\s]+)", block, re.I)
+        svc = re.search(r"SERVICE_NAME\s*=\s*([^)\s]+)", block, re.I)
+        sid = re.search(r"\bSID\s*=\s*([^)\s]+)", block, re.I)
+        for name in (x.strip().upper() for x in m.group(1).split(",")):
+            out[name] = {
+                "host": host.group(1) if host else None,
+                "port": port.group(1) if port else None,
+                "service": svc.group(1) if svc else (sid.group(1) if sid else None),
+                "is_sid": svc is None and sid is not None,
+            }
+        i = j + 1
+    return out
+
+
+def find_tnsnames() -> list[Path]:
+    """Every tnsnames.ora this machine might be using, most authoritative first."""
+    import os
+    seen, out = set(), []
+
+    def add(p: Path) -> None:
+        try:
+            rp = p.resolve()
+        except OSError:
+            return
+        if rp.is_file() and str(rp).lower() not in seen:
+            seen.add(str(rp).lower())
+            out.append(rp)
+
+    if os.environ.get("TNS_ADMIN"):
+        add(Path(os.environ["TNS_ADMIN"]) / "tnsnames.ora")
+    if os.environ.get("ORACLE_HOME"):
+        add(Path(os.environ["ORACLE_HOME"]) / "network" / "admin" / "tnsnames.ora")
+    # Derive from the client on PATH — the usual way it is actually installed.
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if "oracle" not in entry.lower():
+            continue
+        p = Path(entry)
+        add(p / "network" / "admin" / "tnsnames.ora")
+        add(p.parent / "network" / "admin" / "tnsnames.ora")
+    return out
+
+
+def dsn_aliases() -> dict[str, str]:
+    """DSN name -> the TNS alias it resolves through (its ServerName)."""
+    out: dict[str, str] = {}
+    try:
+        import winreg
+    except ImportError:
+        return out
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            odbc = winreg.OpenKey(root, r"SOFTWARE\ODBC\ODBC.INI")
+        except OSError:
+            continue
+        try:
+            for idx in range(winreg.QueryInfoKey(odbc)[0]):
+                try:
+                    name = winreg.EnumKey(odbc, idx)
+                    with winreg.OpenKey(odbc, name) as k:
+                        server, _ = winreg.QueryValueEx(k, "ServerName")
+                    if server:
+                        out.setdefault(name, str(server))
+                except OSError:
+                    continue
+        finally:
+            odbc.Close()
+    return out
+
+
+def report_tns(unreadable: list[str], cfg: dict) -> dict:
+    """Print where each DSN points, and re-ask the unreadable ones via oracledb."""
+    head("2c. ORACLE TNS — where each DSN actually points")
+    info: dict = {"files": [], "aliases": {}, "dsn_alias": {}, "retried": {}}
+
+    files = find_tnsnames()
+    info["files"] = [str(f) for f in files]
+    if not files:
+        say("  No tnsnames.ora found (TNS_ADMIN / ORACLE_HOME / PATH).")
+    entries: dict[str, dict] = {}
+    for f in files:
+        say(f"  {f}")
+        try:
+            entries.update(parse_tnsnames(f.read_text(encoding="utf-8", errors="replace")))
+        except OSError as exc:
+            say(f"    unreadable: {exc}")
+    info["aliases"] = entries
+
+    mapping = dsn_aliases()
+    info["dsn_alias"] = mapping
+    if entries:
+        say("")
+        say(f"  {'DSN':<16} {'TNS ALIAS':<20} {'HOST':<34} {'PORT':<7} SERVICE")
+        shown = set()
+        for dsn, alias in sorted(mapping.items()):
+            e = entries.get(alias.upper())
+            if not e:
+                continue
+            shown.add(alias.upper())
+            say(f"  {dsn:<16} {alias:<20} {str(e['host']):<34} "
+                f"{str(e['port']):<7} {e['service']}")
+        extra = [a for a in sorted(entries) if a not in shown]
+        if extra:
+            say("")
+            say("  aliases in tnsnames.ora with no DSN pointing at them:")
+            for a in extra:
+                e = entries[a]
+                say(f"    {a:<24} {str(e['host']):<34} {str(e['port']):<7} {e['service']}")
+        say("")
+        say("  ^ these host/port/service values are what the BI team needs in order")
+        say("    to say which database sync_user belongs to — no credentials here.")
+
+    if not unreadable:
+        return info
+
+    head("2c-2. RE-ASKING THE UNREADABLE DSNs VIA oracledb")
+    say("  pyodbc lost the ORA- code on these. oracledb decodes it properly.")
+    user = (cfg.get("user") or "").strip()
+    password = (cfg.get("password") or "").strip()
+    try:
+        import oracledb
+    except ImportError:
+        say("  oracledb is not installed — run: pip install oracledb")
+        return info
+
+    for dsn in unreadable:
+        alias = mapping.get(dsn, dsn)
+        e = entries.get(alias.upper())
+        say("")
+        say(f"  --- {dsn} (alias {alias}) ---")
+        if not e or not e.get("host"):
+            say("    no host in tnsnames.ora for this alias — cannot retry")
+            info["retried"][dsn] = "no tns entry"
+            continue
+        target = (f"{e['host']}:{e['port'] or 1521}/{e['service']}" if not e["is_sid"]
+                  else f"{e['host']}:{e['port'] or 1521}:{e['service']}")
+        say(f"    {target}")
+        try:
+            conn = oracledb.connect(user=user, password=password, dsn=target)
+        except Exception as exc:  # noqa: BLE001 — the message IS the result
+            msg = str(exc).replace(password, "***") if password else str(exc)
+            say(f"    {msg.splitlines()[0][:200]}")
+            info["retried"][dsn] = msg.splitlines()[0][:200]
+            if "ORA-28000" in msg.upper():
+                say("    ACCOUNT LOCKED — stop here and ask IT to unlock sync_user.")
+                break
+            continue
+        say("    LOGIN OK — sync_user IS an account on this database")
+        info["retried"][dsn] = "LOGIN OK"
+        try:
+            cur = conn.cursor()
+            cur.execute(ORACLE_EXACT)
+            rows = cur.fetchall()
+            if not rows:
+                cur.execute(ORACLE_FUZZY)
+                rows = cur.fetchall()
+            if rows:
+                say(f"    *** FOUND {len(rows)} matching object(s):")
+                for r in rows:
+                    say(f"      {r[0]}.{r[1]}  ({r[2]})")
+                say("")
+                say("    >> Put this in config.yaml:")
+                say('         kpi_warehouse:')
+                say('           driver: "odbc_direct"')
+                say(f'           connection_string: "DRIVER={{Oracle in OraClient19Home1}};DBQ={target};"')
+                say(f'           schema: "{rows[0][0]}"')
+            else:
+                say("    connected, but no NPI/KPI objects are visible to sync_user")
+            cur.close()
+        finally:
+            conn.close()
+    return info
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -451,6 +677,8 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
     dsn_info = {}
     if try_dsns:
         dsn_info = probe_dsns(cfg, only=only_dsn, every_driver=every_driver)
+        tns_info = report_tns(dsn_info.get("unreadable", []), cfg)
+        dsn_info["tns"] = tns_info
     else:
         head("2b. DSN PROBE — skipped")
         say("  Pass --try-dsns to log in to this machine's own DSNs as sync_user")
@@ -470,15 +698,31 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
 
     head("NEXT STEPS")
     if not working:
-        say("  1. Fill in kpi_warehouse.user / .password in config/config.yaml.")
+        if cfg.get("user") and cfg.get("password"):
+            say("  1. Credentials ARE set — that is not the blocker.")
+            say("     A Tableau PAT is revoked after a period of disuse, so a 401 in")
+            say("     section 3 usually means it needs regenerating in Tableau under")
+            say("     My Account Settings -> Personal Access Tokens, then pasting")
+            say("     into tableau.pat_secret. That also rotates the one that was")
+            say("     committed in plaintext.")
+        else:
+            say("  1. Fill in kpi_warehouse.user / .password in config/config.yaml.")
         say("  2. If section 3 printed a `connection: ... server=HOST:PORT`, give")
         say("     that host to kpi_warehouse.connection_string (or ask IT for a")
         say("     DSN) and re-run — that is the database sync_user belongs to.")
-        say("  3. Not yet tried: this machine's own DSNs. Run")
-        say("       run_kpi_find_dsn.bat   (or --try-dsns)")
-        say("     to log in to each Oracle DSN as sync_user and look for the")
-        say("     fact tables. DWHSALES / DWHWIS are the obvious candidates.")
-        say("  4. If that finds nothing, send sections 1, 2b and 4 to the BI team.")
+        if dsn_info.get("tried"):
+            say("  3. The local DSNs were tried (section 2b). If every one came back")
+            say("     ORA-01017, sync_user is simply not an account on any database")
+            say("     this laptop already reaches.")
+        else:
+            say("  3. Not yet tried: this machine's own DSNs. Run")
+            say("       run_kpi_find_dsn.bat   (or --try-dsns)")
+            say("     to log in to each Oracle DSN as sync_user and look for the")
+            say("     fact tables. DWHSALES / DWHWIS are the obvious candidates.")
+        say("  4. Send sections 2b and 2c to the BI team and ask ONE question:")
+        say("     which host/port/service is sync_user an account on? Section 2c")
+        say("     lists every database this laptop can already reach, so they can")
+        say("     answer by pointing at one of them or naming a new one.")
     else:
         used = next(n for n in KpiWarehouseClient.AUTO_ORDER if n in working)
         say(f"  1. Set kpi_warehouse.driver: {used}  (stop paying for auto-probing)")
