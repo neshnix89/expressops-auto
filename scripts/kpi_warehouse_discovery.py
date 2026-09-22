@@ -78,11 +78,75 @@ def _err(exc: Exception) -> str:
 # 1 — config
 # ═══════════════════════════════════════════════════════════════
 
+def password_sanity(loaded: str) -> list[str]:
+    """Did the password in config.yaml survive YAML parsing intact?
+
+    Never prints the password — only its length and character classes. The
+    failure this exists to catch is silent and common: an UNQUOTED YAML scalar
+    ends at a " #", so
+
+        password: s3cr#t-value
+
+    loads as "s3cr" and every login then fails with ORA-01017, which is
+    indistinguishable from an account that does not exist. Four identical
+    ORA-01017s across four unrelated databases is exactly the shape that bug
+    makes, so it has to be ruled out before anyone emails the BI team.
+    """
+    from core.config_loader import CONFIG_PATH
+    notes: list[str] = []
+    if not loaded:
+        return notes
+
+    classes = []
+    if any(c.islower() for c in loaded):
+        classes.append("lower")
+    if any(c.isupper() for c in loaded):
+        classes.append("upper")
+    if any(c.isdigit() for c in loaded):
+        classes.append("digit")
+    if any(not c.isalnum() for c in loaded):
+        classes.append("symbol")
+    notes.append(f"{len(loaded)} chars, contains: {', '.join(classes) or 'nothing?'}")
+    if loaded != loaded.strip():
+        notes.append("!! it has leading/trailing WHITESPACE - quote it in config.yaml")
+
+    try:
+        raw = CONFIG_PATH.read_text(encoding="utf-8-sig")
+    except OSError:
+        return notes
+
+    block = re.search(r"(?ms)^kpi_warehouse:\s*\n(.*?)(?=^\S|\Z)", raw)
+    if not block:
+        return notes
+    line = re.search(r"(?m)^\s+password:[ 	]*(.*)$", block.group(1))
+    if not line:
+        return notes
+
+    raw_val = line.group(1).rstrip()
+    quoted = len(raw_val) >= 2 and raw_val[0] in "\"'" and raw_val[-1] == raw_val[0]
+    inner = raw_val[1:-1] if quoted else raw_val
+
+    if not quoted:
+        notes.append("the value in config.yaml is UNQUOTED")
+        risky = [c for c in "#:{}[],&*!|>%@`" if c in raw_val]
+        if risky:
+            notes.append("!! it contains " + " ".join(repr(c) for c in risky)
+                         + " - YAML can eat or misread these. Wrap it in single "
+                           "quotes: password: '...'")
+    if len(inner) != len(loaded):
+        notes.append(f"!! the file holds {len(inner)} characters but YAML loaded "
+                     f"{len(loaded)} - THE PASSWORD IS BEING TRUNCATED. Wrap it "
+                     f"in single quotes.")
+    return notes
+
+
 def report_config(cfg: dict, tcfg: dict) -> None:
     head("1. CONFIG — what this machine is holding")
     say(f"  driver              : {cfg.get('driver') or 'auto'}")
     say(f"  user                : {cfg.get('user') or '(blank)'}")
     say(f"  password            : {'set' if cfg.get('password') else '(blank)'}")
+    for note in password_sanity(str(cfg.get("password") or "")):
+        say(f"                        {note}")
     say(f"  tableau_auth        : {cfg.get('tableau_auth') or 'pat'}")
     say(f"  tableau.base_url    : {tcfg.get('base_url') or '(blank)'}")
     say(f"  tableau.pat_name    : {tcfg.get('pat_name') or '(blank)'}")
