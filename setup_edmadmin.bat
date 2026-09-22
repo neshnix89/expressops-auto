@@ -21,7 +21,17 @@ if not defined PY if exist "%ProgramFiles%\Python312\python.exe" set "PY=%Progra
 REM Last resort: whatever `python` / `py` resolves to on PATH. Without this a
 REM machine with Python outside the usual install spots (e.g. C:\tools\python3)
 REM looks like it has no Python at all.
-if not defined PY for /f "delims=" %%i in ('where python 2^>nul') do if not defined PY set "PY=%%i"
+REM `where python` also matches the Microsoft Store alias stub under
+
+REM %LOCALAPPDATA%\Microsoft\WindowsApps. That stub is not Python: running it
+
+REM only prints "Python was not found; run without arguments to install from
+
+REM the Microsoft Store" and fails. Filter it out INSIDE the for, so the
+
+REM fallback can never hand back a path that breaks every call after it.
+
+if not defined PY for /f "delims=" %%i in ('where python 2^>nul ^| findstr /i /v /c:"\WindowsApps"') do if not defined PY set "PY=%%i"
 if not defined PY where py >nul 2>&1 && set "PY=py -3"
 if not defined PY (
     echo [ERROR] python.exe not found. Install Python 3.12, or set EXPRESSOPS_PY to its path.
