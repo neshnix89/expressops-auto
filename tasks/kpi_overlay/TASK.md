@@ -47,8 +47,40 @@ in ("Singapore","Trutnov") AND resolution is EMPTY`.
    - Material 15, PCB 15, Routing/PE/TE 5, SMT Build 5 (same both sites)
 4. Compute container elapsed working days (NPI start → today), subtracting parked
    spans (multi park/unpark cycles; currently-parked freezes elapsed).
-5. Compute per-WP elapsed vs each WP's target and colour it.
+5. Compute per-WP elapsed vs each WP's target and colour it. Not every WP
+   starts when it was created — see **WP start dates** below.
 6. Write `outputs/kpi_cache.json`; in `--live`, upload it to Confluence.
+
+## WP start dates
+| Work Package | Clock starts at |
+|---|---|
+| Material, PCB, Routing/PE/TE - TechnPrep, DMR | its own JIRA creation date |
+| **SMT Build** | **the SMT Build gate** (below) |
+| Logistics, Documentation | SMT Build's resolution date |
+
+### SMT Build gate (changed 2026-09-22)
+SMT Build's clock starts at the **latest** resolution date among **Material,
+PCB, Routing - TechnPrep, PE - TechnPrep and TE - TechnPrep**, each needing a
+resolution of **Done, Acknowledged or Won't Do**. Until every one of them is
+closed the pill shows grey "waiting" rather than a number.
+
+Previously the gate was only `max(Material, PCB)` and only accepted
+Done/Acknowledged, so a Won't Do Material left SMT Build waiting forever.
+
+Two deliberate asymmetries (`logic.compute_build_gate`):
+- Material and PCB must **exist** on the container or SMT Build is not anchored
+  at all — the pre-existing guard, unchanged.
+- A tech-prep package that does not exist on the container does not gate.
+  Requiring an absent package would block the pill forever.
+
+`material_fullset` (= `max(Material, PCB)`) deliberately still feeds the
+tech-prep Green/Red secondary rule. Folding the tech-preps into it would make
+that rule compare a package against a date containing its own completion, so
+no tech-prep could ever be Red.
+
+Measure the effect on live data before publishing:
+`python scripts\smt_gate_impact.py --live` (read-only) reports every container
+whose gate moves, and names the open package for any that lose their number.
 
 ## Output
 `kpi_cache.json` attachment on Confluence page 572629046. Each container entry

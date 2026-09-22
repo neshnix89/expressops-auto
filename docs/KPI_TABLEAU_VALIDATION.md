@@ -178,14 +178,24 @@ The Tableau-sourced path deliberately does **not** reimplement this; it uses the
 plain elapsed-vs-target rule and surfaces the warehouse's own `wp_target_hit`
 instead. Expect tech-prep WPs to be where the WP-level colours differ.
 
-### 2.9 Dependent WP start dates
+### 2.9 Dependent WP start dates — *and the 2026-09-22 gate change*
 Not every WP starts when it was created:
-- SMT Build starts at Material fullset.
+- **SMT Build starts at the SMT Build gate**: the latest resolution among
+  Material, PCB, Routing - TechnPrep, PE - TechnPrep and TE - TechnPrep, each
+  Done / Acknowledged / **Won't Do**. Until all five close, the pill is grey.
 - Logistics and Documentation start at **SMT Build's resolution date**.
 - A WP whose predecessor has not finished is `waiting` → grey, no number.
 
 If the warehouse measures these from WP creation instead, those three WPs will
 be systematically higher there.
+
+> **This gate changed on 2026-09-22** (it was `max(Material, PCB)`,
+> Done/Acknowledged only). The warehouse job was written against the OLD rule,
+> so until whoever owns `Fact_pm_npi_wp_kpi` makes the same change, SMT Build
+> is a **known, expected divergence** between the two sources — do not read it
+> as a validation failure. It is the first concrete case of the risk this whole
+> document is about: one definition, two implementations, changed in one place.
+> Raise it with the BI team at the same time as the discovery request.
 
 ### 2.10 As-of date and staleness
 The overlay recomputes against `date.today()` at run time. The fact tables are

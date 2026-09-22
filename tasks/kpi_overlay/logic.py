@@ -40,6 +40,43 @@ DONE_RESOLUTIONS = {"Done", "Acknowledged"}
 # Container is "at risk" (Yellow) when remaining working days <= this.
 YELLOW_THRESHOLD = 2
 
+# ─── SMT Build start gate (changed 2026-09-22) ───
+#
+# SMT Build's clock used to start at the Material full kit — max(Material, PCB)
+# resolution. It now also waits for all three tech-prep packages, because the
+# line cannot start building until routing, PE and TE are off the table too.
+#
+# "Off the table" means Done OR Won't Do: a package deliberately skipped is as
+# finished, for gating purposes, as one that was completed. Note this was ALSO
+# true of the old Material/PCB gate in intent but not in code — the previous
+# implementation only accepted DONE_RESOLUTIONS, so a Won't Do Material left
+# SMT Build waiting forever on a package nobody was ever going to do.
+SMT_BUILD_GATE_WPS = [
+    "material", "pcb",
+    "routing - technprep", "pe - technprep", "te - technprep",
+]
+
+# Resolutions that close a gate. Matched on a folded form so "Won't Do",
+# "Wont Do" and "WON'T DO" all count — JIRA resolution names are typed by
+# hand often enough that the apostrophe cannot be relied on.
+GATE_RESOLUTIONS = {"done", "acknowledged", "wontdo"}
+
+# Material and PCB must EXIST for SMT Build to be anchored at all; that guard
+# predates this change and is kept. The tech-prep packages gate only when the
+# container actually has them, so a container without a PE package is not
+# blocked forever waiting for one.
+SMT_BUILD_REQUIRED_WPS = {"material", "pcb"}
+
+
+def _fold_resolution(resolution: str | None) -> str:
+    """Lowercase a resolution name and drop anything that is not a letter."""
+    return re.sub(r"[^a-z]", "", (resolution or "").lower())
+
+
+def closes_gate(resolution: str | None) -> bool:
+    """True when a resolution means "this package is no longer in the way"."""
+    return _fold_resolution(resolution) in GATE_RESOLUTIONS
+
 
 def build_wp_config(location: str) -> dict:
     """Build the per-WP overlay config for a location.
@@ -50,9 +87,11 @@ def build_wp_config(location: str) -> dict:
     actually differ between Singapore and Trutnov.
 
     Start strategies:
-      "own"           — WP's own JIRA creation date
-      "material_full" — max(Material, PCB) resolution date
-      "smt_build"     — SMT Build WP resolution date
+      "own"        — WP's own JIRA creation date
+      "build_gate" — the SMT Build gate: the latest of Material, PCB and the
+                     three tech-prep packages, each Done or Won't Do
+                     (see SMT_BUILD_GATE_WPS)
+      "smt_build"  — SMT Build WP resolution date
     """
     t = targets_for(location)
     return {
@@ -61,7 +100,7 @@ def build_wp_config(location: str) -> dict:
         "routing - technprep":      {"target": t["T_Routing"],      "start": "own",           "pill": True,  "kind": "techprep"},
         "pe - technprep":           {"target": t["T_PE"],           "start": "own",           "pill": True,  "kind": "techprep"},
         "te - technprep":           {"target": t["T_TE"],           "start": "own",           "pill": True,  "kind": "techprep"},
-        "smt build":                {"target": t["T_SMT Build"],    "start": "material_full", "pill": True,  "kind": "standard"},
+        "smt build":                {"target": t["T_SMT Build"],    "start": "build_gate",    "pill": True,  "kind": "standard"},
         "qm p+l":                   {"target": 0,                   "start": "own",           "pill": False, "kind": "standard"},
         "logistics":                {"target": t["T_Logistic"],     "start": "smt_build",     "pill": True,  "kind": "standard"},
         "documentation":            {"target": t["T_Documentation"], "start": "smt_build",    "pill": True,  "kind": "standard"},
@@ -142,6 +181,56 @@ def elapsed_wd(start_date, end_date, parking_pairs, location):
 
 
 # ═══════════════════════════════════════════════════════════════
+# SMT BUILD START GATE
+# ═══════════════════════════════════════════════════════════════
+
+def compute_build_gate(official_wps, logger=None, wc_key=""):
+    """The date SMT Build's clock starts, or None while it is still blocked.
+
+    The gate is every package in SMT_BUILD_GATE_WPS that this container
+    actually has, each needing a resolution that :func:`closes_gate` accepts
+    (Done / Acknowledged / Won't Do). The answer is the LATEST of their
+    resolution dates — the build cannot start before the last blocker cleared.
+
+    Returns None when the gate is still open, which the caller renders as a
+    grey "waiting" pill rather than a number.
+
+    Two deliberate asymmetries:
+
+    * Material and PCB must be PRESENT (SMT_BUILD_REQUIRED_WPS). A container
+      without them has no kit to build, and that guard predates this function.
+    * A tech-prep package that does not exist on the container does not gate.
+      Requiring an absent package would block the pill forever on work nobody
+      ever planned.
+    """
+    by_name = {}
+    for wp in official_wps:
+        by_name.setdefault(wp["summary"].strip().lower(), wp)
+
+    missing_required = SMT_BUILD_REQUIRED_WPS - set(by_name)
+    if missing_required:
+        if logger is not None:
+            logger.debug("    %s SMT Build gate: no %s package — not anchored",
+                         wc_key, "/".join(sorted(missing_required)))
+        return None
+
+    latest = None
+    for name in SMT_BUILD_GATE_WPS:
+        wp = by_name.get(name)
+        if wp is None:
+            continue                       # package not on this container
+        if not closes_gate(wp["resolution"]) or wp["resolved"] is None:
+            if logger is not None:
+                logger.debug("    %s SMT Build gate: waiting on %s (%s)",
+                             wc_key, name, wp["resolution"] or "unresolved")
+            return None
+        if latest is None or wp["resolved"] > latest:
+            latest = wp["resolved"]
+
+    return latest
+
+
+# ═══════════════════════════════════════════════════════════════
 # PER-WP KPI
 # ═══════════════════════════════════════════════════════════════
 
@@ -162,10 +251,17 @@ def compute_wp_kpis(official_wps, npi_start, parking_pairs, today, location,
             elif name_lower == "smt build":
                 smt_build_resolved = wp["resolved"]
 
+    # Material fullset stays max(Material, PCB) and keeps feeding the tech-prep
+    # Green/Red rule below. It deliberately does NOT absorb the new tech-prep
+    # gate: that rule asks "did this tech-prep package finish before the kit was
+    # ready", and a date that included the package's own completion would make
+    # the comparison circular and every tech-prep pill Green.
     if material_resolved is not None and pcb_resolved is not None:
         material_fullset = max(material_resolved, pcb_resolved)
     else:
         material_fullset = None
+
+    smt_build_start = compute_build_gate(official_wps, logger=logger, wc_key=wc_key)
 
     # ─── Pass 2: each WP's KPI ───
     wp_kpis = []
@@ -191,8 +287,8 @@ def compute_wp_kpis(official_wps, npi_start, parking_pairs, today, location,
         state = "active"
         if strategy == "own":
             start_date = wp["created"]
-        elif strategy == "material_full":
-            start_date = material_fullset
+        elif strategy == "build_gate":
+            start_date = smt_build_start
             if start_date is None:
                 state = "waiting"
         elif strategy == "smt_build":
