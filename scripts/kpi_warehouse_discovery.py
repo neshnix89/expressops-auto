@@ -578,19 +578,53 @@ def report_tns(unreadable: list[str], cfg: dict) -> dict:
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
-    found: dict = {"datasources": [], "connections": {}}
-    driver = TableauVdsDriver(cfg, tcfg)
-    try:
-        session = driver.session
-    except Exception as exc:  # noqa: BLE001
-        say(f"  signin FAILED: {_err(exc)}")
-        say("  (an SSO-only Tableau site rejects name/password — use the PAT)")
+    found: dict = {"datasources": [], "connections": {}, "signin": None}
+
+    # TRY BOTH WAYS IN. The three names the BI team sent —
+    # Fact_pm_npi_wc_kpi / _wp_kpi / _wc_wp_combined — are character-for-character
+    # the three PUBLISHED TABLEAU DATA SOURCES found in the May discovery, not
+    # Oracle tables anyone has ever seen. Put that next to sync_user drawing
+    # ORA-01017 from every database this laptop reaches, and the likelier reading
+    # is that sync_user is a TABLEAU SERVER login rather than a database one.
+    # Testing that costs one HTTP request, so it should not depend on somebody
+    # thinking to flip tableau_auth in config.
+    attempts: list[tuple[str, dict]] = []
+    if str(cfg.get("tableau_auth", "pat")).lower() != "password":
+        attempts.append(("the PAT (tableau.pat_name + pat_secret)",
+                         {**cfg, "tableau_auth": "pat"}))
+    if cfg.get("user") and cfg.get("password"):
+        attempts.append((f"sync_user's own name+password ({cfg['user']})",
+                         {**cfg, "tableau_auth": "password"}))
+    if not attempts:
+        attempts.append(("the configured method", cfg))
+
+    driver = None
+    for label, attempt_cfg in attempts:
+        candidate = TableauVdsDriver(attempt_cfg, tcfg)
+        try:
+            candidate.session  # noqa: B018 — the property performs the signin
+        except Exception as exc:  # noqa: BLE001 — each failure is a data point
+            say(f"  signin via {label}: FAILED — {_err(exc)}")
+            continue
+        say(f"  signin via {label}: OK")
+        found["signin"] = label
+        driver = candidate
+        break
+
+    if driver is None:
+        say("")
+        say("  Neither way in worked.")
+        say("  - 401 on the PAT usually means it needs regenerating: Tableau")
+        say("    revokes a token after a stretch of disuse, whatever its expiry.")
+        say("  - 401 on name+password means either the password is wrong, or this")
+        say("    Tableau site is SSO-only and refuses local logins outright.")
         return found
 
+    session = driver.session
     base = driver.base
     api_v = driver.api_v
     site_id = driver._site_id  # noqa: SLF001 — set during signin, no accessor
-    say(f"  signin OK, site_id={site_id}")
+    say(f"  site_id={site_id}")
 
     try:
         r = session.get(f"{base}/api/{api_v}/sites/{site_id}/datasources",
@@ -647,11 +681,18 @@ def try_routes(cfg: dict, tcfg: dict) -> dict[str, object]:
     """Attempt each route against the WC table; return the ones that worked."""
     head("4. ROUTES — which one can actually read Fact_pm_npi_wc_kpi")
     working: dict[str, object] = {}
+    pw_cfg = {**cfg, "tableau_auth": "password"}
     candidates = [
-        ("tableau_vds", lambda: TableauVdsDriver(cfg, tcfg)),
+        ("tableau_vds (PAT)", lambda: TableauVdsDriver(cfg, tcfg)),
+        # Same route, the other credential. Kept separate so the report says
+        # WHICH credential reached the data, not just that something did — that
+        # distinction is the whole open question about what sync_user is.
+        ("tableau_vds (sync_user password)", lambda: TableauVdsDriver(pw_cfg, tcfg)),
         ("odbc", lambda: OdbcDriver(cfg, direct=False)),
         ("odbc_direct", lambda: OdbcDriver(cfg, direct=True)),
     ]
+    if not (cfg.get("user") and cfg.get("password")):
+        candidates.pop(1)
     for name, make in candidates:
         say("")
         say(f"  --- {name} ---")
@@ -763,7 +804,15 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
     head("NEXT STEPS")
     if not working:
         if cfg.get("user") and cfg.get("password"):
-            say("  1. Credentials ARE set — that is not the blocker.")
+            say("  1. Credentials ARE set and section 1 confirms YAML did not")
+            say("     mangle them — that is not the blocker.")
+            say("")
+            say("     The three names BI sent are the three PUBLISHED TABLEAU DATA")
+            say("     SOURCES, not Oracle tables, and sync_user draws ORA-01017 from")
+            say("     every database this laptop reaches. Section 3 now tries")
+            say("     sync_user as a TABLEAU login as well as the PAT. If that line")
+            say("     says OK, sync_user is a Tableau account and the ODBC hunt was")
+            say("     always the wrong tree.")
             say("     A Tableau PAT is revoked after a period of disuse, so a 401 in")
             say("     section 3 usually means it needs regenerating in Tableau under")
             say("     My Account Settings -> Personal Access Tokens, then pasting")
