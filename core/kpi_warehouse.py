@@ -497,6 +497,21 @@ class PostgresDriver(_Driver):
         try:
             cur.execute(sql, args)
             row = cur.fetchone()
+            if not row:
+                # information_schema.tables covers tables and views but NOT
+                # materialized views, and a medallion "gold" layer is very
+                # often exactly that. Without this the resolver would report
+                # "not visible to this account" for an object sitting right
+                # there, and send someone chasing a permission that is fine.
+                mv_sql = ("SELECT schemaname, matviewname FROM pg_matviews "
+                          "WHERE lower(matviewname) = lower(%s)")
+                mv_args: list = [wanted]
+                if schema:
+                    mv_sql += " AND lower(schemaname) = lower(%s)"
+                    mv_args.append(schema)
+                mv_sql += " ORDER BY schemaname LIMIT 1"
+                cur.execute(mv_sql, mv_args)
+                row = cur.fetchone()
         finally:
             cur.close()
         if not row:

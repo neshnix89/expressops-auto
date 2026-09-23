@@ -429,28 +429,37 @@ def probe_postgres(cfg: dict) -> dict:
     try:
         cur = driver.conn.cursor()
         try:
+            # UNION in pg_matviews: information_schema.tables lists tables and
+            # views but never materialized views, which a "gold" layer often is.
             cur.execute(
-                "SELECT table_schema, table_name FROM information_schema.tables "
+                "SELECT table_schema, table_name, table_type "
+                "FROM information_schema.tables "
                 "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
                 "AND (lower(table_name) LIKE %s OR lower(table_name) LIKE %s) "
-                "ORDER BY table_schema, table_name",
-                ("%npi%", "%kpi%"))
+                "UNION ALL "
+                "SELECT schemaname, matviewname, 'MATERIALIZED VIEW' "
+                "FROM pg_matviews "
+                "WHERE lower(matviewname) LIKE %s OR lower(matviewname) LIKE %s "
+                "ORDER BY 1, 2",
+                ("%npi%", "%kpi%", "%npi%", "%kpi%"))
             rows = cur.fetchall()
         finally:
             cur.close()
         if rows:
             say(f"  {len(rows)} NPI/KPI object(s) visible to {cfg.get('user')}:")
-            for schema, table in rows:
-                say(f"    {schema}.{table}")
-            out["found"] = {f"{s}.{tb}": True for s, tb in rows}
+            for schema, table, kind in rows:
+                say(f"    {schema}.{table}   [{kind}]")
+            out["found"] = {f"{s}.{tb}": k for s, tb, k in rows}
         else:
             say("  connected, but no NPI/KPI-named table is visible to this account.")
             cur = driver.conn.cursor()
             try:
                 cur.execute(
-                    "SELECT table_schema, count(*) FROM information_schema.tables "
-                    "WHERE table_schema NOT IN ('pg_catalog','information_schema') "
-                    "GROUP BY table_schema ORDER BY 2 DESC")
+                    "SELECT table_schema, count(*) FROM ("
+                    "  SELECT table_schema FROM information_schema.tables "
+                    "   WHERE table_schema NOT IN ('pg_catalog','information_schema') "
+                    "  UNION ALL SELECT schemaname FROM pg_matviews"
+                    ") s GROUP BY table_schema ORDER BY 2 DESC")
                 say("  schemas this account CAN see:")
                 for schema, n in cur.fetchall()[:20]:
                     say(f"    {schema}  ({n} table(s))")
