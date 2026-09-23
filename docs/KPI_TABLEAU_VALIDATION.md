@@ -14,6 +14,50 @@ same diff stays switched on afterwards as a regression check.
 
 ---
 
+## Access routes — status as of 2026-09-23
+
+Four routes tried end to end. None currently delivers usable data, and the
+reasons are all external.
+
+| Route | Result | Blocked by |
+|---|---|---|
+| **Postgres** `jta_db`.`gold` | DNS resolves to 10.5.1.55, ping 7ms, **TCP 5432 times out** from both Wi-Fi (172.22.240.189) and wired (172.22.32.4) | firewall — IT/network |
+| **Tableau data sources** (4 luids) | `403004` not authorized to query + `403800` no API access | permission — BI |
+| **Tableau view export** | **7 of 8 views export fine** — but see below | nothing; it works |
+| **Oracle EDWH** | ORA-01017 for `sync_user` | wrong engine entirely; `sync_user` is a Postgres account |
+
+### Why the readable views are still not enough
+
+View export works and needs no new grant, which was worth finding. But every
+KPI view is **aggregated for display**, and the row identity the overlay needs
+is not in them:
+
+| View | Rows | Bare `issue_key`? | Bare duration? |
+|---|---|---|---|
+| Executive View | 41 | no — `Distinct count of wc_issue_key` | `wc_duration_workdays` |
+| Work Container (Running) | 22 | no — `Distinct count of wc_issue_key` | `wc_running_duration_workdays` |
+| Work Container (Closed) | 9 | no | `wc_duration_workdays` |
+| Work Package (Running) | 162 | no — `Count of wp_issue_key` | no |
+| Work Package (Closed) | 64 | no — `Count of wp_issue_key` | no |
+| Jira Issue History | 5 | **`Issue Key`** | no |
+
+`scripts/probe.py` called this exact trap months ago: *"Distinct count of
+wc_issue_key is a count — NOT the JIRA key. Only a bare dimension is real
+per-row identity the overlay can join on."*
+
+The overlay attaches a pill to a Kanban card **by JIRA issue key**. Without it
+per row there is nothing to join on. `Work Container (Running)` does carry a
+per-container running duration, but its only identifiers are `project_number`
+and `wc_summary` — and at 22 rows against our 33 open containers it is a
+different population anyway, so a summary-text join would be both fragile and
+lossy. Not a foundation for the production path.
+
+**Conclusion:** the data-source grant (or the firewall rule) is genuinely
+required. The view export is not a substitute, though it is useful evidence
+that the PAT and API access themselves work.
+
+---
+
 ## 0. Where the credentials go
 
 `config/config.yaml`, which is **gitignored** and never leaves the laptop:
