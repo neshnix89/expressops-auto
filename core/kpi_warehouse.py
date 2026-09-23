@@ -466,6 +466,16 @@ class PostgresDriver(_Driver):
                     "check VPN/network and that the host name is exactly as the "
                     "BI team gave it",
                 ) from exc
+            if "timeout" in low:
+                raise FriendlyError(
+                    f"timed out connecting to {host}:{params['port']} "
+                    f"({params['connect_timeout']}s)",
+                    "the packets are going nowhere — this is network reach, not "
+                    "the account. A warehouse Postgres is often firewalled to "
+                    "application servers only; run the DNS/port check in "
+                    "scripts/kpi_warehouse_discovery.py section 2d and send the "
+                    "result to whoever owns the firewall",
+                ) from exc
             if "does not exist" in low and "database" in low:
                 raise FriendlyError(
                     f"Postgres database {dbname!r} does not exist on {host}",

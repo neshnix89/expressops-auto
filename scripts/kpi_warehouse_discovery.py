@@ -374,6 +374,47 @@ def probe_dsns(cfg: dict, only: str | None = None, every_driver: bool = False) -
     return found
 
 
+def network_check(host: str, port: int) -> dict:
+    """Separate "name does not resolve" from "port is filtered".
+
+    A psycopg timeout says only that nothing came back. Those two causes need
+    different people: DNS is usually a hosts/suffix problem, a filtered port is
+    a firewall rule. Pure stdlib, no admin, a few seconds.
+    """
+    import socket
+    out: dict = {"host": host, "port": port}
+    say("")
+    say("  Network check — is this reachability or credentials?")
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        addrs = sorted({i[4][0] for i in infos})
+        out["dns"] = addrs
+        say(f"    DNS      : resolves to {', '.join(addrs)}")
+    except socket.gaierror as exc:
+        out["dns"] = None
+        say(f"    DNS      : DOES NOT RESOLVE ({exc})")
+        say("    -> the name is wrong, or this machine lacks the DNS suffix.")
+        say("       Nothing to do with the account. Ask for the FQDN or an IP.")
+        return out
+    try:
+        with socket.create_connection((host, port), timeout=8):
+            out["tcp"] = True
+            say(f"    TCP {port} : OPEN — the port is reachable")
+            say("    -> reachability is fine, so the failure is Postgres-side")
+    except TimeoutError:
+        out["tcp"] = False
+        say(f"    TCP {port} : TIMED OUT — packets silently dropped")
+        say("    -> that is a firewall. The host resolves but this machine is")
+        say("       not permitted to reach it. Warehouse databases are commonly")
+        say("       open to application servers only, not to laptops.")
+    except OSError as exc:
+        out["tcp"] = False
+        say(f"    TCP {port} : REFUSED/ERROR ({exc})")
+        say("    -> something answered and said no; nothing is listening on that")
+        say("       port, or it is actively rejecting. Check the port number.")
+    return out
+
+
 def probe_postgres(cfg: dict) -> dict:
     """Connect to the Postgres warehouse and find the fact tables.
 
@@ -419,9 +460,11 @@ def probe_postgres(cfg: dict) -> dict:
         say(f"  CONNECT FAILED: {exc.message}")
         if exc.hint:
             say(f"    {exc.hint}")
+        out["network"] = network_check(host, int(pg.get("port") or 5432))
         return out
     except Exception as exc:  # noqa: BLE001
         say(f"  CONNECT FAILED: {type(exc).__name__}: {str(exc)[:200]}")
+        out["network"] = network_check(host, int(pg.get("port") or 5432))
         return out
 
     say("  CONNECT OK")
