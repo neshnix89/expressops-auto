@@ -1184,6 +1184,95 @@ def tableau_probe_luids(session, base: str, api_v: str, site_id: str,
     return resolved
 
 
+def decode_view_csv(raw: bytes) -> str:
+    """Tableau's view export came back UTF-16 in the May discovery."""
+    for enc in ("utf-8-sig", "utf-16", "utf-8", "cp1252"):
+        try:
+            text = raw.decode(enc)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+        # A CSV that decoded correctly has commas and no interleaved NULs.
+        if "\x00" not in text[:400]:
+            return text
+    return raw.decode("utf-8", "replace")
+
+
+def tableau_view_data_probe(session, base: str, api_v: str, site_id: str,
+                            workbook_luid: str) -> dict:
+    """Try exporting the workbook's VIEWS instead of its data sources.
+
+    This is a genuinely different permission. Reading a published data source
+    needs Connect + API access ON THE DATA SOURCE, which is what 3g proved we
+    do not have. Exporting a view's summary data needs Download Summary Data on
+    the WORKBOOK — and we can clearly see the workbook, so it may already be
+    granted.
+
+    It is also what the May discovery recommended in the first place: this
+    endpoint returns the aggregated values the dashboard actually displays,
+    rather than the raw data-source rows the workbook may transform further.
+    """
+    head("3h. TABLEAU VIEWS — export the rendered data instead of the sources")
+    out: dict = {"views": {}}
+    try:
+        r = session.get(
+            f"{base}/api/{api_v}/sites/{site_id}/workbooks/{workbook_luid}/views",
+            timeout=60)
+        r.raise_for_status()
+        views = r.json().get("views", {}).get("view", [])
+    except Exception as exc:  # noqa: BLE001
+        say(f"  could not list the workbook's views: {type(exc).__name__}")
+        return out
+
+    say(f"  {len(views)} view(s) in this workbook")
+    for v in views:
+        luid, name = v.get("id"), v.get("name")
+        say("")
+        say(f"  --- {name}   ({luid}) ---")
+        try:
+            # Accept: */* deliberately — a specific text/csv returns HTTP 406
+            # on this server (noted in docs/WORKLOG.md).
+            dr = session.get(
+                f"{base}/api/{api_v}/sites/{site_id}/views/{luid}/data",
+                headers={"Accept": "*/*"}, timeout=120)
+        except Exception as exc:  # noqa: BLE001
+            say(f"    request failed: {type(exc).__name__}")
+            continue
+        say(f"    HTTP {dr.status_code}  ({len(dr.content)} bytes)")
+        if dr.status_code != 200:
+            say(f"    {(dr.text or '').strip()[:240]}")
+            if dr.status_code == 403:
+                say("    -> needs 'Download Summary Data' on the workbook")
+            out["views"][name] = f"HTTP {dr.status_code}"
+            continue
+        text = decode_view_csv(dr.content)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            say("    empty export")
+            out["views"][name] = "empty"
+            continue
+        header = lines[0]
+        cols = [c.strip().strip('"') for c in header.split(",")]
+        say(f"    *** READABLE — {len(lines) - 1} data row(s), {len(cols)} column(s)")
+        for c in cols[:40]:
+            say(f"      {c}")
+        if len(cols) > 40:
+            say(f"      ... and {len(cols) - 40} more")
+        if len(lines) > 1:
+            say(f"    first row: {lines[1][:300]}")
+        out["views"][name] = {"luid": luid, "columns": cols,
+                              "rows": len(lines) - 1}
+
+    readable = [n for n, v in out["views"].items() if isinstance(v, dict)]
+    say("")
+    if readable:
+        say(f"  >> {len(readable)} view(s) ARE readable: {', '.join(readable)}")
+        say("     This is a way in that does not need the data-source grant.")
+    else:
+        say("  >> No view exported. Both routes into this workbook are closed,")
+        say("     so the data-source permission is the only remaining ask.")
+    return out
+
+
 def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
     """List the published data sources and ask each for its DB connection."""
     head("3. TABLEAU — published data sources and their underlying connections")
@@ -1245,6 +1334,8 @@ def report_tableau_datasources(cfg: dict, tcfg: dict) -> dict:
         if live:
             found["live_datasources"] = tableau_probe_luids(
                 session, base, api_v, site_id, live)
+        found["view_data"] = tableau_view_data_probe(
+            session, base, api_v, site_id, wb_info["_luid"])
     head("3d. TABLEAU — data sources visible by name")
 
     try:
