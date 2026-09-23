@@ -374,6 +374,103 @@ def probe_dsns(cfg: dict, only: str | None = None, every_driver: bool = False) -
     return found
 
 
+def probe_postgres(cfg: dict) -> dict:
+    """Connect to the Postgres warehouse and find the fact tables.
+
+    The BI team confirmed on 2026-09-23 that sync_user is a POSTGRES account.
+    Every Oracle ORA-01017 earlier was the right credential against the wrong
+    engine, which is worth stating plainly: the account was never wrong.
+    """
+    head("2d. POSTGRES — the route the BI team actually meant")
+    out: dict = {"connected": False, "found": {}}
+    pg = cfg.get("postgres") or {}
+    host, dbname = str(pg.get("host") or ""), str(pg.get("dbname") or "")
+    say(f"  host   : {host or '(blank)'}")
+    say(f"  port   : {pg.get('port') or 5432}")
+    say(f"  dbname : {dbname or '(blank)'}")
+    say(f"  schema : {cfg.get('schema') or '(blank — searching all)'}")
+
+    if not host or not dbname:
+        say("")
+        say("  >> kpi_warehouse.postgres.host / .dbname are not set yet.")
+        say("     Ask the BI team for the hostname, port and database name.")
+        return out
+
+    try:
+        import psycopg  # noqa: F401
+        say("  psycopg: installed")
+    except ImportError:
+        try:
+            import psycopg2  # noqa: F401
+            say("  psycopg2: installed")
+        except ImportError:
+            say("")
+            say("  >> Neither psycopg nor psycopg2 is installed, and this machine")
+            say("     has no PostgreSQL ODBC driver either. Install the pure-wheel")
+            say("     client (no admin rights needed):")
+            say('         pip install "psycopg[binary]"')
+            return out
+
+    from core.kpi_warehouse import PostgresDriver
+    driver = PostgresDriver(cfg)
+    try:
+        driver.conn
+    except FriendlyError as exc:
+        say(f"  CONNECT FAILED: {exc.message}")
+        if exc.hint:
+            say(f"    {exc.hint}")
+        return out
+    except Exception as exc:  # noqa: BLE001
+        say(f"  CONNECT FAILED: {type(exc).__name__}: {str(exc)[:200]}")
+        return out
+
+    say("  CONNECT OK")
+    out["connected"] = True
+    try:
+        cur = driver.conn.cursor()
+        try:
+            cur.execute(
+                "SELECT table_schema, table_name FROM information_schema.tables "
+                "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+                "AND (lower(table_name) LIKE %s OR lower(table_name) LIKE %s) "
+                "ORDER BY table_schema, table_name",
+                ("%npi%", "%kpi%"))
+            rows = cur.fetchall()
+        finally:
+            cur.close()
+        if rows:
+            say(f"  {len(rows)} NPI/KPI object(s) visible to {cfg.get('user')}:")
+            for schema, table in rows:
+                say(f"    {schema}.{table}")
+            out["found"] = {f"{s}.{tb}": True for s, tb in rows}
+        else:
+            say("  connected, but no NPI/KPI-named table is visible to this account.")
+            cur = driver.conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT table_schema, count(*) FROM information_schema.tables "
+                    "WHERE table_schema NOT IN ('pg_catalog','information_schema') "
+                    "GROUP BY table_schema ORDER BY 2 DESC")
+                say("  schemas this account CAN see:")
+                for schema, n in cur.fetchall()[:20]:
+                    say(f"    {schema}  ({n} table(s))")
+            finally:
+                cur.close()
+
+        # Resolve the three configured names to their real stored spelling.
+        say("")
+        for key in TABLE_KEYS:
+            try:
+                schema, table = driver.resolve(key)
+                say(f"  {key:<9} -> {schema}.{table}")
+                out.setdefault("resolved", {})[key] = f"{schema}.{table}"
+            except FriendlyError as exc:
+                say(f"  {key:<9} -> NOT FOUND ({exc.message})")
+    finally:
+        driver.close()
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════
 # 2c — tnsnames.ora: what each DSN actually points at
 # ═══════════════════════════════════════════════════════════════
@@ -1294,6 +1391,7 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
 
     report_config(cfg, tcfg)
     report_odbc_environment()
+    pg_info = probe_postgres(cfg)
     dsn_info = {}
     if try_dsns:
         dsn_info = probe_dsns(cfg, only=only_dsn, every_driver=every_driver)
@@ -1412,6 +1510,7 @@ def run(save_mock: bool, sample: int, try_dsns: bool = False,
     txt.write_text("\n".join(_report_lines), encoding="utf-8")
     js = OUT_DIR / f"discovery_{stamp}.json"
     js.write_text(json.dumps({"tableau": tableau_info,
+                              "postgres": pg_info,
                               "dsn_probe": dsn_info,
                               "routes": {k: True for k in working},
                               "tables": captured}, indent=2, default=str),

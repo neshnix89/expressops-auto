@@ -20,9 +20,29 @@ same diff stays switched on afterwards as a regression check.
 
 ```yaml
 kpi_warehouse:
+  driver: "postgres"
   user: "sync_user"
   password: "<the password from the BI email>"
+  postgres:
+    host: "<ask BI>"
+    port: 5432
+    dbname: "<ask BI>"
 ```
+
+**The warehouse is PostgreSQL, not Oracle** (confirmed by BI 2026-09-23). This
+cost a full evening: `sync_user` was tried against every Oracle database the
+laptop reaches and returned ORA-01017 every time, which reads as a bad account
+but only ever meant the wrong engine. The account was never wrong.
+
+Two consequences:
+
+- The laptop has **no PostgreSQL ODBC driver** and installing one needs admin,
+  so `driver: odbc` cannot reach it. The `postgres` driver uses psycopg, whose
+  binary wheel carries its own libpq and installs per-user:
+  `pip install "psycopg[binary]"`.
+- Postgres folds unquoted identifiers to lowercase, so `Fact_pm_npi_wc_kpi` is
+  probably stored as `fact_pm_npi_wc_kpi`. The driver resolves the real schema
+  and spelling from `information_schema` before querying, so either case works.
 
 That is the only place. Not in a `.bat`, not in a scheduled-task argument, not
 in anything under `scripts/`. Copy the block from

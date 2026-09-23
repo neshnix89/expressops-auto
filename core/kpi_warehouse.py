@@ -385,6 +385,157 @@ class TableauVdsDriver(_Driver):
         self._session = None
 
 
+class PostgresDriver(_Driver):
+    """The fact tables from PostgreSQL, over psycopg — no ODBC driver needed.
+
+    Added once the BI team clarified that sync_user belongs to a POSTGRES
+    database, not the Oracle warehouse every earlier probe assumed. That
+    matters practically: the laptop has no PostgreSQL ODBC driver and adding
+    one needs admin rights, whereas psycopg ships its own libpq in the binary
+    wheel and installs per-user with pip.
+
+    Identifier case is the other Postgres trap. An unquoted CREATE TABLE folds
+    to lowercase, so "Fact_pm_npi_wc_kpi" is almost certainly stored as
+    fact_pm_npi_wc_kpi — but if it was created quoted, the capitals are real
+    and only a quoted query finds it. Rather than guess, the real schema and
+    spelling are resolved from information_schema first and then quoted
+    exactly as stored.
+    """
+
+    name = "postgres"
+
+    def __init__(self, cfg: dict, logger=None):
+        self.cfg = cfg
+        self.logger = logger
+        self.pg = (cfg.get("postgres") or {})
+        self._conn = None
+        self._resolved: dict[str, tuple[str, str]] = {}
+
+    def _driver_module(self):
+        try:
+            import psycopg  # psycopg 3
+            return psycopg, 3
+        except ImportError:
+            pass
+        try:
+            import psycopg2
+            return psycopg2, 2
+        except ImportError as exc:
+            raise missing_dependency(
+                "psycopg", "pip install \"psycopg[binary]\"") from exc
+
+    @property
+    def conn(self):
+        if self._conn is not None:
+            return self._conn
+        mod, _version = self._driver_module()
+        host = str(self.pg.get("host") or "").strip()
+        dbname = str(self.pg.get("dbname") or "").strip()
+        if not host or not dbname:
+            raise FriendlyError(
+                "kpi_warehouse.postgres.host / .dbname are not set",
+                "ask the BI team for the Postgres host, port and database name",
+            )
+        params = {
+            "host": host,
+            "port": int(self.pg.get("port") or 5432),
+            "dbname": dbname,
+            "user": self.cfg.get("user") or "",
+            "password": self.cfg.get("password") or "",
+            "connect_timeout": int(self.pg.get("connect_timeout") or 15),
+        }
+        sslmode = str(self.pg.get("sslmode") or "").strip()
+        if sslmode:
+            params["sslmode"] = sslmode
+        try:
+            self._conn = mod.connect(**params)
+        except Exception as exc:  # noqa: BLE001 — translated for the caller
+            msg = str(exc).strip()
+            if self.cfg.get("password"):
+                msg = msg.replace(str(self.cfg["password"]), "***")
+            low = msg.lower()
+            if "password authentication failed" in low or "no password supplied" in low:
+                raise FriendlyError(
+                    f"Postgres rejected sync_user on {host}/{dbname}",
+                    "authentication, not privileges — check the password, and "
+                    "that this is the right database",
+                ) from exc
+            if "could not translate host name" in low or "could not connect" in low:
+                raise FriendlyError(
+                    f"cannot reach the Postgres host {host}:{params['port']}",
+                    "check VPN/network and that the host name is exactly as the "
+                    "BI team gave it",
+                ) from exc
+            if "does not exist" in low and "database" in low:
+                raise FriendlyError(
+                    f"Postgres database {dbname!r} does not exist on {host}",
+                    "check kpi_warehouse.postgres.dbname",
+                ) from exc
+            raise FriendlyError(f"Postgres connection failed: {msg[:200]}") from exc
+        if self.logger:
+            self.logger.info("  Postgres connect OK (%s/%s)", host, dbname)
+        return self._conn
+
+    def resolve(self, table_key: str) -> tuple[str, str]:
+        """(schema, table) as actually stored, matched case-insensitively."""
+        if table_key in self._resolved:
+            return self._resolved[table_key]
+        tables = {**DEFAULT_TABLES, **(self.cfg.get("tables") or {})}
+        wanted = str(tables.get(table_key) or "").strip()
+        schema = str(self.cfg.get("schema") or "").strip()
+
+        sql = ("SELECT table_schema, table_name FROM information_schema.tables "
+               "WHERE lower(table_name) = lower(%s) "
+               "AND table_schema NOT IN ('pg_catalog', 'information_schema')")
+        args: list = [wanted]
+        if schema:
+            sql += " AND lower(table_schema) = lower(%s)"
+            args.append(schema)
+        sql += " ORDER BY table_schema LIMIT 1"
+
+        cur = self.conn.cursor()
+        try:
+            cur.execute(sql, args)
+            row = cur.fetchone()
+        finally:
+            cur.close()
+        if not row:
+            raise FriendlyError(
+                f"{wanted!r} is not visible to this account in this database",
+                "run scripts/kpi_warehouse_discovery.py to list "
+                "what IS visible; the name or the schema may differ",
+            )
+        self._resolved[table_key] = (row[0], row[1])
+        return self._resolved[table_key]
+
+    def fetch(self, table_key: str, limit: int | None = None):
+        schema, table = self.resolve(table_key)
+        for part in (schema, table):
+            if not _IDENT_RE.match(part):
+                raise FriendlyError(
+                    f"refusing to build SQL from unsafe identifier {part!r}")
+        # Quoted with the exact stored spelling, so a case-sensitive table
+        # created with capitals works as well as the usual folded one.
+        sql = f'SELECT * FROM "{schema}"."{table}"'
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        cur = self.conn.cursor()
+        try:
+            cur.execute(sql)
+            columns = [d[0] for d in cur.description]
+            rows = [dict(zip(columns, rec)) for rec in cur.fetchall()]
+        finally:
+            cur.close()
+        return rows, columns
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            finally:
+                self._conn = None
+
+
 class OdbcDriver(_Driver):
     """The fact tables straight out of the database, via DSN or DSN-less string."""
 
@@ -485,7 +636,7 @@ class KpiWarehouseClient:
     """Fetch the NPI KPI fact tables, whichever route actually works."""
 
     #: order tried by ``driver: auto``
-    AUTO_ORDER = ("tableau_vds", "odbc", "odbc_direct")
+    AUTO_ORDER = ("postgres", "tableau_vds", "odbc", "odbc_direct")
 
     def __init__(self, config, mock_data_dir: Path | None = None, logger=None,
                  driver_override: str | None = None):
@@ -501,6 +652,8 @@ class KpiWarehouseClient:
 
     # --- driver selection ---
     def _make(self, name: str) -> _Driver:
+        if name == "postgres":
+            return PostgresDriver(self.cfg, self.logger)
         if name == "tableau_vds":
             return TableauVdsDriver(self.cfg, self.tableau_cfg, self.logger)
         if name == "odbc":
@@ -509,7 +662,7 @@ class KpiWarehouseClient:
             return OdbcDriver(self.cfg, self.logger, direct=True)
         raise FriendlyError(
             f"unknown kpi_warehouse.driver '{name}'",
-            "use one of: auto, tableau_vds, odbc, odbc_direct",
+            "use one of: auto, postgres, tableau_vds, odbc, odbc_direct",
         )
 
     @property

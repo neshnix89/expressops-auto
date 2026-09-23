@@ -74,7 +74,8 @@ tableau:
 # tells you which one answers, plus the real column names to paste into
 # `columns` below if the defaults do not match.
 kpi_warehouse:
-  # auto        — try tableau_vds, then odbc, then odbc_direct (use for discovery)
+  # auto        — try postgres, tableau_vds, odbc, odbc_direct (use for discovery)
+  # postgres    — psycopg straight to the Postgres warehouse (the confirmed route)
   # tableau_vds — Tableau VizQL Data Service against the published data sources
   # odbc        — a Windows ODBC DSN (like M3's ODSSG) + user/password
   # odbc_direct — a full ODBC connection string (no DSN needed)
@@ -96,6 +97,22 @@ kpi_warehouse:
     wp:       "456b9a94-7d61-4dc3-98e7-05555c873f85"
     combined: "eb8a2c04-ca2c-4484-9f7c-1318b61542e7"
 
+  # ── driver: postgres ──
+  # CONFIRMED 2026-09-23 by the BI team: sync_user is a POSTGRES account. It is
+  # NOT the Oracle warehouse (EDWH) that Tableau's other content sits on — every
+  # Oracle probe returned ORA-01017 precisely because it was the wrong engine.
+  #
+  # This laptop has no PostgreSQL ODBC driver and installing one needs admin, so
+  # the driver below uses psycopg, whose binary wheel ships its own libpq and
+  # installs per-user:
+  #     pip install "psycopg[binary]"
+  postgres:
+    host: ""                    # ask BI — the Postgres server hostname
+    port: 5432
+    dbname: ""                  # ask BI — the database name
+    sslmode: ""                 # leave blank unless BI says otherwise
+    connect_timeout: 15
+
   # ── driver: odbc / odbc_direct ──
   # The warehouse behind Tableau is a database; if sync_user is a DB account,
   # this is the route. Ask the BI team for host/port/service (or an existing
@@ -103,7 +120,8 @@ kpi_warehouse:
   dsn: ""                       # e.g. "ODSSG" — an existing 64-bit System DSN
   connection_string: ""         # odbc_direct only, e.g.
                                 # "DRIVER={Oracle in OraClient19Home1};DBQ=host:1521/SVC"
-  schema: ""                    # e.g. "PFDWH" — leave blank for the user's default
+  schema: ""                    # postgres or odbc; blank = search every schema
+                                # sync_user can see
   tables:
     wc:       "Fact_pm_npi_wc_kpi"
     wp:       "Fact_pm_npi_wp_kpi"
